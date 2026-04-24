@@ -39,7 +39,7 @@ Kein Überspringen. Kein „kleine Änderung, brauche ich nicht". Der Ressourcen
 | `docs/architecture.md` | Module, Schnittstellen, Datenflüsse, NFRs | Bei jeder Architekturänderung (freigabepflichtig) |
 | `docs/decisions.md` | ADRs, Entscheidungsregeln | Bei jeder freigabepflichtigen Entscheidung |
 | `docs/blockers.md` | Ungelöste Probleme, gescheiterte Ansätze | Bei jedem Blocker; bei Auflösung verschieben |
-| `README.md` | Setup, Nutzung, Status-Badges | Bei Änderungen an Setup, Nutzung, Projektstatus |
+| `README.md` | Setup, Nutzung, Status-Badges | Bei Änderungen an Setup, Nutzung, Projektstatus, Stack, Lizenz, Pipeline-Zustand — Badges bleiben stets synchron mit dem Ist-Zustand (siehe Abschnitt 6) |
 | `CHANGELOG.md` | Nutzerrelevante Änderungen, SemVer-Einträge | Bei jedem Release, bei Breaking Changes |
 
 Struktur und Umfang der Dokumente ergeben sich aus dem Projektkontext (CLI bis verteiltes System). Alle Dokumente existieren als Vorlagen mit Initialisierungshinweisen. Bei der **ersten Session nach Projektanlage** passt Claude jede Vorlage an die Projektkomplexität an und hält die Anpassung als **ADR-001** in `decisions.md` fest.
@@ -99,6 +99,7 @@ Grenzfälle werden **wie Freigaben behandelt**: im Zweifel stoppen und fragen.
 - **Determinismus vor Kreativität.** Bei mehreren validen Implementierungsoptionen: die wählen, die bestehenden Mustern im Repo folgt. Neue Muster einzuführen ist eine Architekturentscheidung.
 - **Secrets niemals im Code oder Log.** Nie Zugangsdaten, Tokens, private Schlüssel, PII in Code, Tests, Logs, Commit-Messages oder Dokumentation einfügen. Platzhalter-Environment-Variablen sind zu verwenden.
 - **Reproduzierbarkeit vor Performance.** Abhängigkeiten werden pinned, Umgebungen sind deterministisch. Nicht-deterministische Tests sind Blocker, keine akzeptierte Flakiness.
+- **README-Badges spiegeln den Ist-Zustand.** Jedes Badge in der README muss einen Zustand darstellen, der zum Zeitpunkt des Commits tatsächlich vorliegt. Keine Platzhalter, keine Wunsch-Zustände, keine Badges ohne Datengrundlage (z. B. CI-Badge ohne laufende Pipeline, Coverage-Badge ohne Testlauf, Versions-Badge hinter der realen Version, Status-Badge, der eine nicht erreichte Phase behauptet). Statuswechsel, Versionsschritt, Stack-Änderung, Lizenzentscheidung, Pipeline-Einrichtung oder -Ausfall lösen eine Badge-Aktualisierung **im selben Commit** aus wie die zugrunde liegende Änderung. Badges, deren Grundlage entfällt, werden entfernt, nicht eingefroren.
 
 ## 7. Status-Marker
 

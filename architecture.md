@@ -1,0 +1,968 @@
+<!--
+Zweck: Technische Spezifikation für HC-Map. Beschreibt das System so detailliert,
+dass Claude Code daraus konkreten Code generieren kann. Referenz für alle
+Umsetzungs-Sessions.
+
+Update-Trigger:
+- Schema-Änderung (Tabelle, Spalte, Index, Constraint, RLS-Policy)
+- Neue API-Route oder Endpoint-Vertragsänderung
+- Repo-Struktur, Deployment-Topologie oder Toolchain ändert sich
+- Neue Konvention wird eingeführt oder geändert
+
+NICHT hierher: Grundsatzentscheidungen (→ `decisions.md`), Arbeitsstand (→ `fahrplan.md`),
+Projektkontext (→ `project-context.md`), Blocker (→ `blockers.md`).
+
+Konvention: Wenn ein ADR die Grundlage für einen Architekturpunkt ist, im Text
+mit "(→ ADR-XXX)" referenzieren.
+-->
+
+# HC-Map — Architektur
+
+## Stack-Überblick
+
+| Schicht           | Komponente                                                            | Quelle      |
+|-------------------|-----------------------------------------------------------------------|-------------|
+| Sprache Backend   | Python 3.12                                                           | ADR-005     |
+| Package-Manager   | uv                                                                    | ADR-005     |
+| Web-Framework     | FastAPI (aktuell)                                                     | ADR-005     |
+| ORM / Migrations  | SQLAlchemy 2.0 / Alembic                                              | ADR-005     |
+| Validierung       | Pydantic v2                                                           | ADR-005     |
+| Admin-UI          | SQLAdmin (unter /admin, parallel zu Next.js)                          | ADR-016     |
+| Auth              | fastapi-users + HttpOnly-Cookie-Sessions                              | ADR-006     |
+| Datenbank         | PostgreSQL 16 + PostGIS 3                                             | ADR-005     |
+| Offline-Sync      | RxDB + Dexie-Storage-Adapter                                          | ADR-017     |
+| Geokodierung      | Lat/Lon intern, Plus Codes (`openlocationcode`) im UI                 | ADR-004     |
+| Adress-Suche      | MapTiler Geocoding API                                                | ADR-008     |
+| Frontend          | Next.js (App Router) + TypeScript strict                              | ADR-007     |
+| Styling           | Tailwind CSS + shadcn/ui                                              | ADR-007     |
+| Server-State      | TanStack Query                                                        | ADR-007     |
+| Karten-Lib        | MapLibre GL JS via `react-map-gl`                                     | ADR-008     |
+| Karten-Tiles      | MapTiler Cloud (Phase 1) → Self-Hosted (Phase 2)                      | ADR-008     |
+| Reverse Proxy     | Caddy (TLS automatisch)                                               | dieses Doc  |
+| Container         | Docker + Docker Compose                                               | dieses Doc  |
+| E-Mail            | Stub in Dev (Konsole), später externer Dienst                         | dieses Doc  |
+
+---
+
+## Repository-Struktur
+
+Monorepo mit zwei Hauptbereichen. Trennung scharf, kein direkter Code-Import zwischen Backend und Frontend.
+
+```
+hc-map/
+├── README.md
+├── CLAUDE.md
+├── docs/
+│   ├── project-context.md
+│   ├── fahrplan.md
+│   ├── architecture.md
+│   ├── decisions.md
+│   └── blockers.md
+├── backend/
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── alembic.ini
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py                  # FastAPI-Einstieg
+│   │   ├── config.py                # Pydantic-Settings, .env-Lesen
+│   │   ├── db.py                    # Engine, Session, Dependency
+│   │   ├── auth/                    # fastapi-users-Integration
+│   │   │   ├── __init__.py
+│   │   │   ├── backend.py           # Cookie-Backend
+│   │   │   ├── manager.py           # User-Manager
+│   │   │   ├── models.py            # User-SQLAlchemy-Modell
+│   │   │   ├── schemas.py           # Pydantic-Schemas
+│   │   │   └── routes.py            # Login/Logout/Me/Reset
+│   │   ├── models/                  # SQLAlchemy-Modelle (außer User)
+│   │   │   ├── __init__.py
+│   │   │   ├── person.py
+│   │   │   ├── event.py
+│   │   │   ├── application.py
+│   │   │   ├── catalog.py           # RestraintType, ArmPosition, …
+│   │   │   └── mixins.py            # Timestamp-Mixin, etc.
+│   │   ├── schemas/                 # Pydantic-Schemas pro Domäne
+│   │   ├── routes/                  # FastAPI-Router pro Domäne
+│   │   │   ├── events.py
+│   │   │   ├── applications.py
+│   │   │   ├── catalogs.py
+│   │   │   ├── persons.py
+│   │   │   └── admin.py
+│   │   ├── services/                # Business-Logik abseits Routen
+│   │   │   ├── plus_code.py
+│   │   │   ├── geocoding.py         # MapTiler-Geocoding-Wrapper
+│   │   │   └── anonymize.py
+│   │   ├── deps.py                  # FastAPI-Dependencies (Auth, DB, RBAC)
+│   │   ├── rls.py                   # RLS-Helper: GUC setzen pro Request
+│   │   ├── admin_ui/                # SQLAdmin-Integration (siehe ADR-016)
+│   │   │   ├── __init__.py
+│   │   │   ├── views.py             # ModelView-Definitionen
+│   │   │   └── auth.py              # Cookie-Session-Bridge zu fastapi-users
+│   │   └── sync/                    # RxDB-Replication-Endpoints (siehe ADR-017)
+│   │       ├── __init__.py
+│   │       ├── routes.py            # /api/sync/pull, /api/sync/push
+│   │       └── schema.py            # Replication-Schema-Definition
+│   ├── migrations/                  # Alembic-Versions
+│   │   └── versions/
+│   ├── seeds/                       # Katalog-Seeds (Python-Skripte)
+│   │   ├── restraint_types.py
+│   │   ├── arm_positions.py
+│   │   ├── hand_positions.py
+│   │   └── hand_orientations.py
+│   ├── scripts/
+│   │   ├── bootstrap_admin.py       # Initialer Admin-User
+│   │   └── migrate_w3w.py           # w3w-Migrationsskript (M9)
+│   └── tests/
+│       ├── conftest.py
+│       ├── test_auth.py
+│       ├── test_events.py
+│       ├── test_rls.py              # RLS-Szenarien pro Rolle
+│       └── ...
+├── frontend/
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── tailwind.config.ts
+│   ├── next.config.mjs
+│   ├── public/
+│   ├── src/
+│   │   ├── app/                     # Next.js App Router
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx             # Dashboard
+│   │   │   ├── login/
+│   │   │   ├── events/
+│   │   │   │   ├── page.tsx         # Liste
+│   │   │   │   ├── new/
+│   │   │   │   └── [id]/            # Detail / Edit
+│   │   │   ├── map/
+│   │   │   ├── admin/
+│   │   │   └── api/                 # nur Proxies (z. B. Tile-Proxy)
+│   │   ├── components/
+│   │   │   ├── ui/                  # shadcn/ui-Komponenten
+│   │   │   ├── map/                 # MapLibre-Wrapper
+│   │   │   ├── event/               # Event-Formulare, -Listen
+│   │   │   └── admin/
+│   │   ├── lib/
+│   │   │   ├── api.ts               # fetch-Wrapper, BaseURL
+│   │   │   ├── auth.ts              # Session-Hooks
+│   │   │   ├── plus-code.ts         # Plus-Code-Util (clientseitig)
+│   │   │   ├── query.ts             # TanStack-Query-Setup
+│   │   │   └── rxdb/                # RxDB-Setup (siehe ADR-017)
+│   │   │       ├── database.ts      # RxDatabase-Initialisierung
+│   │   │       ├── schemas.ts       # Event- und Application-Schemas
+│   │   │       └── replication.ts   # Sync mit Backend
+│   │   ├── hooks/
+│   │   ├── types/                   # TypeScript-Typen, ggf. aus OpenAPI
+│   │   └── styles/
+│   └── tests/
+├── docker/
+│   ├── docker-compose.yml           # Lokale Entwicklung
+│   ├── docker-compose.prod.yml      # Produktion
+│   ├── backend.Dockerfile
+│   ├── frontend.Dockerfile
+│   └── caddy/
+│       └── Caddyfile
+├── ops/
+│   ├── backup.sh
+│   ├── restore.sh
+│   └── runbook.md
+├── .env.example
+├── .gitignore
+└── .pre-commit-config.yaml
+```
+
+---
+
+## Datenmodell
+
+### Konventionen
+
+- **Primärschlüssel:** UUID v7 (zeitbasiert, sortierbar) — alle Tabellen.
+- **Zeitstempel:** `created_at` (NOT NULL DEFAULT now()), `updated_at` (NULL, via Trigger).
+- **Soft Delete:** Nur User und Person erhalten `is_deleted` + `deleted_at` (für Anonymisierung gemäß ADR-002). Andere Entitäten werden hart gelöscht.
+- **Audit-Felder:** `created_by` (FK auf User) auf allen vom User schreibbaren Tabellen.
+- **Naming:** snake_case, Tabellen im Singular (`event`, nicht `events`).
+- **Timezone:** Alle `timestamptz`, kein naives Datum/Uhrzeit.
+- **Geometrie:** PostGIS-Spalte `geom` (geography(Point, 4326)) parallel zu `lat`/`lon` als generierte Spalte für räumliche Queries.
+
+### Entitäten
+
+#### `user` (fastapi-users-kompatibel)
+
+| Spalte               | Typ                  | Constraints / Notizen                                            |
+|----------------------|----------------------|------------------------------------------------------------------|
+| id                   | uuid                 | PK                                                               |
+| email                | text                 | UNIQUE, NOT NULL, lowercased                                     |
+| hashed_password      | text                 | NOT NULL                                                         |
+| is_active            | boolean              | NOT NULL DEFAULT true                                            |
+| is_verified          | boolean              | NOT NULL DEFAULT false                                           |
+| is_superuser         | boolean              | NOT NULL DEFAULT false (fastapi-users-Konvention; nicht für RBAC nutzen) |
+| role                 | enum                 | NOT NULL: 'admin' \| 'editor' \| 'viewer'                        |
+| person_id            | uuid                 | FK → person.id, NOT NULL, UNIQUE — jeder User hat genau eine Person (siehe ADR-010) |
+| display_name         | text                 | NULL                                                             |
+| is_deleted           | boolean              | NOT NULL DEFAULT false                                           |
+| deleted_at           | timestamptz          | NULL                                                             |
+| created_at           | timestamptz          | NOT NULL DEFAULT now()                                           |
+| updated_at           | timestamptz          | NULL                                                             |
+
+Indizes: `email` (unique), `role`, `person_id`.
+
+#### `person`
+
+| Spalte         | Typ          | Constraints / Notizen                                       |
+|----------------|--------------|-------------------------------------------------------------|
+| id             | uuid         | PK                                                          |
+| name           | text         | NOT NULL                                                    |
+| alias          | text         | NULL                                                        |
+| note           | text         | NULL                                                        |
+| origin         | enum         | NOT NULL: 'managed' \| 'on_the_fly' DEFAULT 'managed'       |
+| linkable       | boolean      | NOT NULL DEFAULT false — Admin gibt frei, dass Person mit einem zukünftigen User verknüpft werden darf |
+| is_deleted     | boolean      | NOT NULL DEFAULT false (Anonymisierung gemäß ADR-002)       |
+| deleted_at     | timestamptz  | NULL                                                        |
+| created_by     | uuid         | FK → user.id                                                |
+| created_at     | timestamptz  | NOT NULL DEFAULT now()                                      |
+| updated_at     | timestamptz  | NULL                                                        |
+
+Indizes: `name`, `is_deleted`, `origin` (Filter für Admin-UI), `linkable` (Filter für User-Anlage-Dropdown).
+
+`origin = 'on_the_fly'` markiert Personen, die spontan im Live-Modus angelegt wurden (siehe ADR-014). Diese landen in einer Admin-Queue zur weiteren Bearbeitung.
+
+`linkable` wird vom Admin manuell auf `true` gesetzt, wenn eine Person mit einem zukünftigen User verknüpft werden soll. Default `false` schützt davor, dass jede Person versehentlich beim User-Anlegen als verknüpfbar erscheint.
+
+Bei Anonymisierung: `name = '[gelöscht]'`, `alias = NULL`, `note = NULL`, `is_deleted = true`, `deleted_at = now()`. Der Datensatz bleibt physisch erhalten, damit FKs in `event_participant` und `application` intakt bleiben.
+
+#### `event`
+
+| Spalte                | Typ                          | Constraints / Notizen                                          |
+|-----------------------|------------------------------|----------------------------------------------------------------|
+| id                    | uuid                         | PK                                                             |
+| started_at            | timestamptz                  | NOT NULL — Beginn des Events (im Live-Modus: Tap auf Start)    |
+| ended_at              | timestamptz                  | NULL bis Event beendet — danach NOT NULL                       |
+| lat                   | numeric(9,6)                 | NOT NULL, CHECK -90 ≤ lat ≤ 90                                 |
+| lon                   | numeric(9,6)                 | NOT NULL, CHECK -180 ≤ lon ≤ 180                               |
+| geom                  | geography(Point, 4326)       | GENERATED ALWAYS AS (ST_MakePoint(lon, lat)::geography) STORED |
+| w3w_legacy            | text                         | NULL — Migrations-Artefakt                                     |
+| reveal_participants   | boolean                      | NOT NULL DEFAULT false                                         |
+| note                  | text                         | NULL                                                           |
+| created_by            | uuid                         | FK → user.id                                                   |
+| created_at            | timestamptz                  | NOT NULL DEFAULT now()                                         |
+| updated_at            | timestamptz                  | NULL                                                           |
+
+Indizes:
+- `started_at` (BTREE)
+- `ended_at` (BTREE)
+- `geom` (GiST)
+- `created_by`
+- `note` (GIN auf `to_tsvector('german', note)` für Volltextsuche, siehe ADR-015)
+
+#### `event_participant`
+
+| Spalte      | Typ   | Constraints                                              |
+|-------------|-------|----------------------------------------------------------|
+| event_id    | uuid  | FK → event.id ON DELETE CASCADE                          |
+| person_id   | uuid  | FK → person.id ON DELETE RESTRICT                        |
+| created_at  | timestamptz | NOT NULL DEFAULT now()                            |
+
+PK: composite (event_id, person_id).
+Indizes: `person_id`, `event_id`.
+
+#### `application`
+
+| Spalte                | Typ          | Constraints / Notizen                                       |
+|-----------------------|--------------|-------------------------------------------------------------|
+| id                    | uuid         | PK                                                          |
+| event_id              | uuid         | FK → event.id ON DELETE CASCADE, NOT NULL                   |
+| performer_id          | uuid         | FK → person.id ON DELETE RESTRICT, NOT NULL                 |
+| recipient_id          | uuid         | FK → person.id ON DELETE RESTRICT, NOT NULL                 |
+| arm_position_id       | uuid         | FK → arm_position.id, NULLABLE                              |
+| hand_position_id      | uuid         | FK → hand_position.id, NULLABLE                             |
+| hand_orientation_id   | uuid         | FK → hand_orientation.id, NULLABLE                          |
+| sequence_no           | int          | NOT NULL — Reihenfolge innerhalb des Events                 |
+| started_at            | timestamptz  | NULL — Beginn der Application (im Live-Modus automatisch beim Anlegen) |
+| ended_at              | timestamptz  | NULL — Ende der Application (im Live-Modus auf Tap "Beenden") |
+| note                  | text         | NULL — auch für "Materialwechsel danach" o. ä. nutzbar      |
+| created_by            | uuid         | FK → user.id                                                |
+| created_at            | timestamptz  | NOT NULL DEFAULT now()                                      |
+| updated_at            | timestamptz  | NULL                                                        |
+
+Indizes: `event_id`, `performer_id`, `recipient_id`, composite (event_id, sequence_no), GIN auf `to_tsvector('german', note)` (siehe ADR-015).
+Constraint: UNIQUE(event_id, sequence_no).
+
+`performer_id != recipient_id` ist als Business-Regel im Service/Schema, nicht als DB-Constraint (zu strikt für mögliche Self-Bondage-Fälle).
+
+#### `application_restraint`
+
+| Spalte            | Typ   | Constraints                                              |
+|-------------------|-------|----------------------------------------------------------|
+| application_id    | uuid  | FK → application.id ON DELETE CASCADE                    |
+| restraint_type_id | uuid  | FK → restraint_type.id ON DELETE RESTRICT                |
+| created_at        | timestamptz | NOT NULL DEFAULT now()                            |
+
+PK: composite (application_id, restraint_type_id).
+
+#### `restraint_type`
+
+| Spalte            | Typ          | Constraints / Notizen                                                |
+|-------------------|--------------|----------------------------------------------------------------------|
+| id                | uuid         | PK                                                                   |
+| category          | enum         | NOT NULL: 'handcuffs' \| 'thumbcuffs' \| 'legcuffs' \| 'cuffs_leather' \| 'rope' \| 'tape' \| 'cable_tie' \| 'cloth' \| 'strap' \| 'other' |
+| brand             | text         | NULL                                                                 |
+| model             | text         | NULL                                                                 |
+| mechanical_type   | enum         | NULL: 'chain' \| 'hinged' \| 'rigid' (nur bei Schellen-Kategorien)   |
+| display_name      | text         | NOT NULL                                                             |
+| status            | enum         | NOT NULL: 'approved' \| 'pending' DEFAULT 'pending'                  |
+| suggested_by      | uuid         | FK → user.id, NULL                                                   |
+| approved_by       | uuid         | FK → user.id, NULL                                                   |
+| note              | text         | NULL                                                                 |
+| created_at        | timestamptz  | NOT NULL DEFAULT now()                                               |
+| updated_at        | timestamptz  | NULL                                                                 |
+
+Indizes: `status`, `category`, `brand`. Eindeutigkeit: UNIQUE(category, brand, model, mechanical_type) wo alle nicht-NULL.
+
+#### `arm_position`, `hand_position`, `hand_orientation`
+
+Identische Struktur (Lookup-Tabellen mit Vorschlags-Workflow):
+
+| Spalte        | Typ          | Constraints                                                    |
+|---------------|--------------|----------------------------------------------------------------|
+| id            | uuid         | PK                                                             |
+| name          | text         | NOT NULL                                                       |
+| description   | text         | NULL                                                           |
+| status        | enum         | NOT NULL: 'approved' \| 'pending' DEFAULT 'pending'            |
+| suggested_by  | uuid         | FK → user.id, NULL                                             |
+| approved_by   | uuid         | FK → user.id, NULL                                             |
+| created_at    | timestamptz  | NOT NULL DEFAULT now()                                         |
+| updated_at    | timestamptz  | NULL                                                           |
+
+Indizes: `name` (unique unter approved), `status`.
+
+### Katalog-Seed (M1)
+
+**RestraintType-Initialeinträge** (alle status='approved'):
+
+- Handschellen Chain: ASP Chain, S&W Model 100, Peerless Model 700
+- Handschellen Hinged: ASP Ultra Cuffs, TCH 840, Peerless Model 730
+- Handschellen Rigid: Clejuso Model 13, Clejuso Model 15 Heavy, ASP Rigid Ultra
+- Daumenschellen: Clejuso (Standard)
+- Fußschellen: Peerless Model 703
+- Sonstige: Seil, Bondage-Tape, Klebeband, Schal, Lederriemen, Kabelbinder
+
+**ArmPosition** (approved): hinter dem Rücken, vor dem Körper, über dem Kopf, hinter dem Kopf, seitlich, gespreizt, am Körper anliegend, Strappado.
+
+**HandPosition** (approved): Handgelenke, Daumen, Unterarme, Handgelenk-an-Ellbogen.
+
+**HandOrientation** (approved): Handrücken zueinander, Handflächen zueinander, parallel, überkreuzt, Daumen-zu-Daumen.
+
+---
+
+## Row-Level-Security (RLS)
+
+### Grundansatz
+
+RLS ist auf allen daten-führenden Tabellen aktiv: `event`, `event_participant`, `application`, `application_restraint`. Auf Katalog-Tabellen separates Modell (siehe unten).
+
+Die aktuelle Identität des Requests wird per Postgres-Session-Variable (GUC) gesetzt:
+
+- `app.current_user_id` (uuid)
+- `app.current_role` (text: 'admin' | 'editor' | 'viewer')
+- `app.current_person_id` (uuid, optional)
+
+In `app/rls.py` setzt die Request-Dependency diese Variablen pro Connection (oder pro Transaktion, je nach Pool-Strategie). Connection-Pool ist so konfiguriert, dass GUCs am Transaktionsende zurückgesetzt werden (`RESET ALL` oder `SET LOCAL`).
+
+### Policies
+
+#### Event
+
+```sql
+ALTER TABLE event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event FORCE ROW LEVEL SECURITY;
+
+-- Admin: Vollzugriff
+CREATE POLICY event_admin_all ON event
+  FOR ALL TO app_user
+  USING (current_setting('app.current_role') = 'admin')
+  WITH CHECK (current_setting('app.current_role') = 'admin');
+
+-- Editor + Viewer: SELECT nur, wenn current_person_id Participant ist
+CREATE POLICY event_member_select ON event
+  FOR SELECT TO app_user
+  USING (
+    current_setting('app.current_role') IN ('editor', 'viewer')
+    AND EXISTS (
+      SELECT 1 FROM event_participant ep
+      WHERE ep.event_id = event.id
+        AND ep.person_id = current_setting('app.current_person_id')::uuid
+    )
+  );
+
+-- Editor: INSERT erlaubt, created_by muss current_user_id sein
+CREATE POLICY event_editor_insert ON event
+  FOR INSERT TO app_user
+  WITH CHECK (
+    current_setting('app.current_role') = 'editor'
+    AND created_by = current_setting('app.current_user_id')::uuid
+  );
+
+-- Editor: UPDATE/DELETE nur eigene Events
+CREATE POLICY event_editor_modify ON event
+  FOR UPDATE TO app_user
+  USING (
+    current_setting('app.current_role') = 'editor'
+    AND created_by = current_setting('app.current_user_id')::uuid
+  )
+  WITH CHECK (
+    created_by = current_setting('app.current_user_id')::uuid
+  );
+
+CREATE POLICY event_editor_delete ON event
+  FOR DELETE TO app_user
+  USING (
+    current_setting('app.current_role') = 'editor'
+    AND created_by = current_setting('app.current_user_id')::uuid
+  );
+```
+
+#### EventParticipant
+
+Sichtbar/änderbar, sobald das zugehörige Event sichtbar/änderbar ist:
+
+```sql
+ALTER TABLE event_participant ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_participant FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY ep_admin_all ON event_participant
+  FOR ALL TO app_user
+  USING (current_setting('app.current_role') = 'admin')
+  WITH CHECK (current_setting('app.current_role') = 'admin');
+
+CREATE POLICY ep_member_via_event ON event_participant
+  FOR SELECT TO app_user
+  USING (
+    EXISTS (
+      SELECT 1 FROM event e
+      WHERE e.id = event_participant.event_id
+      -- impliziter RLS-Check auf event greift hier ebenfalls
+    )
+  );
+
+-- Schreibzugriff Editor: nur in eigenen Events
+CREATE POLICY ep_editor_modify ON event_participant
+  FOR ALL TO app_user
+  USING (
+    current_setting('app.current_role') = 'editor'
+    AND EXISTS (
+      SELECT 1 FROM event e
+      WHERE e.id = event_participant.event_id
+        AND e.created_by = current_setting('app.current_user_id')::uuid
+    )
+  );
+```
+
+#### Application & ApplicationRestraint
+
+Spiegeln das Event-RLS: sichtbar/änderbar wenn Event sichtbar/änderbar.
+
+#### Person
+
+Lesbar für alle eingeloggten Nutzer (Personen-Auswahl in Formularen). Schreibrecht nur Admin. Kein RLS auf Lesen, aber **`name` wird auf API-Ebene maskiert** wenn:
+- die Person in einem Event mit `reveal_participants = false` auftaucht **und**
+- die anfragende Person nicht selbst als Participant in diesem Event steht.
+
+Dieses Verhalten ist Service-Logik, nicht DB-Policy — weil es kontextabhängig ist (gleiche Person, anderes Event ⇒ andere Sichtbarkeit).
+
+#### Kataloge (RestraintType, ArmPosition, HandPosition, HandOrientation)
+
+- Admin: alle.
+- Editor: alle approved + eigene pending.
+- Viewer: nur approved.
+
+```sql
+CREATE POLICY catalog_member_select ON restraint_type
+  FOR SELECT TO app_user
+  USING (
+    current_setting('app.current_role') = 'admin'
+    OR status = 'approved'
+    OR (status = 'pending' AND suggested_by = current_setting('app.current_user_id')::uuid)
+  );
+
+CREATE POLICY catalog_editor_propose ON restraint_type
+  FOR INSERT TO app_user
+  WITH CHECK (
+    current_setting('app.current_role') IN ('editor', 'admin')
+    AND (
+      current_setting('app.current_role') = 'admin'
+      OR (status = 'pending' AND suggested_by = current_setting('app.current_user_id')::uuid)
+    )
+  );
+```
+
+(Analog für die anderen drei Katalog-Tabellen.)
+
+### RLS-Tests (zwingend, M2)
+
+Pytest-Suite mit Fixtures pro Rolle:
+- `test_admin_sees_all`
+- `test_editor_sees_only_own_participation`
+- `test_viewer_cannot_modify`
+- `test_pending_catalog_invisible_to_others`
+- `test_reveal_participants_false_masks_names`
+- `test_reveal_participants_true_shows_names`
+
+---
+
+## Person-Workflow
+
+### Auto-Participant-Regel (siehe ADR-012)
+
+Jede Person, die in einer Application als `performer_id` oder `recipient_id` eingetragen wird, wird **automatisch** als `EventParticipant` zum übergeordneten Event hinzugefügt — sofern noch nicht vorhanden. Diese Regel ist serverseitig in der Application-Erstellung verankert (Trigger oder Service-Logik), nicht im Client.
+
+Konsequenz: Wer in einer Application steht, ist automatisch Beteiligter des Events und sieht es via RLS, sobald er einen User-Account hat. Das UI weist beim Anlegen darauf hin: „Daniela wird als Participant des Events erfasst und kann es später einsehen."
+
+Manuelles Entfernen aus EventParticipant ist nur möglich, wenn die Person in **keiner** Application des Events mehr auftaucht. Sonst Constraint-Violation.
+
+### On-the-fly-Personenanlage (siehe ADR-014)
+
+Performer (Admin oder Editor) können im Live-Modus eine neue Person spontan anlegen, ohne dafür den Admin-Bereich zu verlassen.
+
+**UI-Flow:**
+
+1. Im Recipient-Dropdown (oder Performer-Dropdown bei Bedarf) ist die letzte Option „+ Neue Person hinzufügen".
+2. Modal öffnet sich mit einem einzigen Pflichtfeld: `name`. Optional: `alias`.
+3. Beim Speichern: `Person` wird mit `origin = 'on_the_fly'`, `linkable = false`, `created_by = current_user_id` angelegt.
+4. Person ist sofort im Dropdown verfügbar und wird gewählt.
+5. Application wird mit dieser Person als Recipient/Performer fortgesetzt.
+
+Die so angelegte Person hat **keinen User-Account**. Sie taucht in Events auf, sieht aber selbst nichts. Sie erscheint im Admin-Bereich unter „Neue Personen aus Live-Erfassung" zur Nachbearbeitung.
+
+### Spätere User-Verknüpfung
+
+Im Admin-User-Anlage-Dialog gibt es zwei Modi:
+
+- **Standardmodus:** Neuer User mit neuer Person — Name und User-Daten werden zusammen erfasst.
+- **Verknüpfungsmodus:** Neuer User wird mit einer **bestehenden** Person verknüpft. Im Dropdown erscheinen nur Personen mit `linkable = true`.
+
+Damit eine Person verknüpfungsbereit wird, setzt der Admin manuell `linkable = true` über die Admin-UI „Personen → Bearbeiten". Das verhindert, dass beim User-Anlegen alle ~50 bisher dokumentierten Personen als „verknüpfbar" erscheinen.
+
+Sobald die Verknüpfung hergestellt ist, sieht der neue User via RLS automatisch alle Events, in denen die verknüpfte Person bereits Participant war — auch rückwirkend, ohne Datenänderung an den Events.
+
+---
+
+## Auth-Flow
+
+### Mechanik
+
+- **fastapi-users** mit Cookie-Backend (HttpOnly, Secure, SameSite=Lax).
+- Session-Strategy: serverseitige Sessions in Postgres (Tabelle `auth_session` mit `id`, `user_id`, `expires_at`, `created_at`, `last_used_at`).
+- Cookie-Name: `hcmap_session`, Pfad `/`, Domain = Hauptdomain.
+- TTL: 30 Tage Sliding (bei jeder Anfrage erneuert), absolutes Maximum 90 Tage.
+- Same-Domain-Setup: Frontend und Backend laufen unter derselben Domain (z. B. `app.hc-map.example` für Frontend, `/api/*` reverse-proxied auf Backend) → Cookie-Setup unkompliziert, kein CORS für Auth nötig.
+
+### Endpunkte (fastapi-users-Standard, leicht angepasst)
+
+- `POST /api/auth/login` — E-Mail + Passwort, setzt Session-Cookie.
+- `POST /api/auth/logout` — invalidiert Session in DB, löscht Cookie.
+- `GET  /api/auth/me` — aktueller User mit Rolle + verknüpfter Person.
+- `POST /api/auth/forgot-password` — Token erzeugen, Mail-Stub triggert.
+- `POST /api/auth/reset-password` — Token + neues Passwort.
+- `POST /api/auth/change-password` — eingeloggt, altes + neues Passwort.
+
+Selbstregistrierung in Pfad A **deaktiviert** (Endpunkte nicht registriert oder mit `403` blockiert).
+
+### Bootstrap
+
+`scripts/bootstrap_admin.py`:
+- Liest `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD` und `ADMIN_DISPLAY_NAME` aus ENV.
+- Legt zuerst eine `Person` mit dem Display-Namen an.
+- Legt User mit `role='admin'`, `is_active=true`, `is_verified=true`, verknüpft mit der eben angelegten Person.
+- Verweigert Ausführung, wenn bereits ein Admin existiert.
+- Wird einmal nach erstem `alembic upgrade head` ausgeführt.
+
+### CSRF-Schutz
+
+Cookie-Sessions brauchen CSRF-Schutz für State-Changing-Requests (POST/PUT/DELETE):
+- Double-Submit-Token: Backend setzt `hcmap_csrf` als nicht-HttpOnly-Cookie (lesbar für JS), Frontend liest und schickt im `X-CSRF-Token`-Header mit.
+- Backend-Middleware vergleicht beide.
+- GET-Requests sind csrf-frei.
+
+---
+
+## API-Vertrag (Übersicht)
+
+Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Routen:
+
+### Auth (siehe oben)
+
+### Events
+
+| Methode | Pfad                              | Rolle                  | Zweck                                  |
+|---------|-----------------------------------|------------------------|----------------------------------------|
+| GET     | `/api/events`                     | alle (RLS)             | Liste, Filter: from, to, person_id, bbox |
+| POST    | `/api/events`                     | admin, editor          | Event anlegen                          |
+| POST    | `/api/events/start`               | admin, editor          | Live-Modus: Event mit `started_at = now()` starten |
+| POST    | `/api/events/{id}/end`            | admin / Eigentümer     | Live-Modus: `ended_at = now()` setzen  |
+| GET     | `/api/events/{id}`                | alle (RLS)             | Detail inkl. Applications              |
+| PATCH   | `/api/events/{id}`                | admin / Eigentümer     | Update                                 |
+| DELETE  | `/api/events/{id}`                | admin / Eigentümer     | Löschen                                |
+| POST    | `/api/events/{id}/participants`   | admin / Eigentümer     | Person hinzufügen                      |
+| DELETE  | `/api/events/{id}/participants/{person_id}` | admin / Eigentümer | Person entfernen              |
+
+### Applications
+
+| Methode | Pfad                                           | Rolle              | Zweck                       |
+|---------|------------------------------------------------|--------------------|-----------------------------|
+| POST    | `/api/events/{event_id}/applications`          | admin / Eigentümer | Application anlegen         |
+| POST    | `/api/events/{event_id}/applications/start`    | admin / Eigentümer | Live: Application starten (`started_at = now()`) |
+| POST    | `/api/applications/{id}/end`                   | admin / Eigentümer | Live: Application beenden (`ended_at = now()`)   |
+| PATCH   | `/api/applications/{id}`                       | admin / Eigentümer | Update                      |
+| DELETE  | `/api/applications/{id}`                       | admin / Eigentümer | Löschen                     |
+| PUT     | `/api/applications/{id}/restraints`            | admin / Eigentümer | n:m-Set ersetzen            |
+
+### Personen
+
+| Methode | Pfad                          | Rolle             | Zweck                              |
+|---------|-------------------------------|-------------------|------------------------------------|
+| GET     | `/api/persons`                | alle              | Auswahl-Liste, name maskiert wenn nötig |
+| GET     | `/api/persons?linkable=true`  | admin             | Personen, die mit einem User verknüpft werden können |
+| POST    | `/api/persons`                | admin             | Person verwaltet anlegen           |
+| POST    | `/api/persons/quick`          | admin, editor     | On-the-fly im Live-Modus (siehe ADR-014), setzt `origin = 'on_the_fly'` |
+| PATCH   | `/api/persons/{id}`           | admin             | Update inkl. `linkable`-Toggle     |
+| POST    | `/api/persons/{id}/anonymize` | admin             | Anonymisierung gemäß ADR-002       |
+
+### Kataloge
+
+| Methode | Pfad                          | Rolle             | Zweck                               |
+|---------|-------------------------------|-------------------|-------------------------------------|
+| GET     | `/api/catalogs/{kind}`         | alle (RLS)        | Liste der approved + eigene pending |
+| POST    | `/api/catalogs/{kind}`         | admin, editor     | Vorschlag (editor) oder direkt approved (admin) |
+| PATCH   | `/api/catalogs/{kind}/{id}`    | admin             | Update / Status ändern              |
+| POST    | `/api/catalogs/{kind}/{id}/approve` | admin        | Pending → approved                  |
+
+`{kind}` = `restraint-types` | `arm-positions` | `hand-positions` | `hand-orientations`.
+
+### Geocoding-Proxy
+
+| Methode | Pfad                       | Rolle | Zweck                                |
+|---------|----------------------------|-------|--------------------------------------|
+| GET     | `/api/geocode?q=...`       | alle  | Proxy zu MapTiler-Geocoding (Key serverseitig, Rate-Limit pro User) |
+
+### Tile-Proxy (optional)
+
+`/api/tiles/{z}/{x}/{y}` → MapTiler. Vorteil: API-Key bleibt serverseitig, einfacher Wechsel zu Self-Hosted in Phase 2 ohne Frontend-Änderung.
+
+### Admin
+
+| Methode | Pfad                             | Rolle | Zweck                  |
+|---------|----------------------------------|-------|------------------------|
+| GET     | `/api/admin/users`               | admin | User-Liste             |
+| POST    | `/api/admin/users`               | admin | User anlegen — entweder mit neuer Person oder mit Verknüpfung zu bestehender (Body-Feld `existing_person_id`) |
+| PATCH   | `/api/admin/users/{id}`          | admin | Rolle/Status ändern    |
+| DELETE  | `/api/admin/users/{id}`          | admin | Deaktivieren           |
+| GET     | `/api/admin/stats`               | admin | Aggregat-Statistiken   |
+
+### Health
+
+| Methode | Pfad             | Rolle  | Zweck                  |
+|---------|------------------|--------|------------------------|
+| GET     | `/api/health`    | öffentlich | Liveness/Readiness  |
+
+### Sync (RxDB Replication-Protokoll, siehe ADR-017)
+
+| Methode | Pfad                | Rolle | Zweck                                           |
+|---------|---------------------|-------|-------------------------------------------------|
+| GET     | `/api/sync/pull`    | alle (RLS) | Query: `updatedAt` und `id` Cursor; liefert Änderungen an Events/Applications seit Cursor |
+| POST    | `/api/sync/push`    | alle (RLS) | Akzeptiert clientseitige Änderungen, gibt Konflikte zurück |
+
+### Admin-UI (SQLAdmin, siehe ADR-016)
+
+| Methode | Pfad            | Rolle  | Zweck                                        |
+|---------|-----------------|--------|----------------------------------------------|
+| ALL     | `/admin/*`      | admin  | SQLAdmin-Oberfläche für CRUD auf allen Tabellen, mit Cookie-Session-Auth-Bridge zu fastapi-users |
+
+### Suche, Export und Throwbacks (siehe ADR-015)
+
+| Methode | Pfad                        | Rolle  | Zweck                                                |
+|---------|-----------------------------|--------|------------------------------------------------------|
+| GET     | `/api/search?q=...`         | alle (RLS) | Volltextsuche über Notizen aller sichtbaren Events und Applications |
+| GET     | `/api/throwbacks/today`     | alle (RLS) | Events vom heutigen Datum in vergangenen Jahren („On this day") |
+| GET     | `/api/export/me`            | alle   | Eigene Events als JSON oder CSV (Query: `?format=json\|csv`) |
+| GET     | `/api/admin/export/all`     | admin  | Vollständiger Export aller Events                    |
+
+---
+
+## Frontend-Architektur
+
+### Routing (App Router)
+
+```
+/                          → Dashboard (auth required)
+/login                     → Login
+/events                    → Liste
+/events/new                → Erfassen
+/events/[id]               → Detail
+/events/[id]/edit          → Bearbeiten
+/map                       → Kartenansicht
+/admin                     → Admin-Übersicht (admin-only)
+/admin/users               → User-Verwaltung
+/admin/catalogs            → Katalog-Verwaltung + Freigabe-Queue
+/admin/persons             → Personen-Verwaltung
+/profile                   → Eigenes Profil, Passwort ändern
+```
+
+Schutz via Middleware (Next.js `middleware.ts`): prüft Session-Cookie + Rolle pro Pfad.
+
+### Daten-Fetching
+
+- **TanStack Query** mit zentralem `QueryClient`.
+- `lib/api.ts` als typisierter `fetch`-Wrapper (Credentials: `include`, CSRF-Header automatisch).
+- Cache-Keys hierarchisch (`['events']`, `['events', id]`, `['catalogs', kind]`).
+- Optimistic Updates für UX-kritische Aktionen (Event-Update, Sequenz-Verschiebung).
+
+### Karten-Komponente
+
+- `components/map/MapView.tsx` als Wrapper um `react-map-gl`.
+- Tile-URL aus ENV (`NEXT_PUBLIC_TILE_URL`), in Phase 1 `/api/tiles/{z}/{x}/{y}` (Backend-Proxy), in Phase 2 lokaler Tileserver.
+- Marker als React-Komponenten via `react-map-gl/Marker`.
+- Clustering via `supercluster`.
+- State (Viewport) mit URL-Sync (next/navigation `useSearchParams`).
+
+### Plus-Code-Handling
+
+- `lib/plus-code.ts`: Wrapper um `open-location-code`-NPM-Package.
+- Eingabe akzeptiert: vollen Global-Code, Short-Code mit Ortsreferenz, Lat/Lon (Komma-getrennt).
+- Karten-Klick liefert Lat/Lon → Plus Code wird erzeugt und im Formular-Feld angezeigt.
+
+### Mobile First
+
+- Tailwind-Breakpoints: Default = mobile, `md:` ab 768px, `lg:` ab 1024px.
+- Bottom-Navigation auf mobile, Sidebar auf Desktop.
+- Touch-Targets ≥ 44px.
+- Karte: Pinch-Zoom, Double-Tap-Zoom aktiviert.
+
+### Visuelle Gestaltung — Standard zuerst
+
+Die konkrete visuelle Gestaltung (Farbpalette, Typografie-Wahl, Ikonografie, Layout-Details) wird im MVP **bewusst nicht spezifiziert**. Claude Code baut einen funktionalen, generischen Stand mit:
+
+- Tailwind-Default-Farbpalette (neutral: Slate für Hintergründe, ein einzelner Akzent für interaktive Elemente — Wahl liegt bei Claude Code, klassisch z. B. Blue-600 oder Emerald-600).
+- shadcn/ui-Default-Komponenten ohne starke visuelle Anpassung.
+- System-Sans-Serif (Tailwind-Default `font-sans`).
+- lucide-react als Icon-Set (Default in shadcn/ui).
+- Dark-Mode-Variante automatisch via Tailwind, system-präferenz-gesteuert.
+
+**Begründung:** Ohne ein lauffähiges Skelett vor Augen ist Farb- und Typografie-Diskussion abstrakter Aufwand. Sobald der erste Stand existiert, werden gezielte Anpassungen am realen UI vorgenommen — das ist effizienter und führt zu besseren Entscheidungen.
+
+**Was Claude Code TUN soll:** sauberes, lesbares, konsistentes UI auf Tailwind/shadcn-Default-Niveau. Ausreichende Kontraste (WCAG AA mindestens). Mobile- und Desktop-Layouts entsprechend Mobile-First-Regeln.
+
+**Was Claude Code NICHT tun soll:** keine eigene Designsprache erfinden, keine ungewöhnlichen Farbschemata wählen, keine Custom-Fonts einbinden, keine animierten Übergänge oder visuellen Spielereien jenseits sinnvoller Mikro-Interaktionen (Hover, Focus, Loading-Spinner).
+
+**Spätere UI-Iteration:** Sobald M5a–M5c lauffähig sind, kommt eine eigene UI/UX-Reviewphase. Das ist kein Meilenstein im Fahrplan, sondern Teil der Konsolidierung.
+
+### Live-Modus (siehe ADR-011)
+
+Der Live-Modus ist die **Hauptansicht der App**. Performer erfassen Events
+während sie geschehen, nicht nachträglich.
+
+**UI-Fluss:**
+
+1. **Startseite** zeigt einen großen Knopf „Neues Event starten" plus Liste der letzten Events.
+2. **Tap auf „Neues Event starten":**
+   - GPS wird angefragt (Browser-Geolocation-API), Lat/Lon vorbelegt.
+   - Karte zeigt aktuelle Position, Performer kann durch Karten-Tap korrigieren.
+   - Recipient wird ausgewählt (Personen-Liste).
+   - `Event.started_at = now()`, Event-Datensatz angelegt.
+   - Wakelock wird angefordert (Bildschirm bleibt an).
+3. **Live-Ansicht des laufenden Events:**
+   - Großer Timer für Gesamtdauer.
+   - Liste bisheriger Applications mit eigenem Timer.
+   - Schnellaktionen: „Neue Application starten", „Aktuelle Application beenden", „Event beenden".
+4. **Application starten:**
+   - `Application.started_at = now()`, `sequence_no` automatisch hochzählen.
+   - Performer ist per Default der eingeloggte User, Recipient ist der Event-Recipient — beides überschreibbar.
+   - Restraints, Positionen werden in Sekundärformularen gewählt; können auch nach „Application starten" noch nachgepflegt werden.
+5. **Application beenden:** `ended_at = now()`. Die nächste Application kann sofort beginnen — die Lücke (Materialwechsel) ergibt sich automatisch aus `application[i].ended_at` < `application[i+1].started_at`. Der Notiz-Text der vorherigen Application kann optional die Lücke beschreiben.
+6. **Event beenden:** `Event.ended_at = now()`. Wakelock freigeben. Zurück zur Startseite mit Bestätigung.
+
+**Technische Anforderungen:**
+
+- **Geolocation-API:** `navigator.geolocation.getCurrentPosition`. Funktioniert nur über HTTPS. Berechtigungsabfrage beim ersten Mal.
+- **Wakelock-API:** `navigator.wakeLock.request('screen')` während eines laufenden Events. Browser-Support breit, aber nicht universell — Fallback: Hinweis an User „Bildschirm bitte nicht sperren".
+- **Offline-Resilienz (siehe Meilenstein M5b, ADR-017):** Events und Applications werden clientseitig in RxDB (IndexedDB-Backend via Dexie) persistiert. Der Sync mit dem Backend läuft über das RxDB-Replication-Protokoll (`/api/sync/pull` und `/api/sync/push`). Bei Netzausfall bleibt die UI funktionsfähig; bei Reconnect wird automatisch nachsynchronisiert. Verhindert Datenverlust im Funkloch.
+- **Optimistic Updates:** Application-Aktionen erscheinen sofort in der UI, Backend-Bestätigung im Hintergrund.
+- **Server-Zeit als Wahrheit:** Lokale Zeitstempel werden mit Server-Zeit abgeglichen (Drift-Korrektur), bei Sync schreibt der Server seine Zeit als Wahrheit.
+
+**Nachträgliche Erfassung:** sekundärer Modus, derselbe Datenpfad. Der Unterschied liegt nur darin, dass Zeitstempel manuell gesetzt werden statt aus `now()` zu kommen. Ein Schalter „Nachträglich erfassen" auf der Startseite ruft das gleiche Formular auf, mit editierbaren Zeitstempel-Feldern.
+
+### App-PIN-Sperre (siehe ADR-015)
+
+Clientseitige Schnellsperre der UI, unabhängig vom Auth-System.
+
+**Funktionsweise:**
+- User setzt im Profil eine 4–6-stellige PIN. Wird gehasht (Argon2 oder bcrypt, clientseitig via Web Crypto API) in IndexedDB abgelegt.
+- App sperrt sich automatisch nach konfigurierbarer Inaktivität (Default: 60 Sekunden) oder per expliziter Aktion „Sperren".
+- Sperrzustand zeigt PIN-Eingabe als Vollbild-Overlay, blockiert Navigation und alle UI-Aktionen.
+- PIN-Eingabe entsperrt nur die UI — die Server-Session bleibt unberührt.
+- Nach mehreren falschen Eingaben (z. B. 5×) wird die Server-Session zwangsbeendet (Logout), und ein vollständiges Re-Login ist nötig.
+
+**Begrenzung:** Schützt vor Schulterblick und kurzer fremder Übernahme des Geräts. Nicht gegen einen Angreifer, der das Gerät entsperrt im Zugriff hat — das ist der Job von Geräte-Sperre und Auth-System.
+
+### „On this day" auf Startseite (siehe ADR-015)
+
+Auf der Startseite, unterhalb des „Neues Event starten"-Knopfs, eine Sektion „Vor X Jahren": zeigt Events vom heutigen Datum (Monat + Tag) in vergangenen Jahren. Nutzt `/api/throwbacks/today`, gefiltert nach RLS. Wenn keine Treffer: Sektion wird ausgeblendet.
+
+---
+
+## Deployment-Topologie (VPS)
+
+### Komponenten
+
+```
+                      Internet
+                          │
+                       :443/:80
+                          │
+                       ┌──┴──┐
+                       │Caddy│  (TLS, Reverse Proxy, HTTP/2)
+                       └──┬──┘
+              ┌───────────┼───────────┐
+              │           │           │
+        ┌─────┴───┐  ┌────┴────┐
+        │frontend │  │ backend │
+        │(Next.js)│  │(FastAPI)│
+        └─────────┘  └────┬────┘
+                          │
+                     ┌────┴────┐
+                     │postgres │
+                     │+postgis │
+                     └─────────┘
+```
+
+### Domains
+
+- `app.hc-map.example` — Frontend (Next.js).
+- `app.hc-map.example/api/*` — proxied auf Backend.
+- Subdomain-Strategie ist möglich (`api.hc-map.example`), aber Same-Origin ist für Cookie-Auth einfacher.
+
+### docker-compose.prod.yml — Skizze
+
+Services:
+- `caddy` — Reverse Proxy, automatisches TLS.
+- `frontend` — Next.js (`node server.js` aus `next build`-Output, Mode `standalone`).
+- `backend` — uvicorn mit FastAPI, mehrere Worker.
+- `db` — Postgres 16 + PostGIS 3.
+- `backup` — Cron-Container, der `pg_dump` + Verschlüsselung + Off-Site-Upload macht.
+
+Volumes:
+- `db-data` — Postgres-Datenverzeichnis.
+- `caddy-data`, `caddy-config` — TLS-Zertifikate.
+- `backup-staging` — temporäre Dump-Dateien vor Upload.
+
+Networks:
+- Internes Docker-Netz; nur Caddy hat Port-Mapping nach außen.
+
+### Caddyfile — Skizze
+
+```
+app.hc-map.example {
+    encode gzip zstd
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+    handle /api/tiles/* {
+        reverse_proxy backend:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
+}
+```
+
+### Server-Hardening
+
+- Nicht-Root-Benutzer für Container.
+- UFW: nur 22 (SSH-Key-only), 80, 443 offen.
+- fail2ban auf SSH und Caddy-Logs.
+- Automatische Sicherheits-Updates (`unattended-upgrades`).
+- Full-Disk-Encryption (LUKS) — bei VPS via Hoster-Konsole bei Setup oder via Init-Script.
+- SSH: Key-only, kein Passwort, kein Root-Login.
+
+### Backups
+
+- Täglich `pg_dump` (custom-format), GPG- oder age-verschlüsselt.
+- Aufbewahrung: 14 Tage täglich, 8 Wochen wöchentlich, 12 Monate monatlich.
+- Off-Site: separater Hoster oder S3-kompatibler Bucket (Hetzner Storage Box, Backblaze B2 — Wahl in M13).
+- Restore-Test gemäß Runbook in `ops/runbook.md`.
+
+---
+
+## Konventionen
+
+### Git
+
+- **Branching:** `main` ist deploybar, Feature-Branches `feat/<kurzname>`, Fixes `fix/<kurzname>`.
+- **Commit-Messages:** Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
+- **Pull-Requests:** kein Force-Push auf `main`. Squash-Merge bevorzugt.
+- **Tags:** Semver `v0.x.y` ab erstem Go-Live, davor unversioniert.
+
+### Code-Style
+
+- **Python:** ruff (linting + formatting), mypy strict für `app/`.
+- **TypeScript:** eslint + prettier, `strict: true` in `tsconfig`.
+- **Pre-commit:** ruff, prettier, eslint, mypy auf staged files.
+
+### Naming
+
+- Python: `snake_case` Funktionen/Variablen, `PascalCase` Klassen.
+- TS: `camelCase` Variablen/Funktionen, `PascalCase` Komponenten/Typen.
+- DB: `snake_case` Tabellen und Spalten, Singular für Tabellen.
+- API-Pfade: `kebab-case` (`/restraint-types` nicht `/restraintTypes`).
+
+### Tests
+
+- Backend: `pytest`, `pytest-asyncio`, `httpx.AsyncClient` für API-Tests, `testcontainers` für echte Postgres in CI.
+- Frontend: `vitest` für Unit, `playwright` für E2E (in Phase 2 sinnvoll, im MVP optional).
+- Coverage-Ziel: nicht festgelegt, aber **alle RLS-Policies müssen Tests haben** — ohne Ausnahme.
+
+### Konfiguration
+
+- Alle Config über ENV, geladen via `pydantic-settings` im Backend, via `process.env` im Frontend.
+- Server-only Variablen ohne `NEXT_PUBLIC_`-Präfix; client-sichtbare mit Präfix.
+- `.env.example` ist gepflegt, jeder neue ENV-Var landet dort sofort.
+
+### Logging
+
+- Backend: strukturiertes JSON-Logging (z. B. `structlog`), Request-ID pro Request.
+- Frontend: Konsole im Dev, in Prod nur Errors via einfachem Endpoint nach Backend (kein externes Tracking).
+- Keine personenbezogenen Daten in Logs (keine Namen, keine Notizen, keine Lat/Lon).
+
+### Migrations
+
+- Jede DB-Änderung als Alembic-Migration. Keine manuellen Schema-Änderungen in Prod.
+- Down-Migrations dort, wo machbar — Pflicht für reversible Schema-Änderungen.
+- Seeds NICHT in Migrations (separate Skripte in `seeds/`).
+
+### Secrets
+
+- Niemals im Repo. `.env` gitignored, `.env.example` als Vorlage.
+- Prod-Secrets in einer geschützten Datei auf dem VPS oder via Hoster-Secret-Store.
+
+---
+
+## Externe Abhängigkeiten
+
+| Dienst                  | Zweck                              | Risiko / Plan                              |
+|-------------------------|------------------------------------|--------------------------------------------|
+| MapTiler Cloud (Tiles)  | Karten-Tiles in Phase 1            | Free-Tier 100k req/mo, Self-Host in Phase 2 (M12) |
+| MapTiler Geocoding      | Adress-Suche                       | Gleicher Anbieter, gleiches Risiko-Profil  |
+| what3words API          | Einmalig für Migration (M9)        | Nach Migration kündbar                     |
+| Let's Encrypt (via Caddy)| TLS-Zertifikate                   | Etabliert, Fallback bei Ausfall überschaubar |
+| Off-Site Backup-Storage | Backup-Ziel                        | Wahl in M13                                |
+
+---
+
+## Offene Punkte
+
+Werden in Folge-Sessions oder ADRs konkretisiert:
+
+- Konkreter Off-Site-Backup-Anbieter (M13).
+- E-Mail-Versanddienst (vor M11, sobald Passwort-Reset produktiv gebraucht wird).
+- Karten-Style: MapTiler-Preset oder eigener Style?
+- Audit-Log-Strategie über `created_at`/`updated_at` hinaus — ob ein separates `event_log` nötig wird (Pfad B vermutlich ja).
+- Dev/Staging-Environment auf dem VPS oder lokal-only?

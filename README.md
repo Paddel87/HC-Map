@@ -2,7 +2,26 @@
 
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
-Status: **Konzeption abgeschlossen — Umsetzung (M0) steht bevor** · Version: **v0.0.0** (noch keine offizielle Version) · Dokumentationssprache: Deutsch
+[![Status](https://img.shields.io/badge/status-konzeption-orange)](./fahrplan.md)
+[![Phase](https://img.shields.io/badge/phase-pre--M0-lightgrey)](./fahrplan.md#phasen-übersicht)
+[![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./project-context.md#1-kerndaten)
+[![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./project-context.md#6-constraints-operationalisierbar)
+[![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./project-context.md)
+[![Scope](https://img.shields.io/badge/scope-Pfad%20A%20(%3C20%20Nutzer)-informational)](./project-context.md#pfad-a-vs-pfad-b-zwei-scope-stufen)
+
+**Stack:**
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![FastAPI](https://img.shields.io/badge/FastAPI-modern-009688?logo=fastapi&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![PostGIS](https://img.shields.io/badge/PostGIS-3-336791)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![Next.js](https://img.shields.io/badge/Next.js-App_Router-000000?logo=nextdotjs&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![Tailwind](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![MapLibre](https://img.shields.io/badge/MapLibre-GL_JS-396CB2)](./decisions.md#adr-008--karten-layer-maplibre-gl-js-maptiler-jetzt-self-host-später)
+[![RxDB](https://img.shields.io/badge/RxDB-offline--sync-8D1F89)](./decisions.md#adr-017--rxdb-für-offline-sync-in-live-modus)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](./architecture.md)
+[![Caddy](https://img.shields.io/badge/Caddy-TLS_automatisch-1F88C0)](./architecture.md)
 
 ---
 

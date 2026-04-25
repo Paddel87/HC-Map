@@ -25,10 +25,10 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-25
+- **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
 - **Aktiver Schritt:** keiner (M4 abgeschlossen)
-- **Nächster Schritt:** M5a — Event-Erfassung Live-Modus
+- **Nächster Schritt:** M5a — Event-Erfassung Live-Modus (Scope erweitert per ADR-022/-023)
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -332,14 +332,25 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Performer kann ein Event in der Situation starten, Applications live erfassen und das Event abschließen — alles vom Mobilgerät aus, mit minimaler Bedienzeit. Live-Modus ist die Hauptansicht der App (siehe ADR-011).
 
-**Deliverables:**
+**Scope-Erweiterungen (2026-04-26):** Tile-Proxy und minimale `LocationPickerMap` sind aus M6 nach M5a vorgezogen (siehe ADR-022). PIN-Hashing-Algorithmus festgelegt auf PBKDF2 via Web Crypto API (siehe ADR-023).
+
+**Backend-Anteil (fünf Live-Endpoints + Tile-Proxy):**
+- `POST /api/events/start` setzt `started_at = now()`, legt Event mit Default-Reveal-Flag an, verknüpft den Creator implizit als Participant (analog `POST /api/events`).
+- `POST /api/events/{id}/end` setzt `ended_at = now()`, mit Idempotenz-Check (zweiter Aufruf ist No-Op).
+- `POST /api/events/{event_id}/applications/start` legt eine Application mit `started_at = now()`, `sequence_no` automatisch hochgezählt; Performer-Default = `current_user.person_id`, Recipient aus Payload (oder Self-Bondage falls leer).
+- `POST /api/applications/{id}/end` setzt `ended_at = now()`, idempotent.
+- `POST /api/persons/quick` (admin + editor): legt Person mit `origin = 'on_the_fly'`, `linkable = false` an. Pflichtfeld `name`, optional `alias`. Siehe ADR-014, Regel-004.
+- **Tile-Proxy** `GET /api/tiles/{z}/{x}/{y}` (siehe ADR-022): MapTiler-Tiles über Backend mit `Cache-Control: public, max-age=86400`, Auth via Session-Cookie, MAPTILER_API_KEY serverseitig.
+
+**Frontend-Deliverables:**
 - Startseite mit großem „Neues Event starten"-Knopf, Liste der letzten Events und **„On this day"-Sektion** (siehe ADR-015), wenn Treffer vorhanden.
 - **Volltext-Suchleiste** in der Hauptnavigation, Ergebnisliste mit RLS-konformen Treffern aus Events und Applications.
-- **App-PIN-Sperre** (siehe ADR-015): User kann im Profil eine 4–6-stellige PIN setzen; UI sperrt sich nach Inaktivität (Default 60s) oder per Knopf; PIN-Eingabe entsperrt nur die UI, Server-Session bleibt; nach 5 Fehlversuchen Zwangs-Logout. Hashing clientseitig via Web Crypto API, Storage in IndexedDB.
+- **App-PIN-Sperre** (siehe ADR-015 + ADR-023): User kann im Profil eine 4–6-stellige PIN setzen; UI sperrt sich nach Inaktivität (Default 60s) oder per Knopf; PIN-Eingabe entsperrt nur die UI, Server-Session bleibt; nach 5 Fehlversuchen Zwangs-Logout. Hashing clientseitig via PBKDF2-SHA-256 (Web Crypto API, 600.000 Iterationen, 16-Byte-Salt), Storage in IndexedDB-Object-Store `hcmap-pin`.
 - **Export-UI** im Profil: „Meine Daten exportieren" (JSON/CSV).
+- **`LocationPickerMap`-Komponente** (siehe ADR-022): minimaler MapLibre-basierter Karten-Picker, ein verschiebbarer Marker, kein Clustering/Filter/URL-Sync. Tile-URL aus `NEXT_PUBLIC_TILE_URL` (Default `/api/tiles/{z}/{x}/{y}`). Wird in M6 zur vollwertigen `MapView` ausgebaut.
 - Live-Event-Anlegen-Flow:
   - GPS via Browser-Geolocation-API anfordern, Lat/Lon vorbelegen.
-  - Karte mit aktueller Position, Tap-to-Adjust für manuelle Korrektur.
+  - `LocationPickerMap` mit aktueller Position, Tap-to-Adjust für manuelle Korrektur.
   - Recipient-Auswahl aus Personen-Liste.
   - Performer = eingeloggter User per Default (siehe ADR-010).
   - `POST /api/events/start` setzt `started_at = now()`.
@@ -416,15 +427,19 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Events werden auf einer Karte visualisiert.
 
+**Scope-Anpassung (2026-04-26):** MapLibre/`react-map-gl`-Integration, Tile-Proxy und Karten-Klick→Lat/Lon-Picker sind mit M5a vorgezogen (siehe ADR-022). M6 baut darauf auf und liefert die volle Listen-/Filter-/Popup-UX.
+
 **Deliverables:**
-- MapLibre GL JS via `react-map-gl` integriert.
-- MapTiler-API-Key serverseitig verwaltet, ggf. über Backend-Proxy ausgeliefert.
+- ~~MapLibre GL JS via `react-map-gl` integriert.~~ (in M5a erledigt)
+- ~~MapTiler-API-Key serverseitig verwaltet, ggf. über Backend-Proxy ausgeliefert.~~ (in M5a erledigt)
 - Marker-Darstellung aller für den Nutzer sichtbaren Events.
 - Popup mit Kurzinfo + Link zur Event-Detailseite.
-- Clustering bei hoher Dichte.
+- Clustering bei hoher Dichte (z. B. via `supercluster`).
 - Filter: Zeitraum, Beteiligte (gemäß RLS).
 - Kartenzustand (Viewport) URL-persistiert.
-- Grundlage für Eingabe-Use-Case aus M5: Karten-Klick liefert Lat/Lon zurück.
+- **Geocoding-Proxy** `GET /api/geocode?q=...` als MapTiler-Wrapper, eingeloggt erforderlich.
+- ~~Grundlage für Eingabe-Use-Case aus M5: Karten-Klick liefert Lat/Lon zurück.~~ (in M5a als `LocationPickerMap` erledigt)
+- Optional: Refactor von `LocationPickerMap` zur Basis der `MapView` oder beide eigenständig — Entscheidung in M6, freigabefrei.
 
 **Akzeptanzkriterien:**
 - Events erscheinen als Marker.

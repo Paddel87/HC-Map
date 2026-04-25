@@ -47,6 +47,8 @@ Status-Legende:
 | ADR-019 | Implementierungsstrategie M2 (Auth, CSRF, RLS-Mechanik)         | Accepted | 2026-04-25  |
 | ADR-020 | Implementierungsstrategie M3 (Domain-API, Search, Export)       | Accepted | 2026-04-25  |
 | ADR-021 | Implementierungsstrategie M4 (Frontend-Grundgerüst, Auth-Flow)  | Accepted | 2026-04-25  |
+| ADR-022 | LocationPicker und Tile-Proxy in M5a vorgezogen                 | Accepted | 2026-04-26  |
+| ADR-023 | App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)        | Accepted | 2026-04-26  |
 
 ---
 
@@ -1364,6 +1366,199 @@ Verhalten; für die Browser-Seite werden elf Detail-Entscheidungen fixiert.
 - F2 (Drawer/Hamburger): kollidiert mit ADR-011 — Live-Modus braucht
   schnellen Tab-Wechsel auf Mobile.
 - G2 (eigene Tailwind-Class-Strategie): Hydration-Risiko, mehr Code.
+
+---
+
+## ADR-022 — LocationPicker und Tile-Proxy in M5a vorgezogen
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** M5a verlangt im Live-Modus eine GPS-Vorbelegung mit
+„Tap-to-Adjust"-Korrektur auf einer Karte (siehe `fahrplan.md` §M5a,
+Akzeptanzkriterium „GPS-Korrektur per Karten-Tap funktioniert"). Die
+vollständige Kartenansicht (Marker-Liste, Clustering, Filter, URL-State,
+Popup-Navigation) ist als eigener Meilenstein **M6** definiert. Ohne
+Vorentscheidung würde M5a entweder das M6-Akzeptanzkriterium reißen oder
+M5a und M6 müssten zu einem schwer abgrenzbaren Block verschmelzen.
+
+**Entscheidungen:**
+
+1. **Scope-Schnitt M5a ↔ M6 (Option A):** M5a liefert eine eigenständige,
+   minimale Komponente `LocationPickerMap`: ein einzelner verschiebbarer
+   Marker auf einer MapLibre-Karte, kein Clustering, kein Filter, kein
+   URL-Sync, kein Popup. Tap setzt `lat`/`lon` im Form-State. M6 baut
+   später die vollständige `MapView` (Marker-Liste, Clustering, Filter,
+   URL-State, Popup-Navigation) als eigene Komponente — `LocationPickerMap`
+   wird in M6 entweder als Basis ausgebaut oder bleibt eigenständig
+   bestehen, je nach Refactor-Aufwand. Verworfen wurden Option B
+   (M6 vorziehen / mit M5a verschmelzen — macht M5a unabnehmbar) und
+   Option C (Karten-Tap streichen, nur Lat/Lon-Felder + Plus Code —
+   verletzt Akzeptanzkriterium und ADR-011-UX).
+
+2. **Tile-Proxy in M5a (Option A-Folge):** Da `LocationPickerMap`
+   MapLibre-Tiles braucht, wird der in `architecture.md` §API
+   skizzierte Tile-Proxy `GET /api/tiles/{z}/{x}/{y}` aus dem M6-Scope
+   nach M5a vorgezogen. MapTiler-API-Key bleibt serverseitig in
+   `MAPTILER_API_KEY`-ENV. Implementierung: dünner FastAPI-Router
+   `app/routes/tiles.py`, der die Tile-URL bei MapTiler abruft und den
+   Body mit `Cache-Control: public, max-age=86400` durchreicht; bei
+   Upstream-Fehler 502 ohne Detail-Leak. Auth: eingeloggt erforderlich
+   (Session-Cookie); RLS-Setup nicht nötig, weil Tiles
+   nutzer-unabhängig sind.
+
+3. **MapLibre-Setup im Frontend:** `react-map-gl` + `maplibre-gl`
+   werden als Runtime-Dependencies aufgenommen (beide MIT, lizenz-
+   konform). `LocationPickerMap` lädt Tiles über
+   `process.env.NEXT_PUBLIC_TILE_URL` mit Default
+   `'/api/tiles/{z}/{x}/{y}'` (Same-Origin, Cookies werden mitgesendet).
+   Map-Style: das in MapTiler kostenlos verfügbare „basic-v2" oder
+   Vergleichbares; finale Style-Wahl erfolgt während der Implementierung,
+   ohne ADR.
+
+4. **Geocoding bewusst nicht in M5a:** MapTiler-Geocoding-Proxy
+   (`GET /api/geocode?q=...`) bleibt im M6-Scope. Im Live-Modus reicht
+   GPS + manueller Tap; Adress-Suche ist sekundär.
+
+5. **M6-Restscope:** M6 deckt weiterhin Marker-Liste aller sichtbaren
+   Events, Clustering, Zeitraum- und Personen-Filter, URL-State des
+   Viewports, Popup mit Detail-Link sowie den Geocoding-Proxy ab. Die
+   Tile-Auslieferung ist mit M5a bereits erledigt.
+
+**Konsequenzen:**
+
+- M5a wird um `LocationPickerMap` (Frontend) und Tile-Proxy (Backend)
+  erweitert. Aufwand überschaubar (~1 Komponente + 1 Route +
+  Tile-Caching).
+- M6 wird kleiner, weil Tile-Auslieferung schon vorhanden ist. M6
+  konzentriert sich auf Listen-/Filter-/Popup-UX.
+- Frontend bekommt zwei neue Runtime-Dependencies (`react-map-gl`,
+  `maplibre-gl`). Beide sind in `project-context.md` §3 als „empfohlen"
+  geführt — keine Freigabe nötig.
+- Backend bekommt eine neue ENV-Variable `MAPTILER_API_KEY`.
+  `.env.example` und README werden in M5a entsprechend ergänzt.
+- Falls M6 später entscheidet, `LocationPickerMap` zur Basis der
+  `MapView` umzubauen, ist das ein Refactor innerhalb des
+  Frontend-Map-Moduls und freigabefrei.
+
+**Verworfene Alternativen:**
+
+- B (M6 vorziehen / verschmelzen): macht M5a unabnehmbar groß, schwer
+  testbar, schwerer Review.
+- C (kein Karten-Tap, nur Lat/Lon-Felder): verletzt M5a-Akzeptanz-
+  kriterium und ADR-11-UX (Live-Modus muss in <30s vom Tap zur ersten
+  gespeicherten Application kommen — manuelle Lat/Lon-Eingabe ist auf
+  Mobile zu langsam).
+
+---
+
+## ADR-023 — App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** ADR-015 verlangt eine clientseitige App-PIN-Sperre als
+Schutz gegen Schulterblick und kurze fremde Geräteübernahme. PIN ist
+4–6 Ziffern, wird gehasht in IndexedDB abgelegt, Inaktivitäts-Sperre
+nach 60 s, Zwangs-Logout nach 5 Fehlversuchen.
+`project-context.md` §6 lässt „PBKDF2 oder Argon2-WASM" zu. Eine
+Festlegung war offen.
+
+**Schutzziel** laut `architecture.md` §App-PIN-Sperre: UI-Sperre gegen
+Schulterblick und kurze fremde Übernahme eines **entsperrten** Geräts.
+**Nicht** im Schutzziel: forensischer Zugriff auf das entsperrte Gerät
+oder die IndexedDB. Letzteres ist Job von Geräte-Sperre und Auth-System
+(Cookie wird beim Zwangs-Logout invalidiert).
+
+**Entscheidungen:**
+
+1. **Algorithmus:** PBKDF2-SHA-256 via Web Crypto API
+   (`crypto.subtle.deriveBits`). Browser-nativ, keine externe
+   Dependency, kein WASM-Bundle.
+
+2. **Parameter:**
+   - **Iterationen:** 600.000 (OWASP-Empfehlung 2024 für PBKDF2-SHA-256).
+   - **Salt:** 16 Byte zufällig per `crypto.getRandomValues`, einmalig
+     pro User beim Setzen der PIN, in IndexedDB neben dem Hash gespeichert.
+   - **Output-Länge:** 32 Byte (256 Bit).
+   - **Encoding:** Base64 für Storage.
+
+3. **Storage-Layout in IndexedDB** (`hcmap-pin`-Object-Store, Key
+   `pin_v1`):
+   ```json
+   {
+     "version": 1,
+     "algorithm": "PBKDF2-SHA256",
+     "iterations": 600000,
+     "salt_b64": "...",
+     "hash_b64": "...",
+     "fail_count": 0,
+     "set_at": "ISO-8601"
+   }
+   ```
+   `version` und `algorithm` sind explizit, damit ein späterer Wechsel
+   auf Argon2id ohne Datenverlust möglich ist (alter Hash bleibt
+   verifizierbar, neuer wird beim nächsten erfolgreichen Entsperren mit
+   neuer Algorithmus-Variante geschrieben).
+
+4. **Vergleich:** Konstantzeit-Vergleich der Base64-Strings, um
+   Timing-Side-Channels zu vermeiden — auch wenn das Risiko in einer
+   reinen Browser-Umgebung niedrig ist.
+
+5. **Fehlversuch-Zähler:** `fail_count` wird **vor** dem Hash-Vergleich
+   inkrementiert und persistiert; bei Erfolg auf 0 zurückgesetzt. Bei
+   `fail_count >= 5` wird die App den Server-Logout-Endpoint
+   (`POST /api/auth/logout`) aufrufen und IndexedDB
+   (Pin-Store + RxDB-Daten in M5b) leeren.
+
+6. **Inaktivitäts-Timer:** Default 60 s, aus User-Profil konfigurierbar
+   (in M5a-Profil-UI). Timer-Reset bei `pointerdown`, `keydown`,
+   `visibilitychange`. Bei Timer-Ablauf wird ein Vollbild-Overlay
+   angezeigt; Navigation und Mutations werden blockiert. Implementierung
+   in einer eigenen Component `LockOverlay` plus Hook `usePinLock`.
+
+7. **Web-Worker nicht erforderlich:** PBKDF2 mit 600.000 Iterationen
+   dauert auf modernem Mobile ~300–500 ms. Das Vollbild-Overlay zeigt
+   während dieser Zeit einen Spinner. Ein Web-Worker wäre nur sinnvoll,
+   wenn die Hauptseite während des Hashings interaktiv bleiben müsste —
+   sie ist es per Design nicht.
+
+8. **Späterer Algorithmus-Wechsel:** Falls das Schutzziel später um
+   „verlorenes Gerät" erweitert wird, kann ein Folge-ADR Argon2id-WASM
+   einführen. Das `version`/`algorithm`-Feld erlaubt sanfte Migration
+   ohne erzwungenes PIN-Zurücksetzen.
+
+**Konsequenzen:**
+
+- Keine neuen externen Abhängigkeiten — `crypto.subtle` ist im
+  Browser-Standard. Kein Bundle-Overhead.
+- Konsistenz Backend/Frontend ist **algorithmisch unterschiedlich**
+  (Backend nutzt Argon2id für Login-Passwörter via pwdlib, ADR-019).
+  Das ist akzeptiert: unterschiedliche Schutzziele, unterschiedliche
+  Anforderungen. Login-Passwörter sind im worst case auch offline
+  angreifbar (Datenbank-Dump), eine PIN nicht (Server-Logout nach 5
+  Versuchen).
+- Brute-Force-Resistenz für eine 4-stellige PIN bei Datenbank-Dump-
+  Szenario ist gering (10⁴ Versuche × 300 ms = ~50 min auf einer GPU
+  noch deutlich kürzer). Das ist explizit kein Schutzziel und durch
+  den Server-Logout-Mechanismus für Online-Brute-Force gedeckt.
+- IndexedDB-Schema bekommt einen neuen Object-Store `hcmap-pin`. Wird
+  beim ersten PIN-Setzen erstellt. Migration in M5b nicht nötig
+  (RxDB-Object-Stores sind unabhängig).
+
+**Verworfene Alternativen:**
+
+- **Argon2id-WASM** (`hash-wasm` oder `argon2-browser`): überdimensioniert
+  für das dokumentierte Schutzziel; 50–200 KB WASM-Bundle, neue
+  Abhängigkeit (freigabepflichtig nach CLAUDE.md §4). Sinnvoll, wenn
+  Schutzziel um „verlorenes Gerät, IndexedDB lesbar" erweitert wird —
+  dann separater ADR.
+- **Bcrypt-JS:** weder speicherhart noch durch Web-Crypto unterstützt;
+  zusätzliche JS-Dependency ohne Vorteil.
+- **Klartext-PIN in IndexedDB:** trivial, aber bricht das minimale
+  Sicherheitsversprechen einer PIN-Sperre vollständig.
+- **PIN-Verifikation auf Server:** würde funktionieren, aber bricht
+  die Offline-Tauglichkeit (RxDB im Funkloch, ADR-017) und macht aus
+  der UI-Sperre einen vollwertigen zweiten Auth-Faktor — größere
+  Architekturwirkung als gewünscht.
 
 ---
 

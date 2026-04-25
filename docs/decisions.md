@@ -988,6 +988,80 @@ Folgende Punkte werden als ADRs dokumentiert, sobald sie in der Architekturphase
 
 ---
 
+## ADR-018 — Implementierungsstrategie M1 (Datenmodell, Migrations, Seeds, RLS-Default)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M1 setzt das in `architecture.md` §Datenmodell spezifizierte Schema
+um. Architecture-Doku lässt mehrere Implementierungsdetails offen, die für
+einen lauffähigen ersten Migrationsstand entschieden sein müssen.
+
+**Entscheidungen:**
+
+1. **Neue Backend-Dependencies** (alle MIT/BSD/Apache, lizenzkonform §6):
+   - `sqlalchemy[asyncio]>=2.0` (ADR-005 explizit)
+   - `alembic>=1.14` (ADR-005 explizit)
+   - `asyncpg>=0.30` — Standard-Async-Treiber für Postgres
+   - `geoalchemy2>=0.15` — PostGIS-Spalten in SQLAlchemy
+   - `uuid-utils>=0.10` — UUIDv7-Generation client-seitig
+   - `testcontainers[postgresql]>=4` — echtes Postgres+PostGIS in Tests
+   - `psycopg[binary]>=3.2` — Sync-Treiber für Alembic-Offline-Operationen
+
+2. **UUIDv7-Strategie:** Client-seitig via `uuid_utils.uuid7()` als
+   SQLAlchemy-`default`. Postgres 16 hat keine native v7-Funktion; eine
+   PL/pgSQL-Implementierung würde Schema-Komplexität ohne Nutzen einführen.
+
+3. **`updated_at`-Mechanik:** Postgres-Trigger `BEFORE UPDATE` pro Tabelle
+   (in der Migration). Greift auch bei direkten SQL-Schreibern (Admin,
+   data migrations) und bleibt unabhängig vom ORM.
+
+4. **RLS-Default in M1:** RLS auf allen daten-führenden Tabellen aktivieren
+   (`ENABLE` + `FORCE ROW LEVEL SECURITY`) und eine permissive Default-
+   Policy für die Anwendungs-Rolle anlegen (USING + WITH CHECK = `true`).
+   Dadurch sind RLS-Mechanik, Rolle und Connection-Setup ab M1 produktiv,
+   während die scharfen Rollen-Policies aus `architecture.md` §RLS
+   gemeinsam mit fastapi-users in M2 nachgezogen werden.
+
+5. **Anwendungs-Rolle:** Neue Postgres-Rolle `app_user` (NOLOGIN, NOSUPERUSER),
+   Eigentümer aller Anwendungs-Tabellen bleibt der Migrations-User.
+   Backend-Connections setzen `SET ROLE app_user` pro Session (genaue
+   Verdrahtung in M2 mit fastapi-users). RLS-Policies adressieren `app_user`.
+
+6. **Seed-Strategie:** Separate Skripte unter `backend/seeds/`, idempotent via
+   `INSERT ... ON CONFLICT DO NOTHING` auf den jeweiligen UNIQUE-Constraints.
+   CLI-Einstieg `uv run python -m app.seeds.run`. Architecture §Migrations
+   verbietet Seeds in Alembic explizit.
+
+7. **RestraintType-Seed-Inhalt:** In M1 nur die in `fahrplan.md` Z. 105
+   namentlich genannten Anker-Modelle (siehe `architecture.md` §Katalog-Seed),
+   plus die Material-Einträge. Die ausführliche
+   `restraint-types-seed-review.md` ist explizit als Vor-Sichtungsliste
+   markiert; ihre Übernahme passiert nach inhaltlicher Abnahme durch den
+   Admin in einem separaten Schritt.
+
+8. **Test-Infrastruktur:** Tests beziehen ihren Postgres-DSN bevorzugt aus
+   `HCMAP_TEST_DATABASE_URL`. Wenn nicht gesetzt, fällt eine Pytest-Fixture
+   auf `testcontainers` zurück (benötigt Docker). Dadurch lokale Entwicklung
+   und CI gleichermaßen möglich, ohne Code-Änderung.
+
+**Konsequenzen:**
+- M1-Migrationen sind in M2 nicht zu re-rollen: scharfe Policies werden als
+  zusätzliche Migration eingespielt, nicht durch Down-Migration ersetzt.
+- `app_user`-Rolle ist Voraussetzung für alle weiteren RLS-Tests in M2.
+- UUIDv7-Wechsel auf eine native Postgres-Funktion (z. B. nach Upgrade auf
+  Postgres 18) wäre eine reine Default-Substitution ohne Schema-Migration.
+
+**Verworfene Alternativen:**
+- B2 (PL/pgSQL-UUIDv7-Function): zu viel DB-Logik für minimalen Gewinn.
+- B3 (Vorerst v4): widerspricht `architecture.md` §Konventionen.
+- C2 (`onupdate=func.now()` ORM-seitig): greift nicht bei Direkt-SQL.
+- D2 (RLS erst in M2): Risiko, dass M1-Migration substantially geändert
+  werden muss.
+- E2 (Seeds in Alembic): widerspricht `architecture.md` §Migrations.
+- F2 (volle Sichtungsliste ohne Abnahme): widerspricht Datei-Kopfnote.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

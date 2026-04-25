@@ -3,7 +3,7 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M1--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M2--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
@@ -129,6 +129,10 @@ cp .env.example .env
 
 # Stack starten (Backend + Frontend + Postgres/PostGIS)
 docker compose -f docker/docker-compose.yml up --build
+
+# Schema migrieren und Kataloge seeden (in separater Shell)
+docker compose -f docker/docker-compose.yml exec backend alembic upgrade head
+docker compose -f docker/docker-compose.yml exec backend python -m app.seeds.run
 ```
 
 Nach dem Start (Ports sind nur an `127.0.0.1` gebunden):
@@ -142,8 +146,15 @@ Nach dem Start (Ports sind nur an `127.0.0.1` gebunden):
 ```bash
 cd backend
 uv sync
+
+# Lokal Postgres+PostGIS auf Port 5432, dann:
+export HCMAP_DATABASE_URL='postgresql+asyncpg://hcmap:hcmap@localhost:5432/hcmap'
+uv run alembic upgrade head
+uv run python -m app.seeds.run
+
 uv run uvicorn app.main:app --reload --port 8000
-uv run pytest
+# Tests gegen einen Test-Postgres:
+HCMAP_TEST_DATABASE_URL='postgresql+psycopg://...' uv run pytest
 uv run ruff check .
 uv run mypy app
 ```

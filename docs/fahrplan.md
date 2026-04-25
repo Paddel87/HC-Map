@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-25
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M0 abgeschlossen)
-- **Nächster Schritt:** M1 — Datenbank-Schema & Migrations (Datenmodell-Freigabe bereits erteilt; ADR-018 für Anpassungen wird mit M1-Beginn angelegt)
+- **Aktiver Schritt:** keiner (M1 abgeschlossen)
+- **Nächster Schritt:** M2 — Auth & User-Management (Backend) (baut die scharfen RLS-Policies auf der M1-Default-Policy auf, integriert fastapi-users und ergänzt das User-Modell um die produktive Auth-Bridge)
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -46,7 +46,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | Phase   | Meilenstein | Titel                                            | Status      |
 |---------|-------------|--------------------------------------------------|-------------|
 | 1 MVP   | M0          | Projekt-Setup                                    | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [OFFEN]     |
+| 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [OFFEN]     |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [OFFEN]     |
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [OFFEN]     |
@@ -129,6 +129,33 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Model-Unit-Tests bestätigen Constraints und Beziehungen.
 
 **Abhängigkeiten:** M0.
+
+**Status `[ERLEDIGT]` 2026-04-25:**
+- 10 SQLAlchemy-Modelle in `backend/app/models/`, alle mit UUIDv7-PK,
+  `created_at`/`updated_at`/`created_by`. `event.geom` als
+  `geography(Point, 4326)` GENERATED ALWAYS AS STORED, GIST-Index. GIN-Indizes
+  auf `to_tsvector('german', note)` für Event und Application (vorbereitet
+  für M3-Volltextsuche).
+- Alembic-Initialmigration `20260425_1700_initial`: PostGIS-Extension,
+  `app_user`-Rolle, alle Tabellen+FKs+Constraints+Indizes, `set_updated_at`-
+  Trigger via `clock_timestamp()` auf 8 Tabellen, RLS aktiv (`ENABLE`+`FORCE`)
+  mit permissiver Default-Policy auf `event`, `event_participant`,
+  `application`, `application_restraint`. Scharfe Policies pro Rolle in M2.
+- env.py unterstützt sync (psycopg) und async (asyncpg) DSN; respektiert
+  vom Caller gesetzte URL.
+- Seed-Skripte unter `backend/app/seeds/` (`run.py`, `restraint_types.py`,
+  `positions.py`): 17 RestraintTypes (Anker-Modelle laut ADR-018 F1) +
+  8 ArmPositions + 4 HandPositions + 5 HandOrientations. Idempotent via
+  UNIQUE NULLS NOT DISTINCT + `ON CONFLICT DO NOTHING`. Inhaltliche
+  Übernahme der vollständigen `docs/restraint-types-seed-review.md` ist
+  Folge-Aufgabe nach Admin-Sichtung.
+- Tests: 13/13 grün gegen Postgres 16 + PostGIS 3.4 (Migration-Smoke,
+  Schema-Inventur, RLS-Aktivierung, UNIQUE/CHECK-Constraints, Computed
+  geom, updated_at-Trigger, Seed-Idempotenz). `ruff check`,
+  `ruff format --check`, `mypy --strict` clean.
+- ADR-018 in `docs/decisions.md` dokumentiert die Implementierungs-
+  Entscheidungen (UUIDv7-Strategie, Trigger-Mechanik, RLS-Default,
+  Seed-Strategie, Test-Infrastruktur).
 
 ---
 

@@ -10,12 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.routes import current_active_user
 from app.deps import get_rls_session
 from app.models.user import User
-from app.schemas.application import ApplicationCreate, ApplicationRead
+from app.schemas.application import (
+    ApplicationCreate,
+    ApplicationLiveStart,
+    ApplicationRead,
+)
 from app.schemas.common import Page
 from app.schemas.event import (
     EventCreate,
     EventDetail,
     EventListItem,
+    EventStart,
     EventUpdate,
 )
 from app.schemas.person import PersonRead
@@ -61,6 +66,43 @@ async def create_event(
     # The creator is implicitly a participant (so they can see their own event).
     await event_svc.add_participant(session, event.id, user.person_id)
     return await _build_detail(session, event.id, user)
+
+
+@router.post(
+    "/start",
+    response_model=EventDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Start an event in Live mode (started_at = now())",
+)
+async def start_event(
+    payload: EventStart,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_rls_session),
+) -> EventDetail:
+    event = await event_svc.start_event(
+        session,
+        payload,
+        created_by=user.id,
+        creator_person_id=user.person_id,
+    )
+    return await _build_detail(session, event.id, user)
+
+
+@router.post(
+    "/{event_id}/end",
+    response_model=EventDetail,
+    summary="Finish an event in Live mode (ended_at = now(), idempotent)",
+)
+async def end_event(
+    event_id: uuid.UUID,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_rls_session),
+) -> EventDetail:
+    event = await event_svc.get_event(session, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    await event_svc.end_event(session, event)
+    return await _build_detail(session, event_id, user)
 
 
 @router.get(
@@ -162,6 +204,30 @@ async def create_application_for_event(
         created_by=user.id,
         role=user.role,
         strict=strict,
+    )
+    rt_ids = await application_svc.restraint_ids_for(session, application.id)
+    return ApplicationRead.model_validate({**application.__dict__, "restraint_type_ids": rt_ids})
+
+
+@router.post(
+    "/{event_id}/applications/start",
+    response_model=ApplicationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Start an application in Live mode (started_at = now())",
+)
+async def start_application_for_event(
+    event_id: uuid.UUID,
+    payload: ApplicationLiveStart,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_rls_session),
+) -> ApplicationRead:
+    application = await application_svc.start_application(
+        session,
+        event_id=event_id,
+        payload=payload,
+        created_by=user.id,
+        requester_person_id=user.person_id,
+        role=user.role,
     )
     rt_ids = await application_svc.restraint_ids_for(session, application.id)
     return ApplicationRead.model_validate({**application.__dict__, "restraint_type_ids": rt_ids})

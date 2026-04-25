@@ -3,7 +3,7 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M5a--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M5a.1--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
@@ -66,11 +66,11 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 | Phase | Stand |
 |---|---|
-| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt; M5a (Live-Modus) als nächstes |
+| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a.1 (Live-Endpoints + Tile-Proxy) erledigt; M5a.2 (Frontend Startseite/Suche/Export) als nächstes |
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 
-Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0–M4 sind abgeschlossen: Backend mit Schema/Migrations/RLS, Auth+CSRF+RBAC, Domain-API (Events, Applications, Persons, Catalog, Search, Throwbacks, Export), und ein Next.js-Frontend mit Login, Cookie-Session, geschütztem Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für die kommenden Meilensteine. M5a (Live-Modus) folgt als nächstes.
+Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0–M4 sind abgeschlossen: Backend mit Schema/Migrations/RLS, Auth+CSRF+RBAC, Domain-API (Events, Applications, Persons, Catalog, Search, Throwbacks, Export), und ein Next.js-Frontend mit Login, Cookie-Session, geschütztem Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für die kommenden Meilensteine. M5a.1 ergänzt sechs Backend-Live-Routen (events/start, events/{id}/end, applications/start, applications/{id}/end, persons/quick) und einen MapTiler-Tile-Proxy (`/api/tiles/{z}/{x}/{y}`). Frontend-Live-Modus folgt mit M5a.2/.3/.4.
 
 ---
 
@@ -113,7 +113,7 @@ hc-map/
 └── docs/           # Projekt-Dokumentation (siehe unten)
 ```
 
-M0–M4 sind umgesetzt: `backend/` enthält Schema, Migrations, RLS-Policies, Auth-Layer, Domain-API (44 Routen), Search/Throwbacks/Export; `frontend/` enthält Login-Flow, geschütztes Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für Dashboard, Events, Karte, Admin und Profil; `docker/` startet Postgres+PostGIS, Backend und Frontend lokal. `ops/` und der eigene Tileserver folgen mit M10/M12.
+M0–M4 + M5a.1 sind umgesetzt: `backend/` enthält Schema, Migrations, RLS-Policies, Auth-Layer, Domain-API plus Live-Endpoints und MapTiler-Tile-Proxy (insgesamt 50 Routen), Search/Throwbacks/Export; `frontend/` enthält Login-Flow, geschütztes Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für Dashboard, Events, Karte, Admin und Profil; `docker/` startet Postgres+PostGIS, Backend und Frontend lokal. `ops/` und der eigene Tileserver folgen mit M10/M12.
 
 ---
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -28,7 +29,11 @@ from app.models.catalog import (
 )
 from app.models.event import EventParticipant
 from app.models.user import UserRole
-from app.schemas.application import ApplicationCreate, ApplicationUpdate
+from app.schemas.application import (
+    ApplicationCreate,
+    ApplicationLiveStart,
+    ApplicationUpdate,
+)
 
 
 async def _ensure_approved_catalog(
@@ -132,6 +137,74 @@ async def create_application(
         session.add(ApplicationRestraint(application_id=application.id, restraint_type_id=rt_id))
     await session.flush()
     await session.refresh(application)
+    return application
+
+
+async def start_application(
+    session: AsyncSession,
+    *,
+    event_id: uuid.UUID,
+    payload: ApplicationLiveStart,
+    created_by: uuid.UUID,
+    requester_person_id: uuid.UUID,
+    role: UserRole,
+) -> Application:
+    """Create a Live-mode application (ADR-024 §B, fahrplan §M5a).
+
+    ``started_at`` is set to ``now()``. ``performer_id`` defaults to the
+    requester's person (Regel-002); ``recipient_id`` defaults to the
+    same person (self-bondage) if not supplied — UI is expected to pass
+    the chosen recipient explicitly.
+    """
+    performer_id = payload.performer_id or requester_person_id
+    recipient_id = payload.recipient_id or requester_person_id
+
+    await _ensure_approved_catalog(
+        session,
+        role=role,
+        arm_position_id=payload.arm_position_id,
+        hand_position_id=payload.hand_position_id,
+        hand_orientation_id=payload.hand_orientation_id,
+        restraint_type_ids=payload.restraint_type_ids,
+    )
+    seq = await _next_sequence_no(session, event_id)
+    application = Application(
+        event_id=event_id,
+        performer_id=performer_id,
+        recipient_id=recipient_id,
+        arm_position_id=payload.arm_position_id,
+        hand_position_id=payload.hand_position_id,
+        hand_orientation_id=payload.hand_orientation_id,
+        sequence_no=seq,
+        started_at=datetime.now(tz=UTC),
+        ended_at=None,
+        note=payload.note,
+        created_by=created_by,
+    )
+    session.add(application)
+    await session.flush()
+
+    # Auto-Participant (ADR-012)
+    await _ensure_participant(session, event_id, performer_id)
+    if recipient_id != performer_id:
+        await _ensure_participant(session, event_id, recipient_id)
+
+    for rt_id in payload.restraint_type_ids:
+        session.add(ApplicationRestraint(application_id=application.id, restraint_type_id=rt_id))
+    await session.flush()
+    await session.refresh(application)
+    return application
+
+
+async def end_application(
+    session: AsyncSession,
+    application: Application,
+) -> Application:
+    """Set ``ended_at = now()`` if not already set (idempotent)."""
+    if application.ended_at is None:
+        application.ended_at = datetime.now(tz=UTC)
+        await session.flush()
+        await session.refresh(application)
     return application
 
 

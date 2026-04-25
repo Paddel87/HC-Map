@@ -49,6 +49,7 @@ Status-Legende:
 | ADR-021 | Implementierungsstrategie M4 (Frontend-Grundgerüst, Auth-Flow)  | Accepted | 2026-04-25  |
 | ADR-022 | LocationPicker und Tile-Proxy in M5a vorgezogen                 | Accepted | 2026-04-26  |
 | ADR-023 | App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)        | Accepted | 2026-04-26  |
+| ADR-024 | Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)   | Accepted | 2026-04-26  |
 
 ---
 
@@ -1559,6 +1560,146 @@ oder die IndexedDB. Letzteres ist Job von Geräte-Sperre und Auth-System
   die Offline-Tauglichkeit (RxDB im Funkloch, ADR-017) und macht aus
   der UI-Sperre einen vollwertigen zweiten Auth-Faktor — größere
   Architekturwirkung als gewünscht.
+
+---
+
+## ADR-024 — Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** M3 lieferte das generische Domain-CRUD; die fünf Live-Modus-
+Endpunkte (`POST /api/events/start`, `POST /api/events/{id}/end`,
+`POST /api/events/{event_id}/applications/start`,
+`POST /api/applications/{id}/end`, `POST /api/persons/quick`) wurden
+laut ADR-020 §A1 bewusst in M5a verschoben. Mit ADR-022 kommt zusätzlich
+der Tile-Proxy `GET /api/tiles/{z}/{x}/{y}` in den M5a-Scope. M5a.1 setzt
+dieses Backend-Paket um.
+
+**Entscheidungen:**
+
+1. **Endpoint-Inventar (A):** Sechs Routen, alle unter `/api/`:
+   - `POST /api/events/start` (Live-Event-Anlage, ADR-011)
+   - `POST /api/events/{id}/end` (Live-Event-Beendigung, idempotent)
+   - `POST /api/events/{event_id}/applications/start` (Live-Application-
+     Anlage, ADR-011 + ADR-012)
+   - `POST /api/applications/{id}/end` (Live-Application-Beendigung,
+     idempotent)
+   - `POST /api/persons/quick` (On-the-fly-Person, ADR-014)
+   - `GET /api/tiles/{z}/{x}/{y}` (MapTiler-Proxy, ADR-022)
+
+2. **Idempotenz der End-Endpoints (B):** `end_event` und
+   `end_application` setzen `ended_at = now()` nur, wenn das Feld noch
+   `NULL` ist. Ein zweiter Aufruf liefert denselben Datensatz mit
+   demselben `ended_at` zurück. Damit überlebt der Live-Modus
+   doppelte Klicks, Reconnect-Retries und RxDB-Replay (ab M5b) ohne
+   Sonderbehandlung. Verworfen wurde 409-Conflict bei zweitem End-Call:
+   bricht idempotente HTTP-Semantik und zwingt Frontend zu Status-
+   Tracking, das es nicht braucht.
+
+3. **Auto-Participant-Wiederverwendung (C):** `start_event` ruft den in
+   M3 etablierten `add_participant` auf, um den Creator und (falls
+   gesetzt) den Recipient als `EventParticipant` zu hinterlegen.
+   `start_application` nutzt den vorhandenen `_ensure_participant` aus
+   `services/applications.py`. Keine neue DB-Logik, kein neuer Trigger.
+   Verworfen wurde eine Trigger-basierte Variante (zu schwer testbar,
+   Regel-003 hängt an der Service-Schicht).
+
+4. **Default-Performer/Recipient für Live-Applications (D):**
+   - `performer_id` fehlt → `requester_person_id` (Regel-002).
+   - `recipient_id` fehlt → `requester_person_id` (Self-Bondage als
+     Default; UI ist verantwortlich, den gewählten Recipient explizit
+     zu schicken).
+   Diese Defaults gelten **nur** für `applications/start`, nicht für
+   `applications` (M3-Pfad), weil dort beide Felder Pflicht sind.
+   Bewusst keine Pflicht-Validierung von `recipient_id ≠ performer_id`
+   im Live-Pfad — entspricht ADR-020 §I (Self-Bondage erlaubt).
+
+5. **Recipient-Vermerk auf Event (E):** `EventStart` akzeptiert ein
+   optionales `recipient_id`-Feld. Wird es übergeben, fügt `start_event`
+   die Person als Participant hinzu. **Das Event-Schema bleibt
+   unverändert** — kein neues `recipient_id`-Feld auf `event`. Die UI
+   merkt sich den ausgewählten Recipient im Client-State und füllt ihn
+   in `applications/start` ein. Verworfen wurde eine `event.recipient_id`-
+   Spalte (Schema-Migration für ein UI-Convenience-Feld; widerspricht
+   ADR-020 §A1, weil das Datenmodell rein per-Application ist).
+
+6. **Tile-Proxy-Mechanik (F, ADR-022):**
+   - Auth: `current_active_user`-Dependency. RLS-Session nicht nötig
+     (Tiles sind nutzer-unabhängig).
+   - Pfad-Parameter werden auf gültige Tile-Koordinaten validiert:
+     `z` ∈ [0, 22], `x`/`y` ≥ 0.
+   - Upstream-URL aus `MAPTILER_STYLE` und `MAPTILER_API_KEY`
+     aufgebaut: `https://api.maptiler.com/maps/{style}/{z}/{x}/{y}.png?key={key}`.
+   - HTTP-Client: `httpx.AsyncClient` als Prozess-Singleton via
+     `lru_cache(maxsize=1)`, Timeout 10 s (Connect 5 s).
+   - Antwort: `StreamingResponse` mit upstream-Content-Type und
+     `Cache-Control: public, max-age=86400` (24 h).
+   - Fehler-Mapping: Netzwerk-Exception → 502; Upstream-Status ≥ 400 →
+     502 (kein Detail-Leak des Upstream-Statuses); leerer API-Key → 503.
+
+7. **httpx als Runtime-Dependency (G):** `httpx` war bislang nur Dev-
+   Abhängigkeit (Tests). Für den Tile-Proxy zur Laufzeit wird es in
+   `[project.dependencies]` aufgenommen. Lizenz BSD-3-Clause, kompatibel
+   mit der Allow-List in `project-context.md` §6 — keine separate
+   Lizenz-Freigabe nötig.
+
+8. **CSRF und Whitelist (H):** Alle fünf Live-Endpunkte sind
+   state-changing (POST) und werden vom CSRF-Middleware-Schutz
+   abgedeckt. Der Tile-Proxy ist ein GET und durchläuft die
+   `_SAFE_METHODS`-Ausnahme automatisch. Kein Whitelist-Eintrag nötig.
+
+9. **Tests (I):** 21 neue HTTP-Tests gegen Postgres 16 + PostGIS 3.4:
+   - `test_events_live_api.py` (5): start setzt `started_at` ±2 s,
+     start mit Recipient fügt beide als Participant hinzu, end setzt
+     `ended_at`, end ist idempotent, end auf unbekannte ID → 404.
+   - `test_applications_live_api.py` (6): start setzt `started_at` und
+     `sequence_no=1`, Default-Self-Bondage ohne Recipient, sequence_no
+     inkrementiert, end setzt `ended_at`, end idempotent,
+     Auto-Participant funktioniert.
+   - `test_persons_quick_api.py` (4): admin und editor erlaubt, viewer
+     blockiert (403), `linkable=true` im Body wird ignoriert.
+   - `test_tiles_proxy.py` (6): anonym blockiert (401), kein Key → 503,
+     Erfolgsfall mit Cache-Header und Upstream-URL-Verifikation,
+     Netzwerk-Fehler → 502, Upstream-4xx → 502, Zoom out of range
+     → 422.
+   Backend-Suite: 53 → 74 Tests, alles grün. ruff und ruff format clean.
+
+10. **Scope-Abgrenzung gegen M5a.2/.3/.4 (J):**
+    - **M5a.1 (dieser ADR):** Backend-Live-Endpoints + Tile-Proxy +
+      Tests + ENV.
+    - **M5a.2:** Frontend Startseite, Suche, Export-UI — konsumiert
+      ausschließlich M3-Endpoints, keine Backend-Änderungen.
+    - **M5a.3:** Frontend Live-Modus + LocationPickerMap — konsumiert
+      die hier gebauten Endpoints + den Tile-Proxy.
+    - **M5a.4:** App-PIN-Sperre nach ADR-023, querliegend zu allen
+      Frontend-Routen, kein Backend-Anteil.
+    Trennung minimiert PR-Größe und macht Reviews abnehmbar.
+
+**Konsequenzen:**
+
+- Live-Modus-Endpoints sind ab M5a.1 produktiv. Frontend kann ohne
+  weitere Backend-Arbeit anbinden.
+- Tile-Proxy ist betriebsbereit, **aber inaktiv ohne Key** — leerer
+  `HCMAP_MAPTILER_API_KEY` liefert 503. Das ist gewollt: Vor M11 muss
+  im Deployment der Key konfiguriert werden, sonst zeigt das Frontend
+  „Karte nicht verfügbar".
+- mypy meldet weiterhin den vorbestehenden M2-Fehler in
+  `app/auth/routes.py:20` (TypeVar `models.UP` vs. eigenes User). Der
+  Fehler ist nicht durch M5a.1 verursacht und liegt im M2-Modul; eine
+  Korrektur wäre Scope-Erweiterung in fremde Modulgrenze (CLAUDE.md
+  §6 + §8). Wird separat aufzulösen sein, sobald jemand am Auth-Modul
+  arbeitet.
+
+**Verworfene Alternativen:**
+
+- B2 (409-Conflict bei doppeltem End-Call): bricht HTTP-Idempotenz.
+- C2 (DB-Trigger für Auto-Participant): widerspricht ADR-020 §E2.
+- E2 (`event.recipient_id`-Spalte): Schema-Migration für UI-Komfort
+  ohne Datenmodell-Bedarf.
+- F2 (Tile-Proxy ohne lru_cache): jede Anfrage mit neuem
+  `httpx.AsyncClient`-Instance — Verbindungs-Pool-Verlust.
+- G2 (httpx in dev-Group lassen + Production-Imports): bricht Runtime
+  in der Produktion.
 
 ---
 

@@ -9,6 +9,40 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5a.1 — Backend-Live-Endpoints + Tile-Proxy:** Sechs neue Backend-
+  Routen für die Live-Erfassung (Fahrplan §M5a, ADR-022/-024).
+  - `POST /api/events/start` setzt `started_at = now()`, fügt den Creator
+    automatisch als Participant hinzu und nimmt optional einen Recipient
+    direkt mit auf.
+  - `POST /api/events/{id}/end` und `POST /api/applications/{id}/end`
+    sind idempotent: ein zweiter Aufruf ändert `ended_at` nicht.
+  - `POST /api/events/{event_id}/applications/start` startet eine
+    Application mit `started_at = now()`, vergibt `sequence_no`
+    automatisch und füllt `performer_id`/`recipient_id` mit dem
+    eingeloggten User vor (Regel-002, Self-Bondage als Default).
+  - `POST /api/persons/quick` (admin + editor): On-the-fly-Person
+    mit `origin = on_the_fly`, `linkable = false` (Regel-004).
+  - `GET /api/tiles/{z}/{x}/{y}` als MapTiler-Proxy mit
+    server-seitigem API-Key, `Cache-Control: public, max-age=86400`,
+    Auth-Pflicht. Pfad-Parameter werden auf gültige Tile-Koordinaten
+    geprüft (`z` 0–22, `x`/`y` ≥ 0).
+  - 21 neue HTTP-Tests (test_events_live_api, test_applications_live_api,
+    test_persons_quick_api, test_tiles_proxy). Backend-Suite jetzt
+    74/74 grün gegen Postgres 16 + PostGIS 3.4.
+  - Neue ENV-Variablen `HCMAP_MAPTILER_API_KEY` und
+    `HCMAP_MAPTILER_STYLE` (Default `basic-v2`); leerer Key gibt 503.
+  - `httpx` aus den Dev- in die Runtime-Dependencies verschoben (für
+    den Tile-Proxy zur Laufzeit).
+  - ADR-024 dokumentiert die acht Detail-Entscheidungen
+    (Endpoint-Inventar, Idempotenz, Auto-Participant-Reuse, Tile-Proxy-
+    Mechanik, Default-Performer/-Recipient, ENV-Schalter, Tests, Scope-
+    Abgrenzung gegen M5a.2/.3/.4).
+- **M5a-Vorbereitung — ADR-022/-023:** ADR-022 zieht den minimalen
+  `LocationPicker` und den Tile-Proxy aus M6 in M5a vor; M6 reduziert
+  sich auf Marker-Liste, Clustering, Filter, URL-State und Geocoding.
+  ADR-023 legt das App-PIN-Hashing auf PBKDF2-SHA-256 (Web Crypto API,
+  600.000 Iterationen, 16-Byte-Salt) fest — keine neue Abhängigkeit.
+
 - **M4 — Frontend-Grundgerüst & Auth-Flow:** Login-, Logout- und
   geschütztes Layout produktiv. `lib/api.ts` als typisierter
   fetch-Wrapper mit `credentials: 'include'`, automatischer

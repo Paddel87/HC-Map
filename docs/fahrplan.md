@@ -27,9 +27,10 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M4 abgeschlossen)
-- **Nächster Schritt:** M5a — Event-Erfassung Live-Modus (Scope erweitert per ADR-022/-023)
+- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.1 [ERLEDIGT] 2026-04-26**
+- **Nächster Schritt:** M5a.2 — Frontend Startseite, Suche, Export-UI
 - **Offene STOPP-Situationen:** keine
+- **Offene Beobachtungen:** mypy `app/auth/routes.py:20` meldet einen vorbestehenden Fehler (Value of type variable "models.UP" of "FastAPIUsers" cannot be "User"). Der Fehler liegt im M2-Modul, ist nicht durch M5a.1 verursacht und wird separat aufgelöst, sobald jemand am Auth-Modul arbeitet (siehe ADR-024 §Konsequenzen).
 
 ## Überblick
 
@@ -50,7 +51,11 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [OFFEN]     |
+| 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [IN ARBEIT] |
+| 1 MVP   | M5a.1       | └─ Backend-Live-Endpoints + Tile-Proxy           | [ERLEDIGT] 2026-04-26 |
+| 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [OFFEN]     |
+| 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [OFFEN]     |
+| 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
@@ -377,6 +382,34 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Lückenberechnung: zwischen Application[i].ended_at und Application[i+1].started_at sichtbar in der Detailansicht.
 
 **Abhängigkeiten:** M3, M4.
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5a.1, Backend-Anteil):**
+- Sechs neue Backend-Routen produktiv (`app/routes/events.py:start/end`,
+  `app/routes/applications.py:end`, geschachteltes `applications/start`
+  in `events.py`, `app/routes/persons.py:quick`, neuer
+  `app/routes/tiles.py`). Insgesamt jetzt 50 Routen unter `/api/`.
+- Service-Layer-Erweiterungen: `events.start_event/end_event`,
+  `applications.start_application/end_application`,
+  `persons.quick_create_person`. End-Funktionen sind idempotent.
+- Default-Performer/Recipient-Logik im Live-Pfad (Regel-002 +
+  Self-Bondage-Default), Auto-Participant-Reuse aus M3, Catalog-
+  Approval-Check unverändert.
+- MapTiler-Tile-Proxy mit serverseitigem API-Key,
+  `Cache-Control: public, max-age=86400`, Auth-Pflicht, Pfad-Param-
+  Validierung (`z` 0–22). Empty-Key → 503, Upstream-Fehler → 502.
+- 21 neue HTTP-Tests (test_events_live_api: 5, test_applications_live_api:
+  6, test_persons_quick_api: 4, test_tiles_proxy: 6). Backend-Suite
+  74/74 grün gegen Postgres 16 + PostGIS 3.4. ruff check + ruff
+  format --check clean. mypy meldet einen vorbestehenden M2-Fehler in
+  `app/auth/routes.py:20` (außerhalb M5a.1-Scope).
+- Neue ENV-Variablen: `HCMAP_MAPTILER_API_KEY` (leer = Proxy
+  deaktiviert) und `HCMAP_MAPTILER_STYLE` (Default `basic-v2`).
+  `.env.example` aktualisiert.
+- `httpx` aus Dev-Group in Runtime-Dependencies verschoben (Tile-Proxy
+  zur Laufzeit). `uv.lock` aktualisiert.
+- ADR-024 dokumentiert die zehn Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a.1-erledigt`, CHANGELOG-Eintrag,
+  Projektstatus-Tabelle aktualisiert.
 
 ---
 

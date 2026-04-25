@@ -9,6 +9,29 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M3 — Event- und Application-API (Backend):** Vollständige Domain-CRUD
+  unter `/api/events`, `/api/applications`, `/api/persons` (admin-only
+  Schreibzugriff plus Anonymisierung gemäß ADR-002), vier Catalog-Pfade
+  mit Vorschlags-/Approve-Workflow, Volltextsuche `/api/search` (German
+  tsvector über Event- und Application-Notes), Throwbacks
+  `/api/throwbacks/today`, JSON- und CSV-Exporte
+  (`/api/export/me`, `/api/export/me/events.csv`,
+  `/api/export/me/applications.csv`, `/api/admin/export/all`).
+  44 Endpunkte gesamt, alle RLS-konform via `get_rls_session`.
+- Service-Layer unter `backend/app/services/` (events, applications,
+  persons, catalog, search, exports, plus_code, masking) kapselt
+  Business-Regeln: Auto-Participant nach ADR-012, server-vergebene
+  `sequence_no`, approved-only-Catalog-Refs für Editor, kontextabhängige
+  Personen-Maskierung bei `reveal_participants=false`, server-seitige
+  Plus-Code-Berechnung via `openlocationcode`.
+- 53/53 Tests grün, davon 22 neue M3-HTTP-Tests
+  (test_events_api, test_applications_api, test_persons_api,
+  test_catalog_api, test_search_export_api). ruff, mypy --strict, format
+  alle clean.
+- ADR-020 dokumentiert die Implementierungs-Entscheidungen
+  (Scope-Schnitt M3↔M5a, Pagination, Service-Layer, Auto-Participant,
+  Plus-Code, Volltextsuche, Maskierung, Export-Format).
+
 - **M2 — Auth & User-Management (Backend):** fastapi-users-Integration mit
   HttpOnly-Cookie + JWT (Cookie-Name `hcmap_session`), Argon2id-Hashing
   (OWASP-2024-Defaults), Login/Logout/Me/Forgot-Password/Reset-Password,

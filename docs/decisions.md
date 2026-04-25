@@ -1152,6 +1152,97 @@ Grobgerüst; mehrere Detailentscheidungen sind für M2 zu fixieren.
 
 ---
 
+## ADR-020 — Implementierungsstrategie M3 (Domain-API, Service-Layer, Search, Export)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M3 setzt die Domain-CRUD-API plus Volltextsuche, Throwbacks
+und Export um. `architecture.md` §API-Vertrag liefert das Grobgerüst, M3
+braucht konkrete Festlegungen zu Scope-Schnitt, Struktur und Hilfsverhalten.
+
+**Entscheidungen:**
+
+1. **Scope-Schnitt M3 ↔ M5a (A1):** M3 deckt nur die generischen
+   CRUD-Endpunkte. Live-Modus-Spezialisierungen
+   (`POST /api/events/start`, `/end`, `/applications/start`, `/end`,
+   `POST /api/persons/quick`) ziehen mit M5a, weil sie an die UI-Mechanik
+   koppeln.
+
+2. **Endpunkt-Inventar (B):** `/api/events`, `/api/applications`,
+   `/api/persons`, `/api/restraint-types` + drei weitere Catalog-Pfade,
+   `/api/search`, `/api/throwbacks/today`, `/api/export/me`,
+   `/api/admin/export/all`. Persons-Schreibzugriff admin-only;
+   Anonymisierungs-Endpoint `POST /api/persons/{id}/anonymize`.
+
+3. **Pagination (C1):** Offset/Limit mit `?limit=50&offset=0` (Default 50,
+   Max 200). Response-Hülle `{items, total, limit, offset}`. Cursor-
+   Pagination wäre für <5000 Events Overkill und kann später ohne
+   API-Vertragsbruch als zusätzlicher Modus ergänzt werden.
+
+4. **Service-Layer (D1):** Module unter `backend/app/services/`. Routes
+   bleiben dünn (Pydantic-Validierung + Auth-Dependency + Service-
+   Aufruf). Services kapseln SQL/ORM und Business-Regeln. Erleichtert
+   Tests und CLI-Wiederverwendung (Bootstrap, w3w-Migration).
+
+5. **Auto-Participant-Regel (E1, ADR-012):** Service-Layer
+   (`applications.create`) fügt Performer und Recipient implizit als
+   `EventParticipant` ein, wenn nicht schon vorhanden. Reversibel,
+   testbar, kein DB-Trigger.
+
+6. **Plus-Code (F):** Neues Paket `openlocationcode>=1.0` (BSD-3,
+   in `project-context.md` §3 vorgesehen). Berechnung in der Detail-
+   Response (`GET /api/events/{id}.plus_code`); nicht in Listenansicht
+   (Performance) und nicht persistiert (kein Schema-Change).
+
+7. **Volltextsuche (G):** Direkter Query gegen die GIN-Indizes aus M1
+   mit `to_tsvector('german', note) @@ plainto_tsquery('german', :q)`.
+   Liefert gemischte Liste mit `{type, id, snippet, event_id?}`. RLS
+   greift automatisch via `app_user_can_see_event`. Pagination wie C1.
+
+8. **Personenmaskierung (H):** Service-Layer ersetzt Person-Felder
+   (`name`, `alias`) durch Platzhalter (`"[verborgen]"`) in Events mit
+   `reveal_participants=false`, **außer** der anfragende User ist
+   selbst Participant in genau diesem Event. Maskierung ist kontext-
+   abhängig und gehört nicht in eine DB-Policy.
+
+9. **Validierung (I):** Pydantic-Schemas für Request/Response;
+   `performer_id != recipient_id` als **Warning** (HTTP 422 nur, wenn
+   `?strict=true` gesetzt — Default akzeptiert Self-Bondage). Katalog-
+   Einträge in Application müssen `status='approved'` sein
+   (Service-Layer-Check). Lat/Lon zusätzlich als Pydantic-Constraint.
+
+10. **Export (J1):**
+    - JSON: `application/json`, ein Top-Level-Objekt mit
+      Versionsfeld, Sektionen `events`, `applications`,
+      `event_participants`, `application_restraints`,
+      `restraint_types` (nur referenzierte). Nicht-streaming.
+    - CSV: pro Entität ein eigener Endpoint
+      (`/api/export/me/events.csv`, `/applications.csv`).
+      `StreamingResponse`, ein Header pro Datei.
+    - Admin-Export setzt RLS aus über die Admin-Rolle.
+
+11. **OpenAPI-Doku:** alle Routes mit `summary`, `description`,
+    `response_model`, `tags`. Beispiele für die Request-Bodies via
+    `examples=` an den Pydantic-Feldern.
+
+**Konsequenzen:**
+- Keine Schema-Migration in M3 (Plus-Code wird nicht persistiert,
+  Volltextsuche nutzt vorhandene Indizes, RLS-Policies bleiben).
+- Service-Layer ist die Stelle, an der Auto-Participant, Maskierung,
+  Approved-Catalog-Check und Anonymisierung sitzen — Tests müssen die
+  Service-Funktionen direkt prüfen können.
+- M3 produziert ~25 Endpunkte; OpenAPI bleibt der primäre Doku-
+  Anker.
+
+**Verworfene Alternativen:**
+- E2 (DB-Trigger Auto-Participant): koppelt Geschäftslogik an Postgres,
+  schwer zu testen.
+- Cursor-Pagination: Overengineering für Pfad A.
+- Plus-Code als generated column: würde Schema-Migration erfordern und
+  bei späterem Plus-Code-Algorithmus-Wechsel weitere Migration.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

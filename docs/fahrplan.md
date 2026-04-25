@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-25
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M2 abgeschlossen)
-- **Nächster Schritt:** M3 — Event- und Application-API (Backend)
+- **Aktiver Schritt:** keiner (M3 abgeschlossen)
+- **Nächster Schritt:** M4 — Frontend-Grundgerüst & Auth-Flow
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -48,7 +48,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M0          | Projekt-Setup                                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M3          | Event- und Application-API (Backend)             | [OFFEN]     |
+| 1 MVP   | M3          | Event- und Application-API (Backend)             | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [OFFEN]     |
 | 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
@@ -242,9 +242,30 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Abhängigkeiten:** M2.
 
----
-
-### M4 — Frontend-Grundgerüst & Auth-Flow
+**Status `[ERLEDIGT]` 2026-04-25:**
+- 44 Endpunkte produktiv unter `app/routes/`: events (CRUD,
+  participants, nested application-create), applications (top-level
+  GET/PATCH/DELETE), persons (CRUD admin-only, anonymize), vier
+  Catalog-Pfade (list, propose, approve), search, throwbacks/today,
+  export (JSON + CSV-Streams + admin-Vollexport).
+- Service-Layer unter `app/services/` (events, applications, persons,
+  catalog, search, exports, plus_code, masking) kapselt Business-Regeln:
+  Auto-Participant nach ADR-012 fügt Performer/Recipient automatisch zu
+  EventParticipant hinzu; `sequence_no` wird server-seitig vergeben;
+  `approved`-Pflicht für Catalog-Refs in Editor-Requests; kontextabhängige
+  Personen-Maskierung bei `reveal_participants=false` mit Eigenname-
+  Ausnahme; Plus-Code via `openlocationcode>=1.0` ohne Persistenz.
+- 53 Tests grün (M0-M2 + 22 neue M3-HTTP-Tests):
+  test_events_api (5: list/create/detail/patch/delete + lat-range),
+  test_applications_api (5: sequence_no, auto-participant,
+  strict-mode, default self-bondage, patch+delete),
+  test_persons_api (4: admin-create, editor-blocked, anonymize,
+  reveal-Maskierung),
+  test_catalog_api (3: propose-pending, admin-approve, arm-position),
+  test_search_export_api (5: search, throwbacks, JSON, CSV, admin-only).
+- ruff check, ruff format, mypy --strict alle clean.
+- ADR-020 dokumentiert die zehn Detail-Entscheidungen.
+- README-Phase-Badge auf `M4-bereit`.
 
 **Ziel:** Next.js-App mit Login, geschützten Routes, Layout und Navigation.
 

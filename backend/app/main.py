@@ -16,6 +16,17 @@ from app.auth.manager import generate_csrf_token
 from app.auth.routes import build_auth_router
 from app.config import get_settings
 from app.logging import configure_logging
+from app.routes.applications import router as applications_router
+from app.routes.catalog import (
+    arm_positions_router,
+    hand_orientations_router,
+    hand_positions_router,
+    restraint_types_router,
+)
+from app.routes.events import router as events_router
+from app.routes.exports import router as exports_router
+from app.routes.persons import router as persons_router
+from app.routes.search import router as search_router
 from app.security.csrf import CSRF_COOKIE, CSRFMiddleware
 
 
@@ -87,6 +98,15 @@ def create_app() -> FastAPI:
         return HealthResponse(status="ok", environment=settings.environment)
 
     app.include_router(build_auth_router(), prefix="/api")
+    app.include_router(events_router, prefix="/api")
+    app.include_router(applications_router, prefix="/api")
+    app.include_router(persons_router, prefix="/api")
+    app.include_router(restraint_types_router, prefix="/api")
+    app.include_router(arm_positions_router, prefix="/api")
+    app.include_router(hand_positions_router, prefix="/api")
+    app.include_router(hand_orientations_router, prefix="/api")
+    app.include_router(search_router, prefix="/api")
+    app.include_router(exports_router, prefix="/api")
 
     return app
 

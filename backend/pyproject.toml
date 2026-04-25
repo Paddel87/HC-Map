@@ -20,6 +20,7 @@ dependencies = [
     "argon2-cffi>=23.1,<24",
     "pyjwt>=2.10,<3",
     "email-validator>=2.2,<3",
+    "openlocationcode>=1.0,<2",
 ]
 
 [dependency-groups]
@@ -60,6 +61,7 @@ ignore = []
 # FastAPI dependency-injection pattern uses Depends() as default value.
 "app/deps.py" = ["B008"]
 "app/auth/manager.py" = ["B008"]
+"app/routes/*.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -70,6 +72,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "openlocationcode.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"

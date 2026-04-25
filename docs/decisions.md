@@ -1062,6 +1062,187 @@ einen lauffähigen ersten Migrationsstand entschieden sein müssen.
 
 ---
 
+## ADR-019 — Implementierungsstrategie M2 (Auth, CSRF, RLS-Mechanik, Bootstrap)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M2 setzt Authentifizierung, RBAC, scharfe RLS-Policies und
+Admin-Bootstrap um. ADR-006 (fastapi-users + Cookie-Sessions) liefert das
+Grobgerüst; mehrere Detailentscheidungen sind für M2 zu fixieren.
+
+**Entscheidungen:**
+
+1. **Cookie + Token-Strategie (B1):** `CookieTransport` mit
+   `cookie_name="hcmap_session"`, `cookie_secure=True` (in dev abschaltbar
+   per Setting), `cookie_httponly=True`, `cookie_samesite="lax"`,
+   Lebensdauer 7 Tage. `JWTStrategy` mit serverseitigem
+   `HCMAP_SECRET_KEY`. Stateless — kein zusätzlicher Session-Store. DB-
+   backed Sessions wären für eine <20-Personen-Gruppe Overkill.
+
+2. **CSRF (C1):** Eigene schmale Middleware in `app/security/csrf.py`.
+   Bei erfolgreichem Login wird zusätzlich ein **nicht** HttpOnly-Cookie
+   `hcmap_csrf` mit zufälligem Token (32 Bytes URL-safe) gesetzt. Alle
+   State-Changing Methoden (`POST`, `PUT`, `PATCH`, `DELETE`) müssen den
+   identischen Wert im Header `X-CSRF-Token` mitschicken; sonst 403.
+   `GET`/`HEAD`/`OPTIONS` bleiben CSRF-frei. Auth-Login-Endpoint und
+   `/api/health` sind whitelisted. Kein zusätzliches Paket.
+
+3. **Argon2id-Parameter (D):** OWASP-Empfehlung 2024 — `time_cost=2`,
+   `memory_cost=19456` (≈19 MiB), `parallelism=1`, `hash_len=32`,
+   `salt_len=16`. Konfigurierbar über `Settings` (`HCMAP_ARGON2_*`),
+   damit Tests schnellere Parameter setzen können. Mindest-
+   Passwortlänge 12 Zeichen, kein Maximum (project-context.md §6).
+
+4. **RLS-Mechanik (E1):** Pro Request öffnet das Backend eine neue
+   Transaktion (`BEGIN`), setzt `SET LOCAL ROLE app_user` und drei GUCs
+   (`app.current_user_id`, `app.current_role`, `app.current_person_id`).
+   Bei Ende der Transaktion verfallen alle `SET LOCAL`-Werte automatisch.
+   Implementiert in `app/rls.py` als FastAPI-Dependency, die statt
+   `get_session` (M1) verwendet wird, sobald Auth aktiv ist. Anonyme
+   Endpoints (Health, Auth-Login) nutzen `get_session` ohne RLS-Setup.
+
+5. **Scharfe RLS-Policies (F):** Eine zweite Alembic-Migration ersetzt
+   die permissiven Default-Policies aus M1 1:1 mit den per-Rolle-Policies
+   aus `architecture.md` §RLS:
+   - Event: admin alle, editor/viewer SELECT nur als Participant,
+     editor INSERT/UPDATE/DELETE nur eigene.
+   - EventParticipant + Application + ApplicationRestraint spiegeln das
+     Event-RLS via Sub-Selects.
+   - Catalog-Tabellen (RestraintType, ArmPosition, HandPosition,
+     HandOrientation): admin alle, editor approved+eigene pending,
+     viewer nur approved.
+   Person bleibt ohne DB-RLS; Maskierung von `name` läuft als
+   Service-Logik, weil sie kontextabhängig ist (siehe architecture.md).
+
+6. **RBAC (`require_role`):** FastAPI-Dependency-Factory in
+   `app/deps.py`. Akzeptiert eine oder mehrere Rollen, prüft den per
+   `current_user`-Dependency geladenen User und wirft 403 bei
+   Mismatch. Liefert den User-Objekt durch.
+
+7. **Bootstrap-CLI (G1):** `backend/scripts/bootstrap_admin.py`,
+   ausführbar via `uv run python -m scripts.bootstrap_admin`. Stdlib
+   `argparse`. Idempotent: legt eine Person + den ersten Admin-User an,
+   wenn noch keiner existiert; sonst Exit 1 mit klarer Meldung. Liest
+   E-Mail/Passwort/Name aus Argumenten oder ENV (`HCMAP_BOOTSTRAP_*`).
+
+8. **Mail-Stub (H):** `app/auth/mail.py` mit Interface
+   `EmailBackend.send(...)`. Default-Implementation `LoggingBackend`
+   schreibt strukturiertes Log mit Reset-Token-URL — kein PII jenseits
+   der ohnehin nötigen Adresse. Echter SMTP-Backend wird vor M11
+   eingespielt (Querschnittsaufgabe).
+
+**Abgrenzung gegen M2:** Frontend-Auth-Flow (Login-Seite, Hooks) ist
+**M4**. RLS-Tests in M2 testen ausschließlich auf API-/SQL-Ebene.
+
+**Konsequenzen:**
+- RLS-Policies sind ab M2 produktiv und werden von M3+ vorausgesetzt.
+- Connection-Pool-Konfiguration: jede Anfrage öffnet eine eigene
+  Transaktion mit `SET LOCAL`. Pool-Mode: kein expliziter
+  PgBouncer-Modus nötig, weil Transaktions-Pooling SET LOCAL respektiert.
+- HCMAP_SECRET_KEY wird zur Pflichtvariable. `.env.example` ergänzt.
+- Alle Tests, die DB schreiben, müssen entweder als Admin agieren oder
+  eine Test-Fixture nutzen, die GUCs richtig setzt.
+
+**Verworfene Alternativen:**
+- B2 (DB-backed Sessions): Komplexität ohne Mehrwert in Phase 1.
+- C2 (`fastapi-csrf-protect`): externe Dependency für ein paar Zeilen
+  Logik nicht gerechtfertigt.
+- E2 (Pool-weit `SET ROLE`): Risiko von GUC-Leaks zwischen Requests.
+- G2 (Click/Typer-CLI): zusätzliche Abhängigkeit für ein einziges Skript.
+
+---
+
+## ADR-020 — Implementierungsstrategie M3 (Domain-API, Service-Layer, Search, Export)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M3 setzt die Domain-CRUD-API plus Volltextsuche, Throwbacks
+und Export um. `architecture.md` §API-Vertrag liefert das Grobgerüst, M3
+braucht konkrete Festlegungen zu Scope-Schnitt, Struktur und Hilfsverhalten.
+
+**Entscheidungen:**
+
+1. **Scope-Schnitt M3 ↔ M5a (A1):** M3 deckt nur die generischen
+   CRUD-Endpunkte. Live-Modus-Spezialisierungen
+   (`POST /api/events/start`, `/end`, `/applications/start`, `/end`,
+   `POST /api/persons/quick`) ziehen mit M5a, weil sie an die UI-Mechanik
+   koppeln.
+
+2. **Endpunkt-Inventar (B):** `/api/events`, `/api/applications`,
+   `/api/persons`, `/api/restraint-types` + drei weitere Catalog-Pfade,
+   `/api/search`, `/api/throwbacks/today`, `/api/export/me`,
+   `/api/admin/export/all`. Persons-Schreibzugriff admin-only;
+   Anonymisierungs-Endpoint `POST /api/persons/{id}/anonymize`.
+
+3. **Pagination (C1):** Offset/Limit mit `?limit=50&offset=0` (Default 50,
+   Max 200). Response-Hülle `{items, total, limit, offset}`. Cursor-
+   Pagination wäre für <5000 Events Overkill und kann später ohne
+   API-Vertragsbruch als zusätzlicher Modus ergänzt werden.
+
+4. **Service-Layer (D1):** Module unter `backend/app/services/`. Routes
+   bleiben dünn (Pydantic-Validierung + Auth-Dependency + Service-
+   Aufruf). Services kapseln SQL/ORM und Business-Regeln. Erleichtert
+   Tests und CLI-Wiederverwendung (Bootstrap, w3w-Migration).
+
+5. **Auto-Participant-Regel (E1, ADR-012):** Service-Layer
+   (`applications.create`) fügt Performer und Recipient implizit als
+   `EventParticipant` ein, wenn nicht schon vorhanden. Reversibel,
+   testbar, kein DB-Trigger.
+
+6. **Plus-Code (F):** Neues Paket `openlocationcode>=1.0` (BSD-3,
+   in `project-context.md` §3 vorgesehen). Berechnung in der Detail-
+   Response (`GET /api/events/{id}.plus_code`); nicht in Listenansicht
+   (Performance) und nicht persistiert (kein Schema-Change).
+
+7. **Volltextsuche (G):** Direkter Query gegen die GIN-Indizes aus M1
+   mit `to_tsvector('german', note) @@ plainto_tsquery('german', :q)`.
+   Liefert gemischte Liste mit `{type, id, snippet, event_id?}`. RLS
+   greift automatisch via `app_user_can_see_event`. Pagination wie C1.
+
+8. **Personenmaskierung (H):** Service-Layer ersetzt Person-Felder
+   (`name`, `alias`) durch Platzhalter (`"[verborgen]"`) in Events mit
+   `reveal_participants=false`, **außer** der anfragende User ist
+   selbst Participant in genau diesem Event. Maskierung ist kontext-
+   abhängig und gehört nicht in eine DB-Policy.
+
+9. **Validierung (I):** Pydantic-Schemas für Request/Response;
+   `performer_id != recipient_id` als **Warning** (HTTP 422 nur, wenn
+   `?strict=true` gesetzt — Default akzeptiert Self-Bondage). Katalog-
+   Einträge in Application müssen `status='approved'` sein
+   (Service-Layer-Check). Lat/Lon zusätzlich als Pydantic-Constraint.
+
+10. **Export (J1):**
+    - JSON: `application/json`, ein Top-Level-Objekt mit
+      Versionsfeld, Sektionen `events`, `applications`,
+      `event_participants`, `application_restraints`,
+      `restraint_types` (nur referenzierte). Nicht-streaming.
+    - CSV: pro Entität ein eigener Endpoint
+      (`/api/export/me/events.csv`, `/applications.csv`).
+      `StreamingResponse`, ein Header pro Datei.
+    - Admin-Export setzt RLS aus über die Admin-Rolle.
+
+11. **OpenAPI-Doku:** alle Routes mit `summary`, `description`,
+    `response_model`, `tags`. Beispiele für die Request-Bodies via
+    `examples=` an den Pydantic-Feldern.
+
+**Konsequenzen:**
+- Keine Schema-Migration in M3 (Plus-Code wird nicht persistiert,
+  Volltextsuche nutzt vorhandene Indizes, RLS-Policies bleiben).
+- Service-Layer ist die Stelle, an der Auto-Participant, Maskierung,
+  Approved-Catalog-Check und Anonymisierung sitzen — Tests müssen die
+  Service-Funktionen direkt prüfen können.
+- M3 produziert ~25 Endpunkte; OpenAPI bleibt der primäre Doku-
+  Anker.
+
+**Verworfene Alternativen:**
+- E2 (DB-Trigger Auto-Participant): koppelt Geschäftslogik an Postgres,
+  schwer zu testen.
+- Cursor-Pagination: Overengineering für Pfad A.
+- Plus-Code als generated column: würde Schema-Migration erfordern und
+  bei späterem Plus-Code-Algorithmus-Wechsel weitere Migration.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

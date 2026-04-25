@@ -16,6 +16,11 @@ dependencies = [
     "psycopg[binary]>=3.2,<4",
     "geoalchemy2>=0.15,<0.16",
     "uuid-utils>=0.10,<0.11",
+    "fastapi-users[sqlalchemy]>=14,<15",
+    "argon2-cffi>=23.1,<24",
+    "pyjwt>=2.10,<3",
+    "email-validator>=2.2,<3",
+    "openlocationcode>=1.0,<2",
 ]
 
 [dependency-groups]
@@ -53,6 +58,10 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["B011"]
+# FastAPI dependency-injection pattern uses Depends() as default value.
+"app/deps.py" = ["B008"]
+"app/auth/manager.py" = ["B008"]
+"app/routes/*.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -64,8 +73,12 @@ plugins = ["pydantic.mypy"]
 module = "tests.*"
 disallow_untyped_defs = false
 
+[[tool.mypy.overrides]]
+module = "openlocationcode.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "session"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

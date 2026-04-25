@@ -33,6 +33,24 @@ class Settings(BaseSettings):
         description="SQLAlchemy async DSN for Postgres+PostGIS.",
     )
 
+    # --- Auth (M2) -------------------------------------------------------
+    secret_key: str = Field(
+        default="change-me-in-production-32-bytes-minimum",
+        min_length=32,
+        description="Server-side secret used to sign session JWTs.",
+    )
+    cookie_secure: bool = Field(
+        default=True,
+        description="Set Secure flag on auth cookies. Disable only in HTTP dev.",
+    )
+    cookie_lifetime_seconds: int = Field(
+        default=60 * 60 * 24 * 7,
+        description="Session cookie / JWT lifetime in seconds (default 7 days).",
+    )
+    argon2_time_cost: int = Field(default=2)
+    argon2_memory_cost: int = Field(default=19456)
+    argon2_parallelism: int = Field(default=1)
+
 
 def get_settings() -> Settings:
     """Return a fresh Settings instance.

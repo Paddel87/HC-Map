@@ -1,4 +1,8 @@
-"""Health endpoint tests (Fahrplan: M0 acceptance criterion)."""
+"""Health endpoint tests (Fahrplan: M0 acceptance criterion).
+
+Uses ``app_with_test_db`` so the test session ENV is consistent across
+fixtures, even though /health doesn't talk to the DB.
+"""
 
 from __future__ import annotations
 

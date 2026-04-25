@@ -1062,6 +1062,96 @@ einen lauffähigen ersten Migrationsstand entschieden sein müssen.
 
 ---
 
+## ADR-019 — Implementierungsstrategie M2 (Auth, CSRF, RLS-Mechanik, Bootstrap)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M2 setzt Authentifizierung, RBAC, scharfe RLS-Policies und
+Admin-Bootstrap um. ADR-006 (fastapi-users + Cookie-Sessions) liefert das
+Grobgerüst; mehrere Detailentscheidungen sind für M2 zu fixieren.
+
+**Entscheidungen:**
+
+1. **Cookie + Token-Strategie (B1):** `CookieTransport` mit
+   `cookie_name="hcmap_session"`, `cookie_secure=True` (in dev abschaltbar
+   per Setting), `cookie_httponly=True`, `cookie_samesite="lax"`,
+   Lebensdauer 7 Tage. `JWTStrategy` mit serverseitigem
+   `HCMAP_SECRET_KEY`. Stateless — kein zusätzlicher Session-Store. DB-
+   backed Sessions wären für eine <20-Personen-Gruppe Overkill.
+
+2. **CSRF (C1):** Eigene schmale Middleware in `app/security/csrf.py`.
+   Bei erfolgreichem Login wird zusätzlich ein **nicht** HttpOnly-Cookie
+   `hcmap_csrf` mit zufälligem Token (32 Bytes URL-safe) gesetzt. Alle
+   State-Changing Methoden (`POST`, `PUT`, `PATCH`, `DELETE`) müssen den
+   identischen Wert im Header `X-CSRF-Token` mitschicken; sonst 403.
+   `GET`/`HEAD`/`OPTIONS` bleiben CSRF-frei. Auth-Login-Endpoint und
+   `/api/health` sind whitelisted. Kein zusätzliches Paket.
+
+3. **Argon2id-Parameter (D):** OWASP-Empfehlung 2024 — `time_cost=2`,
+   `memory_cost=19456` (≈19 MiB), `parallelism=1`, `hash_len=32`,
+   `salt_len=16`. Konfigurierbar über `Settings` (`HCMAP_ARGON2_*`),
+   damit Tests schnellere Parameter setzen können. Mindest-
+   Passwortlänge 12 Zeichen, kein Maximum (project-context.md §6).
+
+4. **RLS-Mechanik (E1):** Pro Request öffnet das Backend eine neue
+   Transaktion (`BEGIN`), setzt `SET LOCAL ROLE app_user` und drei GUCs
+   (`app.current_user_id`, `app.current_role`, `app.current_person_id`).
+   Bei Ende der Transaktion verfallen alle `SET LOCAL`-Werte automatisch.
+   Implementiert in `app/rls.py` als FastAPI-Dependency, die statt
+   `get_session` (M1) verwendet wird, sobald Auth aktiv ist. Anonyme
+   Endpoints (Health, Auth-Login) nutzen `get_session` ohne RLS-Setup.
+
+5. **Scharfe RLS-Policies (F):** Eine zweite Alembic-Migration ersetzt
+   die permissiven Default-Policies aus M1 1:1 mit den per-Rolle-Policies
+   aus `architecture.md` §RLS:
+   - Event: admin alle, editor/viewer SELECT nur als Participant,
+     editor INSERT/UPDATE/DELETE nur eigene.
+   - EventParticipant + Application + ApplicationRestraint spiegeln das
+     Event-RLS via Sub-Selects.
+   - Catalog-Tabellen (RestraintType, ArmPosition, HandPosition,
+     HandOrientation): admin alle, editor approved+eigene pending,
+     viewer nur approved.
+   Person bleibt ohne DB-RLS; Maskierung von `name` läuft als
+   Service-Logik, weil sie kontextabhängig ist (siehe architecture.md).
+
+6. **RBAC (`require_role`):** FastAPI-Dependency-Factory in
+   `app/deps.py`. Akzeptiert eine oder mehrere Rollen, prüft den per
+   `current_user`-Dependency geladenen User und wirft 403 bei
+   Mismatch. Liefert den User-Objekt durch.
+
+7. **Bootstrap-CLI (G1):** `backend/scripts/bootstrap_admin.py`,
+   ausführbar via `uv run python -m scripts.bootstrap_admin`. Stdlib
+   `argparse`. Idempotent: legt eine Person + den ersten Admin-User an,
+   wenn noch keiner existiert; sonst Exit 1 mit klarer Meldung. Liest
+   E-Mail/Passwort/Name aus Argumenten oder ENV (`HCMAP_BOOTSTRAP_*`).
+
+8. **Mail-Stub (H):** `app/auth/mail.py` mit Interface
+   `EmailBackend.send(...)`. Default-Implementation `LoggingBackend`
+   schreibt strukturiertes Log mit Reset-Token-URL — kein PII jenseits
+   der ohnehin nötigen Adresse. Echter SMTP-Backend wird vor M11
+   eingespielt (Querschnittsaufgabe).
+
+**Abgrenzung gegen M2:** Frontend-Auth-Flow (Login-Seite, Hooks) ist
+**M4**. RLS-Tests in M2 testen ausschließlich auf API-/SQL-Ebene.
+
+**Konsequenzen:**
+- RLS-Policies sind ab M2 produktiv und werden von M3+ vorausgesetzt.
+- Connection-Pool-Konfiguration: jede Anfrage öffnet eine eigene
+  Transaktion mit `SET LOCAL`. Pool-Mode: kein expliziter
+  PgBouncer-Modus nötig, weil Transaktions-Pooling SET LOCAL respektiert.
+- HCMAP_SECRET_KEY wird zur Pflichtvariable. `.env.example` ergänzt.
+- Alle Tests, die DB schreiben, müssen entweder als Admin agieren oder
+  eine Test-Fixture nutzen, die GUCs richtig setzt.
+
+**Verworfene Alternativen:**
+- B2 (DB-backed Sessions): Komplexität ohne Mehrwert in Phase 1.
+- C2 (`fastapi-csrf-protect`): externe Dependency für ein paar Zeilen
+  Logik nicht gerechtfertigt.
+- E2 (Pool-weit `SET ROLE`): Risiko von GUC-Leaks zwischen Requests.
+- G2 (Click/Typer-CLI): zusätzliche Abhängigkeit für ein einziges Skript.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

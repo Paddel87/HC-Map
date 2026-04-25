@@ -3,7 +3,7 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M2--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M3--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
@@ -130,9 +130,11 @@ cp .env.example .env
 # Stack starten (Backend + Frontend + Postgres/PostGIS)
 docker compose -f docker/docker-compose.yml up --build
 
-# Schema migrieren und Kataloge seeden (in separater Shell)
+# Schema migrieren, Kataloge seeden, ersten Admin anlegen (in separater Shell)
 docker compose -f docker/docker-compose.yml exec backend alembic upgrade head
 docker compose -f docker/docker-compose.yml exec backend python -m app.seeds.run
+docker compose -f docker/docker-compose.yml exec backend python -m scripts.bootstrap_admin \
+    --email admin@example.com --password change-me-12-or-more
 ```
 
 Nach dem Start (Ports sind nur an `127.0.0.1` gebunden):

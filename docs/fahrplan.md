@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-25
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M1 abgeschlossen)
-- **Nächster Schritt:** M2 — Auth & User-Management (Backend) (baut die scharfen RLS-Policies auf der M1-Default-Policy auf, integriert fastapi-users und ergänzt das User-Modell um die produktive Auth-Bridge)
+- **Aktiver Schritt:** keiner (M2 abgeschlossen)
+- **Nächster Schritt:** M3 — Event- und Application-API (Backend)
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -47,7 +47,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 |---------|-------------|--------------------------------------------------|-------------|
 | 1 MVP   | M0          | Projekt-Setup                                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M2          | Auth & User-Management (Backend)                 | [OFFEN]     |
+| 1 MVP   | M2          | Auth & User-Management (Backend)                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [OFFEN]     |
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [OFFEN]     |
 | 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [OFFEN]     |
@@ -179,6 +179,39 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Admin-Login funktioniert, User-Anlage per API möglich.
 - Nicht-Admin-User kann keine fremden Daten sehen (per SQL und per API geprüft).
 - Rollen-Wechsel verändert Sichtbarkeit wie spezifiziert.
+
+**Status `[ERLEDIGT]` 2026-04-25:**
+- fastapi-users 14 mit Cookie+JWT integriert (`app/auth/`); Argon2id über
+  pwdlib mit OWASP-2024-Defaults. Endpunkte unter `/api/auth/login`,
+  `/logout`, `/forgot-password`, `/reset-password`, `/api/users/me`.
+- `app/security/csrf.py` als Double-Submit-Token-Middleware. Login setzt
+  zusätzlich ein lesbares `hcmap_csrf`-Cookie; alle POST/PUT/PATCH/DELETE
+  außerhalb der Whitelist (Health, Login, Logout, Forgot/Reset) verlangen
+  `X-CSRF-Token`-Header.
+- `app/rls.py` + `app/deps.py:get_rls_session`/`require_role`: pro
+  Request `SET LOCAL ROLE app_user` und drei GUCs; bei Transaktionsende
+  Rollback der `SET LOCAL`-Werte automatisch.
+- Migration `20260425_1730_strict_rls`: ersetzt M1-Permissivpolicy 1:1
+  durch die Per-Rolle-Policies aus `architecture.md` §RLS für event /
+  event_participant / application / application_restraint plus Catalog-
+  Policies (admin alle, editor approved+eigene pending, viewer nur
+  approved). Zwei `SECURITY DEFINER`-Helper-Functions
+  (`app_user_can_see_event`, `app_user_owns_event`) brechen die
+  zirkuläre Policy-Evaluation event ↔ event_participant.
+- Bootstrap-CLI `scripts/bootstrap_admin.py` (idempotent) und
+  Mail-Stub `app/auth/mail.py` (LoggingBackend).
+- 31/31 Tests grün gegen Postgres 16: 8 Auth/CSRF (Login, Wrong-PW, /me,
+  Logout, CSRF blockt/erlaubt), 7 RLS pro Rolle (admin alle, editor/viewer
+  eigene Participation, editor cannot insert foreign-creator-event,
+  catalog-Sichtbarkeit), 3 RBAC (`require_role`-Faktor) plus alle M1-
+  Tests. Live-Smoke gegen lokalen Backend bestätigt: Login → Cookie+CSRF
+  gesetzt, /me → 200, PATCH ohne CSRF → 403, PATCH mit CSRF → 200,
+  Logout → 204.
+- ADR-019 dokumentiert die acht Detail-Entscheidungen (Cookie-Strategie,
+  CSRF, Argon2-Parameter, RLS-Mechanik, RLS-Policy-Struktur, RBAC,
+  Bootstrap-CLI, Mail-Stub).
+- README- und `.env.example`-Update um Auth-Variablen, Bootstrap-Aufruf,
+  Phase-Badge auf `M3-bereit`.
 
 **Abhängigkeiten:** M1.
 

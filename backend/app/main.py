@@ -1,17 +1,22 @@
 """FastAPI application entry point.
 
-M0 scope: minimal app that exposes a health endpoint so deployment and
-docker-compose wiring can be verified end-to-end. Domain routers are
-mounted in later milestones.
+M0: minimal app with /api/health.
+M2: auth (cookie + JWT), CSRF middleware, anonymous health endpoint.
+Domain routers (events, applications, …) follow in M3.
 """
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from collections.abc import Awaitable, Callable
+
+from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 
+from app.auth.manager import generate_csrf_token
+from app.auth.routes import build_auth_router
 from app.config import get_settings
 from app.logging import configure_logging
+from app.security.csrf import CSRF_COOKIE, CSRFMiddleware
 
 
 class HealthResponse(BaseModel):
@@ -21,11 +26,41 @@ class HealthResponse(BaseModel):
     environment: str
 
 
-def create_app() -> FastAPI:
-    """Build and return the FastAPI application.
+def _csrf_cookie_setter(
+    settings_secure: bool, lifetime: int
+) -> Callable[[Request, Callable[[Request], Awaitable[Response]]], Awaitable[Response]]:
+    """Issue a fresh CSRF cookie alongside ``Set-Cookie: hcmap_session``.
 
-    Factory pattern keeps test setups isolated from import-time side effects.
+    fastapi-users sets the auth cookie inside its ``/login`` handler. We
+    inspect the response right after the route runs and, if a new
+    session cookie was set, attach a matching CSRF cookie. This avoids
+    monkey-patching the auth router.
     """
+
+    async def middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path.endswith("/auth/login") and response.status_code < 400:
+            token = generate_csrf_token()
+            response.set_cookie(
+                key=CSRF_COOKIE,
+                value=token,
+                max_age=lifetime,
+                secure=settings_secure,
+                httponly=False,  # client must read it to echo in X-CSRF-Token
+                samesite="lax",
+            )
+        elif request.url.path.endswith("/auth/logout"):
+            response.delete_cookie(CSRF_COOKIE)
+        return response
+
+    return middleware
+
+
+def create_app() -> FastAPI:
+    """Build and return the FastAPI application."""
     settings = get_settings()
     configure_logging(
         level=settings.log_level,
@@ -39,9 +74,19 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
+    app.middleware("http")(
+        _csrf_cookie_setter(
+            settings_secure=settings.cookie_secure,
+            lifetime=settings.cookie_lifetime_seconds,
+        )
+    )
+    app.add_middleware(CSRFMiddleware)
+
     @app.get("/api/health", response_model=HealthResponse, tags=["meta"])
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", environment=settings.environment)
+
+    app.include_router(build_auth_router(), prefix="/api")
 
     return app
 

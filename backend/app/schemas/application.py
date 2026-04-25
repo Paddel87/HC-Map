@@ -30,6 +30,24 @@ class ApplicationCreate(ApplicationBase):
     restraint_type_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class ApplicationLiveStart(BaseModel):
+    """Body for ``POST /api/events/{event_id}/applications/start`` (ADR-024 §B).
+
+    ``started_at`` is assigned server-side. ``performer_id`` defaults to
+    the requesting user's ``person_id`` if omitted (Regel-002).
+    ``recipient_id`` defaults to the same person (self-bondage) if
+    omitted; the UI is expected to pass the chosen recipient explicitly.
+    """
+
+    performer_id: uuid.UUID | None = None
+    recipient_id: uuid.UUID | None = None
+    arm_position_id: uuid.UUID | None = None
+    hand_position_id: uuid.UUID | None = None
+    hand_orientation_id: uuid.UUID | None = None
+    note: str | None = None
+    restraint_type_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
 class ApplicationUpdate(BaseModel):
     performer_id: uuid.UUID | None = None
     recipient_id: uuid.UUID | None = None

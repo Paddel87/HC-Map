@@ -25,11 +25,12 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-25
+- **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M4 abgeschlossen)
-- **Nächster Schritt:** M5a — Event-Erfassung Live-Modus
+- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.1 [ERLEDIGT] 2026-04-26**
+- **Nächster Schritt:** M5a.2 — Frontend Startseite, Suche, Export-UI
 - **Offene STOPP-Situationen:** keine
+- **Offene Beobachtungen:** mypy `app/auth/routes.py:20` meldet einen vorbestehenden Fehler (Value of type variable "models.UP" of "FastAPIUsers" cannot be "User"). Der Fehler liegt im M2-Modul, ist nicht durch M5a.1 verursacht und wird separat aufgelöst, sobald jemand am Auth-Modul arbeitet (siehe ADR-024 §Konsequenzen).
 
 ## Überblick
 
@@ -50,7 +51,11 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [OFFEN]     |
+| 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [IN ARBEIT] |
+| 1 MVP   | M5a.1       | └─ Backend-Live-Endpoints + Tile-Proxy           | [ERLEDIGT] 2026-04-26 |
+| 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [OFFEN]     |
+| 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [OFFEN]     |
+| 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
@@ -332,14 +337,25 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Performer kann ein Event in der Situation starten, Applications live erfassen und das Event abschließen — alles vom Mobilgerät aus, mit minimaler Bedienzeit. Live-Modus ist die Hauptansicht der App (siehe ADR-011).
 
-**Deliverables:**
+**Scope-Erweiterungen (2026-04-26):** Tile-Proxy und minimale `LocationPickerMap` sind aus M6 nach M5a vorgezogen (siehe ADR-022). PIN-Hashing-Algorithmus festgelegt auf PBKDF2 via Web Crypto API (siehe ADR-023).
+
+**Backend-Anteil (fünf Live-Endpoints + Tile-Proxy):**
+- `POST /api/events/start` setzt `started_at = now()`, legt Event mit Default-Reveal-Flag an, verknüpft den Creator implizit als Participant (analog `POST /api/events`).
+- `POST /api/events/{id}/end` setzt `ended_at = now()`, mit Idempotenz-Check (zweiter Aufruf ist No-Op).
+- `POST /api/events/{event_id}/applications/start` legt eine Application mit `started_at = now()`, `sequence_no` automatisch hochgezählt; Performer-Default = `current_user.person_id`, Recipient aus Payload (oder Self-Bondage falls leer).
+- `POST /api/applications/{id}/end` setzt `ended_at = now()`, idempotent.
+- `POST /api/persons/quick` (admin + editor): legt Person mit `origin = 'on_the_fly'`, `linkable = false` an. Pflichtfeld `name`, optional `alias`. Siehe ADR-014, Regel-004.
+- **Tile-Proxy** `GET /api/tiles/{z}/{x}/{y}` (siehe ADR-022): MapTiler-Tiles über Backend mit `Cache-Control: public, max-age=86400`, Auth via Session-Cookie, MAPTILER_API_KEY serverseitig.
+
+**Frontend-Deliverables:**
 - Startseite mit großem „Neues Event starten"-Knopf, Liste der letzten Events und **„On this day"-Sektion** (siehe ADR-015), wenn Treffer vorhanden.
 - **Volltext-Suchleiste** in der Hauptnavigation, Ergebnisliste mit RLS-konformen Treffern aus Events und Applications.
-- **App-PIN-Sperre** (siehe ADR-015): User kann im Profil eine 4–6-stellige PIN setzen; UI sperrt sich nach Inaktivität (Default 60s) oder per Knopf; PIN-Eingabe entsperrt nur die UI, Server-Session bleibt; nach 5 Fehlversuchen Zwangs-Logout. Hashing clientseitig via Web Crypto API, Storage in IndexedDB.
+- **App-PIN-Sperre** (siehe ADR-015 + ADR-023): User kann im Profil eine 4–6-stellige PIN setzen; UI sperrt sich nach Inaktivität (Default 60s) oder per Knopf; PIN-Eingabe entsperrt nur die UI, Server-Session bleibt; nach 5 Fehlversuchen Zwangs-Logout. Hashing clientseitig via PBKDF2-SHA-256 (Web Crypto API, 600.000 Iterationen, 16-Byte-Salt), Storage in IndexedDB-Object-Store `hcmap-pin`.
 - **Export-UI** im Profil: „Meine Daten exportieren" (JSON/CSV).
+- **`LocationPickerMap`-Komponente** (siehe ADR-022): minimaler MapLibre-basierter Karten-Picker, ein verschiebbarer Marker, kein Clustering/Filter/URL-Sync. Tile-URL aus `NEXT_PUBLIC_TILE_URL` (Default `/api/tiles/{z}/{x}/{y}`). Wird in M6 zur vollwertigen `MapView` ausgebaut.
 - Live-Event-Anlegen-Flow:
   - GPS via Browser-Geolocation-API anfordern, Lat/Lon vorbelegen.
-  - Karte mit aktueller Position, Tap-to-Adjust für manuelle Korrektur.
+  - `LocationPickerMap` mit aktueller Position, Tap-to-Adjust für manuelle Korrektur.
   - Recipient-Auswahl aus Personen-Liste.
   - Performer = eingeloggter User per Default (siehe ADR-010).
   - `POST /api/events/start` setzt `started_at = now()`.
@@ -366,6 +382,34 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Lückenberechnung: zwischen Application[i].ended_at und Application[i+1].started_at sichtbar in der Detailansicht.
 
 **Abhängigkeiten:** M3, M4.
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5a.1, Backend-Anteil):**
+- Sechs neue Backend-Routen produktiv (`app/routes/events.py:start/end`,
+  `app/routes/applications.py:end`, geschachteltes `applications/start`
+  in `events.py`, `app/routes/persons.py:quick`, neuer
+  `app/routes/tiles.py`). Insgesamt jetzt 50 Routen unter `/api/`.
+- Service-Layer-Erweiterungen: `events.start_event/end_event`,
+  `applications.start_application/end_application`,
+  `persons.quick_create_person`. End-Funktionen sind idempotent.
+- Default-Performer/Recipient-Logik im Live-Pfad (Regel-002 +
+  Self-Bondage-Default), Auto-Participant-Reuse aus M3, Catalog-
+  Approval-Check unverändert.
+- MapTiler-Tile-Proxy mit serverseitigem API-Key,
+  `Cache-Control: public, max-age=86400`, Auth-Pflicht, Pfad-Param-
+  Validierung (`z` 0–22). Empty-Key → 503, Upstream-Fehler → 502.
+- 21 neue HTTP-Tests (test_events_live_api: 5, test_applications_live_api:
+  6, test_persons_quick_api: 4, test_tiles_proxy: 6). Backend-Suite
+  74/74 grün gegen Postgres 16 + PostGIS 3.4. ruff check + ruff
+  format --check clean. mypy meldet einen vorbestehenden M2-Fehler in
+  `app/auth/routes.py:20` (außerhalb M5a.1-Scope).
+- Neue ENV-Variablen: `HCMAP_MAPTILER_API_KEY` (leer = Proxy
+  deaktiviert) und `HCMAP_MAPTILER_STYLE` (Default `basic-v2`).
+  `.env.example` aktualisiert.
+- `httpx` aus Dev-Group in Runtime-Dependencies verschoben (Tile-Proxy
+  zur Laufzeit). `uv.lock` aktualisiert.
+- ADR-024 dokumentiert die zehn Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a.1-erledigt`, CHANGELOG-Eintrag,
+  Projektstatus-Tabelle aktualisiert.
 
 ---
 
@@ -416,15 +460,19 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Events werden auf einer Karte visualisiert.
 
+**Scope-Anpassung (2026-04-26):** MapLibre/`react-map-gl`-Integration, Tile-Proxy und Karten-Klick→Lat/Lon-Picker sind mit M5a vorgezogen (siehe ADR-022). M6 baut darauf auf und liefert die volle Listen-/Filter-/Popup-UX.
+
 **Deliverables:**
-- MapLibre GL JS via `react-map-gl` integriert.
-- MapTiler-API-Key serverseitig verwaltet, ggf. über Backend-Proxy ausgeliefert.
+- ~~MapLibre GL JS via `react-map-gl` integriert.~~ (in M5a erledigt)
+- ~~MapTiler-API-Key serverseitig verwaltet, ggf. über Backend-Proxy ausgeliefert.~~ (in M5a erledigt)
 - Marker-Darstellung aller für den Nutzer sichtbaren Events.
 - Popup mit Kurzinfo + Link zur Event-Detailseite.
-- Clustering bei hoher Dichte.
+- Clustering bei hoher Dichte (z. B. via `supercluster`).
 - Filter: Zeitraum, Beteiligte (gemäß RLS).
 - Kartenzustand (Viewport) URL-persistiert.
-- Grundlage für Eingabe-Use-Case aus M5: Karten-Klick liefert Lat/Lon zurück.
+- **Geocoding-Proxy** `GET /api/geocode?q=...` als MapTiler-Wrapper, eingeloggt erforderlich.
+- ~~Grundlage für Eingabe-Use-Case aus M5: Karten-Klick liefert Lat/Lon zurück.~~ (in M5a als `LocationPickerMap` erledigt)
+- Optional: Refactor von `LocationPickerMap` zur Basis der `MapView` oder beide eigenständig — Entscheidung in M6, freigabefrei.
 
 **Akzeptanzkriterien:**
 - Events erscheinen als Marker.

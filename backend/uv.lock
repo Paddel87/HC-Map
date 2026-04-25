@@ -377,6 +377,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastapi-users", extra = ["sqlalchemy"] },
     { name = "geoalchemy2" },
+    { name = "httpx" },
     { name = "openlocationcode" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
@@ -390,7 +391,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -407,6 +407,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<0.116" },
     { name = "fastapi-users", extras = ["sqlalchemy"], specifier = ">=14,<15" },
     { name = "geoalchemy2", specifier = ">=0.15,<0.16" },
+    { name = "httpx", specifier = ">=0.27,<0.28" },
     { name = "openlocationcode", specifier = ">=1.0,<2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "pydantic", specifier = ">=2.9,<3" },
@@ -420,7 +421,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27,<0.28" },
     { name = "mypy", specifier = ">=1.13,<2" },
     { name = "pytest", specifier = ">=8.3,<9" },
     { name = "pytest-asyncio", specifier = ">=0.24,<0.25" },

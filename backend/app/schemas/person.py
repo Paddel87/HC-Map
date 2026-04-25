@@ -31,6 +31,17 @@ class PersonCreate(BaseModel):
     linkable: bool = False
 
 
+class PersonQuickCreate(BaseModel):
+    """Body for ``POST /api/persons/quick`` (Live-mode, ADR-014 + ADR-024).
+
+    Restricted to ``name`` and optional ``alias``. The server forces
+    ``origin = on_the_fly`` and ``linkable = false`` (Regel-004).
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    alias: str | None = Field(default=None, max_length=200)
+
+
 class PersonUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     alias: str | None = Field(default=None, max_length=200)

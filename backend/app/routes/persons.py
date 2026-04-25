@@ -7,11 +7,17 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.routes import current_active_user
 from app.deps import get_rls_session, require_role
 from app.models.person import Person
 from app.models.user import User, UserRole
 from app.schemas.common import Page
-from app.schemas.person import PersonCreate, PersonRead, PersonUpdate
+from app.schemas.person import (
+    PersonCreate,
+    PersonQuickCreate,
+    PersonRead,
+    PersonUpdate,
+)
 from app.services import persons as person_svc
 
 router = APIRouter(prefix="/persons", tags=["persons"])
@@ -52,6 +58,26 @@ async def create_person(
     session: AsyncSession = Depends(get_rls_session),
 ) -> PersonRead:
     person = await person_svc.create_person(session, payload, created_by=user.id)
+    return PersonRead.model_validate(person)
+
+
+@router.post(
+    "/quick",
+    response_model=PersonRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="On-the-fly person from Live mode (admin + editor, ADR-014)",
+)
+async def quick_create_person(
+    payload: PersonQuickCreate,
+    user: User = Depends(current_active_user),
+    session: AsyncSession = Depends(get_rls_session),
+) -> PersonRead:
+    if user.role not in (UserRole.ADMIN, UserRole.EDITOR):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient role.",
+        )
+    person = await person_svc.quick_create_person(session, payload, created_by=user.id)
     return PersonRead.model_validate(person)
 
 

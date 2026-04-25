@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     argon2_memory_cost: int = Field(default=19456)
     argon2_parallelism: int = Field(default=1)
 
+    # --- Tile provider (M5a, ADR-022) ----------------------------------
+    maptiler_api_key: str = Field(
+        default="",
+        description="MapTiler Cloud API key (server-side only). Empty disables tile proxy.",
+    )
+    maptiler_style: str = Field(
+        default="basic-v2",
+        description="MapTiler map style identifier used for tile URLs.",
+    )
+
 
 def get_settings() -> Settings:
     """Return a fresh Settings instance.

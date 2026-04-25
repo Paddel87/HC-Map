@@ -25,6 +25,21 @@ class EventCreate(EventBase):
     """Body for ``POST /api/events`` (non-Live mode, see ADR-020 §A)."""
 
 
+class EventStart(BaseModel):
+    """Body for ``POST /api/events/start`` (Live-mode, see ADR-024 §B).
+
+    ``started_at`` is assigned server-side as ``now()``. Optionally a
+    recipient person can be passed in — the server then adds it as
+    ``EventParticipant`` so the UI can pre-fill subsequent live-applications.
+    """
+
+    lat: Decimal = Field(..., ge=Decimal("-90"), le=Decimal("90"))
+    lon: Decimal = Field(..., ge=Decimal("-180"), le=Decimal("180"))
+    recipient_id: uuid.UUID | None = None
+    reveal_participants: bool = False
+    note: str | None = None
+
+
 class EventUpdate(BaseModel):
     started_at: datetime | None = None
     ended_at: datetime | None = None

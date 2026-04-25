@@ -47,6 +47,9 @@ Status-Legende:
 | ADR-019 | Implementierungsstrategie M2 (Auth, CSRF, RLS-Mechanik)         | Accepted | 2026-04-25  |
 | ADR-020 | Implementierungsstrategie M3 (Domain-API, Search, Export)       | Accepted | 2026-04-25  |
 | ADR-021 | Implementierungsstrategie M4 (Frontend-Grundgerüst, Auth-Flow)  | Accepted | 2026-04-25  |
+| ADR-022 | LocationPicker und Tile-Proxy in M5a vorgezogen                 | Accepted | 2026-04-26  |
+| ADR-023 | App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)        | Accepted | 2026-04-26  |
+| ADR-024 | Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)   | Accepted | 2026-04-26  |
 
 ---
 
@@ -1364,6 +1367,339 @@ Verhalten; für die Browser-Seite werden elf Detail-Entscheidungen fixiert.
 - F2 (Drawer/Hamburger): kollidiert mit ADR-011 — Live-Modus braucht
   schnellen Tab-Wechsel auf Mobile.
 - G2 (eigene Tailwind-Class-Strategie): Hydration-Risiko, mehr Code.
+
+---
+
+## ADR-022 — LocationPicker und Tile-Proxy in M5a vorgezogen
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** M5a verlangt im Live-Modus eine GPS-Vorbelegung mit
+„Tap-to-Adjust"-Korrektur auf einer Karte (siehe `fahrplan.md` §M5a,
+Akzeptanzkriterium „GPS-Korrektur per Karten-Tap funktioniert"). Die
+vollständige Kartenansicht (Marker-Liste, Clustering, Filter, URL-State,
+Popup-Navigation) ist als eigener Meilenstein **M6** definiert. Ohne
+Vorentscheidung würde M5a entweder das M6-Akzeptanzkriterium reißen oder
+M5a und M6 müssten zu einem schwer abgrenzbaren Block verschmelzen.
+
+**Entscheidungen:**
+
+1. **Scope-Schnitt M5a ↔ M6 (Option A):** M5a liefert eine eigenständige,
+   minimale Komponente `LocationPickerMap`: ein einzelner verschiebbarer
+   Marker auf einer MapLibre-Karte, kein Clustering, kein Filter, kein
+   URL-Sync, kein Popup. Tap setzt `lat`/`lon` im Form-State. M6 baut
+   später die vollständige `MapView` (Marker-Liste, Clustering, Filter,
+   URL-State, Popup-Navigation) als eigene Komponente — `LocationPickerMap`
+   wird in M6 entweder als Basis ausgebaut oder bleibt eigenständig
+   bestehen, je nach Refactor-Aufwand. Verworfen wurden Option B
+   (M6 vorziehen / mit M5a verschmelzen — macht M5a unabnehmbar) und
+   Option C (Karten-Tap streichen, nur Lat/Lon-Felder + Plus Code —
+   verletzt Akzeptanzkriterium und ADR-011-UX).
+
+2. **Tile-Proxy in M5a (Option A-Folge):** Da `LocationPickerMap`
+   MapLibre-Tiles braucht, wird der in `architecture.md` §API
+   skizzierte Tile-Proxy `GET /api/tiles/{z}/{x}/{y}` aus dem M6-Scope
+   nach M5a vorgezogen. MapTiler-API-Key bleibt serverseitig in
+   `MAPTILER_API_KEY`-ENV. Implementierung: dünner FastAPI-Router
+   `app/routes/tiles.py`, der die Tile-URL bei MapTiler abruft und den
+   Body mit `Cache-Control: public, max-age=86400` durchreicht; bei
+   Upstream-Fehler 502 ohne Detail-Leak. Auth: eingeloggt erforderlich
+   (Session-Cookie); RLS-Setup nicht nötig, weil Tiles
+   nutzer-unabhängig sind.
+
+3. **MapLibre-Setup im Frontend:** `react-map-gl` + `maplibre-gl`
+   werden als Runtime-Dependencies aufgenommen (beide MIT, lizenz-
+   konform). `LocationPickerMap` lädt Tiles über
+   `process.env.NEXT_PUBLIC_TILE_URL` mit Default
+   `'/api/tiles/{z}/{x}/{y}'` (Same-Origin, Cookies werden mitgesendet).
+   Map-Style: das in MapTiler kostenlos verfügbare „basic-v2" oder
+   Vergleichbares; finale Style-Wahl erfolgt während der Implementierung,
+   ohne ADR.
+
+4. **Geocoding bewusst nicht in M5a:** MapTiler-Geocoding-Proxy
+   (`GET /api/geocode?q=...`) bleibt im M6-Scope. Im Live-Modus reicht
+   GPS + manueller Tap; Adress-Suche ist sekundär.
+
+5. **M6-Restscope:** M6 deckt weiterhin Marker-Liste aller sichtbaren
+   Events, Clustering, Zeitraum- und Personen-Filter, URL-State des
+   Viewports, Popup mit Detail-Link sowie den Geocoding-Proxy ab. Die
+   Tile-Auslieferung ist mit M5a bereits erledigt.
+
+**Konsequenzen:**
+
+- M5a wird um `LocationPickerMap` (Frontend) und Tile-Proxy (Backend)
+  erweitert. Aufwand überschaubar (~1 Komponente + 1 Route +
+  Tile-Caching).
+- M6 wird kleiner, weil Tile-Auslieferung schon vorhanden ist. M6
+  konzentriert sich auf Listen-/Filter-/Popup-UX.
+- Frontend bekommt zwei neue Runtime-Dependencies (`react-map-gl`,
+  `maplibre-gl`). Beide sind in `project-context.md` §3 als „empfohlen"
+  geführt — keine Freigabe nötig.
+- Backend bekommt eine neue ENV-Variable `MAPTILER_API_KEY`.
+  `.env.example` und README werden in M5a entsprechend ergänzt.
+- Falls M6 später entscheidet, `LocationPickerMap` zur Basis der
+  `MapView` umzubauen, ist das ein Refactor innerhalb des
+  Frontend-Map-Moduls und freigabefrei.
+
+**Verworfene Alternativen:**
+
+- B (M6 vorziehen / verschmelzen): macht M5a unabnehmbar groß, schwer
+  testbar, schwerer Review.
+- C (kein Karten-Tap, nur Lat/Lon-Felder): verletzt M5a-Akzeptanz-
+  kriterium und ADR-11-UX (Live-Modus muss in <30s vom Tap zur ersten
+  gespeicherten Application kommen — manuelle Lat/Lon-Eingabe ist auf
+  Mobile zu langsam).
+
+---
+
+## ADR-023 — App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** ADR-015 verlangt eine clientseitige App-PIN-Sperre als
+Schutz gegen Schulterblick und kurze fremde Geräteübernahme. PIN ist
+4–6 Ziffern, wird gehasht in IndexedDB abgelegt, Inaktivitäts-Sperre
+nach 60 s, Zwangs-Logout nach 5 Fehlversuchen.
+`project-context.md` §6 lässt „PBKDF2 oder Argon2-WASM" zu. Eine
+Festlegung war offen.
+
+**Schutzziel** laut `architecture.md` §App-PIN-Sperre: UI-Sperre gegen
+Schulterblick und kurze fremde Übernahme eines **entsperrten** Geräts.
+**Nicht** im Schutzziel: forensischer Zugriff auf das entsperrte Gerät
+oder die IndexedDB. Letzteres ist Job von Geräte-Sperre und Auth-System
+(Cookie wird beim Zwangs-Logout invalidiert).
+
+**Entscheidungen:**
+
+1. **Algorithmus:** PBKDF2-SHA-256 via Web Crypto API
+   (`crypto.subtle.deriveBits`). Browser-nativ, keine externe
+   Dependency, kein WASM-Bundle.
+
+2. **Parameter:**
+   - **Iterationen:** 600.000 (OWASP-Empfehlung 2024 für PBKDF2-SHA-256).
+   - **Salt:** 16 Byte zufällig per `crypto.getRandomValues`, einmalig
+     pro User beim Setzen der PIN, in IndexedDB neben dem Hash gespeichert.
+   - **Output-Länge:** 32 Byte (256 Bit).
+   - **Encoding:** Base64 für Storage.
+
+3. **Storage-Layout in IndexedDB** (`hcmap-pin`-Object-Store, Key
+   `pin_v1`):
+   ```json
+   {
+     "version": 1,
+     "algorithm": "PBKDF2-SHA256",
+     "iterations": 600000,
+     "salt_b64": "...",
+     "hash_b64": "...",
+     "fail_count": 0,
+     "set_at": "ISO-8601"
+   }
+   ```
+   `version` und `algorithm` sind explizit, damit ein späterer Wechsel
+   auf Argon2id ohne Datenverlust möglich ist (alter Hash bleibt
+   verifizierbar, neuer wird beim nächsten erfolgreichen Entsperren mit
+   neuer Algorithmus-Variante geschrieben).
+
+4. **Vergleich:** Konstantzeit-Vergleich der Base64-Strings, um
+   Timing-Side-Channels zu vermeiden — auch wenn das Risiko in einer
+   reinen Browser-Umgebung niedrig ist.
+
+5. **Fehlversuch-Zähler:** `fail_count` wird **vor** dem Hash-Vergleich
+   inkrementiert und persistiert; bei Erfolg auf 0 zurückgesetzt. Bei
+   `fail_count >= 5` wird die App den Server-Logout-Endpoint
+   (`POST /api/auth/logout`) aufrufen und IndexedDB
+   (Pin-Store + RxDB-Daten in M5b) leeren.
+
+6. **Inaktivitäts-Timer:** Default 60 s, aus User-Profil konfigurierbar
+   (in M5a-Profil-UI). Timer-Reset bei `pointerdown`, `keydown`,
+   `visibilitychange`. Bei Timer-Ablauf wird ein Vollbild-Overlay
+   angezeigt; Navigation und Mutations werden blockiert. Implementierung
+   in einer eigenen Component `LockOverlay` plus Hook `usePinLock`.
+
+7. **Web-Worker nicht erforderlich:** PBKDF2 mit 600.000 Iterationen
+   dauert auf modernem Mobile ~300–500 ms. Das Vollbild-Overlay zeigt
+   während dieser Zeit einen Spinner. Ein Web-Worker wäre nur sinnvoll,
+   wenn die Hauptseite während des Hashings interaktiv bleiben müsste —
+   sie ist es per Design nicht.
+
+8. **Späterer Algorithmus-Wechsel:** Falls das Schutzziel später um
+   „verlorenes Gerät" erweitert wird, kann ein Folge-ADR Argon2id-WASM
+   einführen. Das `version`/`algorithm`-Feld erlaubt sanfte Migration
+   ohne erzwungenes PIN-Zurücksetzen.
+
+**Konsequenzen:**
+
+- Keine neuen externen Abhängigkeiten — `crypto.subtle` ist im
+  Browser-Standard. Kein Bundle-Overhead.
+- Konsistenz Backend/Frontend ist **algorithmisch unterschiedlich**
+  (Backend nutzt Argon2id für Login-Passwörter via pwdlib, ADR-019).
+  Das ist akzeptiert: unterschiedliche Schutzziele, unterschiedliche
+  Anforderungen. Login-Passwörter sind im worst case auch offline
+  angreifbar (Datenbank-Dump), eine PIN nicht (Server-Logout nach 5
+  Versuchen).
+- Brute-Force-Resistenz für eine 4-stellige PIN bei Datenbank-Dump-
+  Szenario ist gering (10⁴ Versuche × 300 ms = ~50 min auf einer GPU
+  noch deutlich kürzer). Das ist explizit kein Schutzziel und durch
+  den Server-Logout-Mechanismus für Online-Brute-Force gedeckt.
+- IndexedDB-Schema bekommt einen neuen Object-Store `hcmap-pin`. Wird
+  beim ersten PIN-Setzen erstellt. Migration in M5b nicht nötig
+  (RxDB-Object-Stores sind unabhängig).
+
+**Verworfene Alternativen:**
+
+- **Argon2id-WASM** (`hash-wasm` oder `argon2-browser`): überdimensioniert
+  für das dokumentierte Schutzziel; 50–200 KB WASM-Bundle, neue
+  Abhängigkeit (freigabepflichtig nach CLAUDE.md §4). Sinnvoll, wenn
+  Schutzziel um „verlorenes Gerät, IndexedDB lesbar" erweitert wird —
+  dann separater ADR.
+- **Bcrypt-JS:** weder speicherhart noch durch Web-Crypto unterstützt;
+  zusätzliche JS-Dependency ohne Vorteil.
+- **Klartext-PIN in IndexedDB:** trivial, aber bricht das minimale
+  Sicherheitsversprechen einer PIN-Sperre vollständig.
+- **PIN-Verifikation auf Server:** würde funktionieren, aber bricht
+  die Offline-Tauglichkeit (RxDB im Funkloch, ADR-017) und macht aus
+  der UI-Sperre einen vollwertigen zweiten Auth-Faktor — größere
+  Architekturwirkung als gewünscht.
+
+---
+
+## ADR-024 — Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** M3 lieferte das generische Domain-CRUD; die fünf Live-Modus-
+Endpunkte (`POST /api/events/start`, `POST /api/events/{id}/end`,
+`POST /api/events/{event_id}/applications/start`,
+`POST /api/applications/{id}/end`, `POST /api/persons/quick`) wurden
+laut ADR-020 §A1 bewusst in M5a verschoben. Mit ADR-022 kommt zusätzlich
+der Tile-Proxy `GET /api/tiles/{z}/{x}/{y}` in den M5a-Scope. M5a.1 setzt
+dieses Backend-Paket um.
+
+**Entscheidungen:**
+
+1. **Endpoint-Inventar (A):** Sechs Routen, alle unter `/api/`:
+   - `POST /api/events/start` (Live-Event-Anlage, ADR-011)
+   - `POST /api/events/{id}/end` (Live-Event-Beendigung, idempotent)
+   - `POST /api/events/{event_id}/applications/start` (Live-Application-
+     Anlage, ADR-011 + ADR-012)
+   - `POST /api/applications/{id}/end` (Live-Application-Beendigung,
+     idempotent)
+   - `POST /api/persons/quick` (On-the-fly-Person, ADR-014)
+   - `GET /api/tiles/{z}/{x}/{y}` (MapTiler-Proxy, ADR-022)
+
+2. **Idempotenz der End-Endpoints (B):** `end_event` und
+   `end_application` setzen `ended_at = now()` nur, wenn das Feld noch
+   `NULL` ist. Ein zweiter Aufruf liefert denselben Datensatz mit
+   demselben `ended_at` zurück. Damit überlebt der Live-Modus
+   doppelte Klicks, Reconnect-Retries und RxDB-Replay (ab M5b) ohne
+   Sonderbehandlung. Verworfen wurde 409-Conflict bei zweitem End-Call:
+   bricht idempotente HTTP-Semantik und zwingt Frontend zu Status-
+   Tracking, das es nicht braucht.
+
+3. **Auto-Participant-Wiederverwendung (C):** `start_event` ruft den in
+   M3 etablierten `add_participant` auf, um den Creator und (falls
+   gesetzt) den Recipient als `EventParticipant` zu hinterlegen.
+   `start_application` nutzt den vorhandenen `_ensure_participant` aus
+   `services/applications.py`. Keine neue DB-Logik, kein neuer Trigger.
+   Verworfen wurde eine Trigger-basierte Variante (zu schwer testbar,
+   Regel-003 hängt an der Service-Schicht).
+
+4. **Default-Performer/Recipient für Live-Applications (D):**
+   - `performer_id` fehlt → `requester_person_id` (Regel-002).
+   - `recipient_id` fehlt → `requester_person_id` (Self-Bondage als
+     Default; UI ist verantwortlich, den gewählten Recipient explizit
+     zu schicken).
+   Diese Defaults gelten **nur** für `applications/start`, nicht für
+   `applications` (M3-Pfad), weil dort beide Felder Pflicht sind.
+   Bewusst keine Pflicht-Validierung von `recipient_id ≠ performer_id`
+   im Live-Pfad — entspricht ADR-020 §I (Self-Bondage erlaubt).
+
+5. **Recipient-Vermerk auf Event (E):** `EventStart` akzeptiert ein
+   optionales `recipient_id`-Feld. Wird es übergeben, fügt `start_event`
+   die Person als Participant hinzu. **Das Event-Schema bleibt
+   unverändert** — kein neues `recipient_id`-Feld auf `event`. Die UI
+   merkt sich den ausgewählten Recipient im Client-State und füllt ihn
+   in `applications/start` ein. Verworfen wurde eine `event.recipient_id`-
+   Spalte (Schema-Migration für ein UI-Convenience-Feld; widerspricht
+   ADR-020 §A1, weil das Datenmodell rein per-Application ist).
+
+6. **Tile-Proxy-Mechanik (F, ADR-022):**
+   - Auth: `current_active_user`-Dependency. RLS-Session nicht nötig
+     (Tiles sind nutzer-unabhängig).
+   - Pfad-Parameter werden auf gültige Tile-Koordinaten validiert:
+     `z` ∈ [0, 22], `x`/`y` ≥ 0.
+   - Upstream-URL aus `MAPTILER_STYLE` und `MAPTILER_API_KEY`
+     aufgebaut: `https://api.maptiler.com/maps/{style}/{z}/{x}/{y}.png?key={key}`.
+   - HTTP-Client: `httpx.AsyncClient` als Prozess-Singleton via
+     `lru_cache(maxsize=1)`, Timeout 10 s (Connect 5 s).
+   - Antwort: `StreamingResponse` mit upstream-Content-Type und
+     `Cache-Control: public, max-age=86400` (24 h).
+   - Fehler-Mapping: Netzwerk-Exception → 502; Upstream-Status ≥ 400 →
+     502 (kein Detail-Leak des Upstream-Statuses); leerer API-Key → 503.
+
+7. **httpx als Runtime-Dependency (G):** `httpx` war bislang nur Dev-
+   Abhängigkeit (Tests). Für den Tile-Proxy zur Laufzeit wird es in
+   `[project.dependencies]` aufgenommen. Lizenz BSD-3-Clause, kompatibel
+   mit der Allow-List in `project-context.md` §6 — keine separate
+   Lizenz-Freigabe nötig.
+
+8. **CSRF und Whitelist (H):** Alle fünf Live-Endpunkte sind
+   state-changing (POST) und werden vom CSRF-Middleware-Schutz
+   abgedeckt. Der Tile-Proxy ist ein GET und durchläuft die
+   `_SAFE_METHODS`-Ausnahme automatisch. Kein Whitelist-Eintrag nötig.
+
+9. **Tests (I):** 21 neue HTTP-Tests gegen Postgres 16 + PostGIS 3.4:
+   - `test_events_live_api.py` (5): start setzt `started_at` ±2 s,
+     start mit Recipient fügt beide als Participant hinzu, end setzt
+     `ended_at`, end ist idempotent, end auf unbekannte ID → 404.
+   - `test_applications_live_api.py` (6): start setzt `started_at` und
+     `sequence_no=1`, Default-Self-Bondage ohne Recipient, sequence_no
+     inkrementiert, end setzt `ended_at`, end idempotent,
+     Auto-Participant funktioniert.
+   - `test_persons_quick_api.py` (4): admin und editor erlaubt, viewer
+     blockiert (403), `linkable=true` im Body wird ignoriert.
+   - `test_tiles_proxy.py` (6): anonym blockiert (401), kein Key → 503,
+     Erfolgsfall mit Cache-Header und Upstream-URL-Verifikation,
+     Netzwerk-Fehler → 502, Upstream-4xx → 502, Zoom out of range
+     → 422.
+   Backend-Suite: 53 → 74 Tests, alles grün. ruff und ruff format clean.
+
+10. **Scope-Abgrenzung gegen M5a.2/.3/.4 (J):**
+    - **M5a.1 (dieser ADR):** Backend-Live-Endpoints + Tile-Proxy +
+      Tests + ENV.
+    - **M5a.2:** Frontend Startseite, Suche, Export-UI — konsumiert
+      ausschließlich M3-Endpoints, keine Backend-Änderungen.
+    - **M5a.3:** Frontend Live-Modus + LocationPickerMap — konsumiert
+      die hier gebauten Endpoints + den Tile-Proxy.
+    - **M5a.4:** App-PIN-Sperre nach ADR-023, querliegend zu allen
+      Frontend-Routen, kein Backend-Anteil.
+    Trennung minimiert PR-Größe und macht Reviews abnehmbar.
+
+**Konsequenzen:**
+
+- Live-Modus-Endpoints sind ab M5a.1 produktiv. Frontend kann ohne
+  weitere Backend-Arbeit anbinden.
+- Tile-Proxy ist betriebsbereit, **aber inaktiv ohne Key** — leerer
+  `HCMAP_MAPTILER_API_KEY` liefert 503. Das ist gewollt: Vor M11 muss
+  im Deployment der Key konfiguriert werden, sonst zeigt das Frontend
+  „Karte nicht verfügbar".
+- mypy meldet weiterhin den vorbestehenden M2-Fehler in
+  `app/auth/routes.py:20` (TypeVar `models.UP` vs. eigenes User). Der
+  Fehler ist nicht durch M5a.1 verursacht und liegt im M2-Modul; eine
+  Korrektur wäre Scope-Erweiterung in fremde Modulgrenze (CLAUDE.md
+  §6 + §8). Wird separat aufzulösen sein, sobald jemand am Auth-Modul
+  arbeitet.
+
+**Verworfene Alternativen:**
+
+- B2 (409-Conflict bei doppeltem End-Call): bricht HTTP-Idempotenz.
+- C2 (DB-Trigger für Auto-Participant): widerspricht ADR-020 §E2.
+- E2 (`event.recipient_id`-Spalte): Schema-Migration für UI-Komfort
+  ohne Datenmodell-Bedarf.
+- F2 (Tile-Proxy ohne lru_cache): jede Anfrage mit neuem
+  `httpx.AsyncClient`-Instance — Verbindungs-Pool-Verlust.
+- G2 (httpx in dev-Group lassen + Production-Imports): bricht Runtime
+  in der Produktion.
 
 ---
 

@@ -57,3 +57,20 @@ async def delete_application(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     await application_svc.delete_application(session, application)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{application_id}/end",
+    response_model=ApplicationRead,
+    summary="Finish an application in Live mode (ended_at = now(), idempotent)",
+)
+async def end_application(
+    application_id: uuid.UUID,
+    session: AsyncSession = Depends(get_rls_session),
+) -> ApplicationRead:
+    application = await application_svc.get_application(session, application_id)
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    await application_svc.end_application(session, application)
+    rt_ids = await application_svc.restraint_ids_for(session, application_id)
+    return ApplicationRead.model_validate({**application.__dict__, "restraint_type_ids": rt_ids})

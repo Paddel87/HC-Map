@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.person import Person
-from app.schemas.person import PersonCreate, PersonUpdate
+from app.models.person import Person, PersonOrigin
+from app.schemas.person import PersonCreate, PersonQuickCreate, PersonUpdate
 
 
 async def list_persons(
@@ -46,6 +46,29 @@ async def create_person(
         alias=payload.alias,
         note=payload.note,
         linkable=payload.linkable,
+        created_by=created_by,
+    )
+    session.add(person)
+    await session.flush()
+    await session.refresh(person)
+    return person
+
+
+async def quick_create_person(
+    session: AsyncSession,
+    payload: PersonQuickCreate,
+    *,
+    created_by: uuid.UUID,
+) -> Person:
+    """Spontaneous on-the-fly person from the live capture flow.
+
+    Forces ``origin = on_the_fly`` and ``linkable = false`` (Regel-004).
+    """
+    person = Person(
+        name=payload.name,
+        alias=payload.alias,
+        origin=PersonOrigin.ON_THE_FLY,
+        linkable=False,
         created_by=created_by,
     )
     session.add(person)

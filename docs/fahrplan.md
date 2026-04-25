@@ -25,10 +25,10 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-22
-- **Laufende Phase:** Konzeption abgeschlossen — Phase 1 (MVP) noch nicht begonnen
-- **Aktiver Schritt:** keiner
-- **Nächster Schritt:** M0 — Projekt-Setup
+- **Stand vom:** 2026-04-25
+- **Laufende Phase:** Phase 1 (MVP) — gestartet
+- **Aktiver Schritt:** keiner (M0 abgeschlossen)
+- **Nächster Schritt:** M1 — Datenbank-Schema & Migrations (Datenmodell-Freigabe bereits erteilt; ADR-018 für Anpassungen wird mit M1-Beginn angelegt)
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -45,7 +45,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 | Phase   | Meilenstein | Titel                                            | Status      |
 |---------|-------------|--------------------------------------------------|-------------|
-| 1 MVP   | M0          | Projekt-Setup                                    | [OFFEN]     |
+| 1 MVP   | M0          | Projekt-Setup                                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [OFFEN]     |
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [OFFEN]     |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [OFFEN]     |
@@ -91,6 +91,23 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Next.js-Startseite wird angezeigt.
 
 **Abhängigkeiten:** keine.
+
+**Status `[ERLEDIGT]` 2026-04-25:**
+- Backend: FastAPI-App mit `/api/health` und `/api/openapi.json`. 2/2 Tests grün
+  (`backend/tests/test_health.py`), `ruff check` und `mypy --strict` clean. Test
+  deckt alle in M0 erstellten App-Pfade ab; nicht-getestet bleibt nur der
+  Production-Branch der Logging-Konfiguration.
+- Frontend: Next.js 15 App Router, TypeScript strict, Tailwind, vorbereitete
+  shadcn/ui-Konfig (`components.json`). `pnpm typecheck`, `pnpm lint`,
+  `pnpm format:check`, `pnpm build` alle grün.
+- Docker: Multi-Stage-Dockerfiles (non-root, HEALTHCHECK), Compose-Stack
+  Postgres+PostGIS / Backend / Frontend; `docker compose config` validiert.
+  Vollständiger `docker compose up`-Lauf außerhalb dieser Sandbox zu
+  verifizieren (kein Docker-Daemon im Entwicklungs-Container verfügbar).
+- Pre-commit-Konfiguration angelegt; Aktivierung erfolgt lokal mit
+  `pre-commit install`.
+- `.env.example`, `.gitignore`, `CHANGELOG.md`, README-Setup-Anleitung
+  aktualisiert.
 
 ---
 

@@ -1,0 +1,37 @@
+# --- Secrets / local environment -----------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Python (backend) ----------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.python-version-local
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# --- Node / Next.js (frontend) -------------------------------------------
+node_modules/
+.next/
+out/
+.next/cache/
+*.tsbuildinfo
+.pnpm-store/
+
+# --- Editors / OS --------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

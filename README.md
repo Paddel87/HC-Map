@@ -3,7 +3,7 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M4--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M5a--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
@@ -62,7 +62,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 
-Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0 (Projekt-Setup) ist abgeschlossen; das Repository enthält ein lauffähiges Skeleton aus FastAPI-Backend, Next.js-Frontend und Postgres+PostGIS via Docker Compose. Inhaltliche Funktionalität folgt mit M1 ff.
+Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0–M4 sind abgeschlossen: Backend mit Schema/Migrations/RLS, Auth+CSRF+RBAC, Domain-API (Events, Applications, Persons, Catalog, Search, Throwbacks, Export), und ein Next.js-Frontend mit Login, Cookie-Session, geschütztem Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für die kommenden Meilensteine. M5a (Live-Modus) folgt als nächstes.
 
 ---
 

@@ -9,6 +9,32 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M4 — Frontend-Grundgerüst & Auth-Flow:** Login-, Logout- und
+  geschütztes Layout produktiv. `lib/api.ts` als typisierter
+  fetch-Wrapper mit `credentials: 'include'`, automatischer
+  `X-CSRF-Token`-Header-Anhängung aus dem `hcmap_csrf`-Cookie und
+  `ApiError`-Klasse. TanStack-Query-Hooks `useMe` / `useLogin` /
+  `useLogout`, server-seitiger `getServerMe()` für Server Components.
+  Edge-Middleware redirected anonyme Requests auf `/login` (mit
+  `?next=`-Parameter), Server-Component-Layout lädt den User und
+  redirected bei Rolle-Mismatch (`/admin` admin-only). `(public)/login`
+  und `(protected)`-Route-Group trennen Pfade ohne Layout-Boilerplate.
+  Sidebar (Desktop) + Bottom-Nav (Mobile) + UserMenu (Avatar-Initialen,
+  Theme-Toggle, Logout) aus einer gemeinsamen Nav-Item-Liste. Stub-Seiten
+  für Dashboard, Events, Karte, Admin, Profil. Dark-Mode via
+  `next-themes` (system / hell / dunkel). 11 shadcn-Komponenten
+  (button, input, label, card, skeleton, avatar, dropdown-menu, sheet,
+  sonner, form) mit Style "new-york" und `cssVariables: false`.
+- Frontend-Tests: vitest + jsdom + @testing-library/react. 16/16 Tests
+  grün gegen api.ts (CSRF/method/query/204), useMe (200/401),
+  middleware (Redirect-Verhalten, Public-Pfade, `?next=`),
+  LoginForm (Submit-Payload, Validierung blockt Mutation-Call).
+  `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm test` alle grün.
+- ADR-021 dokumentiert die elf Detail-Entscheidungen (API-Rewrite-
+  Strategie, fetch-Wrapper, Server-State, Route-Protection-Hybrid,
+  Login-Submission, Layout, Dark-Mode-Lib, shadcn-Set, Stub-Umfang,
+  Test-Setup, neue Dependencies).
+
 - **M3 — Event- und Application-API (Backend):** Vollständige Domain-CRUD
   unter `/api/events`, `/api/applications`, `/api/persons` (admin-only
   Schreibzugriff plus Anonymisierung gemäß ADR-002), vier Catalog-Pfade

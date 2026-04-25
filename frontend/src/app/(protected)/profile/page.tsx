@@ -1,0 +1,44 @@
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LogoutButton } from "@/components/profile/logout-button";
+import { getServerMe } from "@/lib/auth-server";
+
+export default async function ProfilePage() {
+  const user = await getServerMe();
+  if (!user) return null;
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Profil</h1>
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          Eigene Daten und Sitzung. Passwort-Änderung folgt mit M5a/M11.
+        </p>
+      </header>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Konto</CardTitle>
+          <CardDescription>Aus dem Backend geladen via /api/users/me.</CardDescription>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2">
+            <dt className="text-slate-500 dark:text-slate-400">E-Mail</dt>
+            <dd className="font-medium">{user.email}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Anzeigename</dt>
+            <dd className="font-medium">{user.display_name || "—"}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Rolle</dt>
+            <dd className="font-medium">{user.role}</dd>
+            <dt className="text-slate-500 dark:text-slate-400">Person-ID</dt>
+            <dd className="font-mono text-xs">{user.person_id}</dd>
+          </dl>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Sitzung</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LogoutButton />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

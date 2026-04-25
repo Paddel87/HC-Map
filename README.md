@@ -45,7 +45,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 **Kernmotiv:** Datensouveränität. Das System löst einen vorherigen Einsatz von [what3words](https://what3words.com/) ab und verlagert Speicherung, Zugriff und Auswertung vollständig auf selbst betriebene Infrastruktur.
 
-**Kernbegriffe** (ausführlich in [`project-context.md`](./project-context.md#12-glossar-projektspezifische-begriffe)):
+**Kernbegriffe** (ausführlich in [`project-context.md`](./docs/project-context.md#12-glossar-projektspezifische-begriffe)):
 
 - **Event** — abgeschlossener oder laufender Gesamt-Vorgang an einem Ort mit Start-/Endzeit.
 - **Application** — konkrete Fesselungs-Aktion innerhalb eines Events, sequenziert mit eigenen Zeitstempeln, Performer, Recipient, Restraints und Positionen.
@@ -62,13 +62,13 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 
-Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./fahrplan.md). Es gibt aktuell **keine lauffähige Anwendung** — das Repository enthält ausschließlich die Konzeptions- und Planungsdokumente.
+Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). Es gibt aktuell **keine lauffähige Anwendung** — das Repository enthält ausschließlich die Konzeptions- und Planungsdokumente.
 
 ---
 
 ## Technischer Stack
 
-Die Auswahl ist über ADRs (siehe [`decisions.md`](./decisions.md)) fixiert.
+Die Auswahl ist über ADRs (siehe [`decisions.md`](./docs/decisions.md)) fixiert.
 
 | Schicht | Komponente |
 |---|---|
@@ -88,13 +88,13 @@ Die Auswahl ist über ADRs (siehe [`decisions.md`](./decisions.md)) fixiert.
 | Reverse Proxy | Caddy (automatisches TLS via Let's Encrypt) |
 | Laufzeit | Docker Compose (lokal und VPS-Produktion) |
 
-**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words in der Produktion nach der Migration, GPL-/AGPL-Abhängigkeiten ohne Freigabe. Details in [`project-context.md`](./project-context.md#3-technischer-stack).
+**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words in der Produktion nach der Migration, GPL-/AGPL-Abhängigkeiten ohne Freigabe. Details in [`project-context.md`](./docs/project-context.md#3-technischer-stack).
 
 ---
 
 ## Repository-Struktur
 
-Die finale Struktur gemäß [`architecture.md`](./architecture.md) ist ein Monorepo:
+Die finale Struktur gemäß [`architecture.md`](./docs/architecture.md) ist ein Monorepo:
 
 ```
 hc-map/
@@ -193,14 +193,14 @@ Die Pflege der Dokumentation folgt [`CLAUDE.md`](./CLAUDE.md). Für den Einstieg
 
 | Datei | Zweck |
 |---|---|
-| [`project-context.md`](./project-context.md) | Projektdefinition, Stack, Constraints, Glossar |
-| [`fahrplan.md`](./fahrplan.md) | Meilensteine, Akzeptanzkriterien, aktueller Stand |
-| [`architecture.md`](./architecture.md) | Modulgrenzen, Datenmodell, API-Verträge, Repo-Struktur |
-| [`decisions.md`](./decisions.md) | ADRs (Architecture Decision Records) |
-| [`blockers.md`](./blockers.md) | Offene Probleme, gescheiterte Ansätze |
+| [`docs/project-context.md`](./docs/project-context.md) | Projektdefinition, Stack, Constraints, Glossar |
+| [`docs/fahrplan.md`](./docs/fahrplan.md) | Meilensteine, Akzeptanzkriterien, aktueller Stand |
+| [`docs/architecture.md`](./docs/architecture.md) | Modulgrenzen, Datenmodell, API-Verträge, Repo-Struktur |
+| [`docs/decisions.md`](./docs/decisions.md) | ADRs (Architecture Decision Records) |
+| [`docs/blockers.md`](./docs/blockers.md) | Offene Probleme, gescheiterte Ansätze |
 | [`CLAUDE.md`](./CLAUDE.md) | Arbeitsmethodik für KI-gestützte Entwicklung |
-| [`framework-analyse.md`](./framework-analyse.md) | Begleitende Stack-Evaluation |
-| [`restraint-types-seed-review.md`](./restraint-types-seed-review.md) | Quelle für den initialen RestraintType-Seed (M1) |
+| [`docs/framework-analyse.md`](./docs/framework-analyse.md) | Begleitende Stack-Evaluation |
+| [`docs/restraint-types-seed-review.md`](./docs/restraint-types-seed-review.md) | Quelle für den initialen RestraintType-Seed (M1) |
 
 ---
 
@@ -219,6 +219,6 @@ Das Repository wird aktuell von einer Person (Admin, Repository-Eigentümer) bet
 
 ## Lizenz
 
-**Noch nicht festgelegt.** Die Entscheidung fällt vor M11 (Go-Live Pfad A). Realistische Optionen sind AGPLv3, MIT oder proprietär — abhängig davon, ob eine Multi-Instanz-Variante für andere Gruppen aktiv unterstützt werden soll (siehe [`project-context.md` §6](./project-context.md#6-constraints-operationalisierbar)).
+**Noch nicht festgelegt.** Die Entscheidung fällt vor M11 (Go-Live Pfad A). Realistische Optionen sind AGPLv3, MIT oder proprietär — abhängig davon, ob eine Multi-Instanz-Variante für andere Gruppen aktiv unterstützt werden soll (siehe [`project-context.md` §6](./docs/project-context.md#6-constraints-operationalisierbar)).
 
 Bis dahin gilt: **Keine öffentliche Veröffentlichung, alle Rechte vorbehalten.**

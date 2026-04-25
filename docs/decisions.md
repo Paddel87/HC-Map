@@ -43,6 +43,10 @@ Status-Legende:
 | ADR-015 | Feature-Set basierend auf Wettbewerbs- und Tagebuch-App-Analyse| Accepted | 2026-04-22  |
 | ADR-016 | SQLAdmin als parallele Admin-Schicht                            | Accepted | 2026-04-22  |
 | ADR-017 | RxDB für Offline-Sync in Live-Modus                             | Accepted | 2026-04-22  |
+| ADR-018 | Implementierungsstrategie M1 (Schema, Migrations, RLS-Default) | Accepted | 2026-04-25  |
+| ADR-019 | Implementierungsstrategie M2 (Auth, CSRF, RLS-Mechanik)         | Accepted | 2026-04-25  |
+| ADR-020 | Implementierungsstrategie M3 (Domain-API, Search, Export)       | Accepted | 2026-04-25  |
+| ADR-021 | Implementierungsstrategie M4 (Frontend-Grundgerüst, Auth-Flow)  | Accepted | 2026-04-25  |
 
 ---
 
@@ -1240,6 +1244,126 @@ braucht konkrete Festlegungen zu Scope-Schnitt, Struktur und Hilfsverhalten.
 - Cursor-Pagination: Overengineering für Pfad A.
 - Plus-Code als generated column: würde Schema-Migration erfordern und
   bei späterem Plus-Code-Algorithmus-Wechsel weitere Migration.
+
+---
+
+## ADR-021 — Implementierungsstrategie M4 (Frontend-Grundgerüst, Auth-Flow)
+
+**Status:** Akzeptiert (2026-04-25)
+
+**Kontext:** M4 baut das Frontend-Grundgerüst auf einem bereits vorhandenen
+Next.js-15-Skelett (TypeScript strict, Tailwind 3.4, shadcn-Konfig). ADR-006
+(Cookie-Sessions) und ADR-019 (CSRF-Double-Submit) liefern das Backend-
+Verhalten; für die Browser-Seite werden elf Detail-Entscheidungen fixiert.
+
+**Entscheidungen:**
+
+1. **Backend-Anbindung in Dev (A1):** `next.config.mjs` rewrite
+   `/api/*` → `http://backend:8000/api/*` (lokal über `BACKEND_INTERNAL_URL`
+   parametrisiert, Default `http://localhost:8000`). Damit bleiben Cookies
+   Same-Origin, kein CORS-Aufwand. Im Produktiv-Deployment übernimmt Caddy
+   diese Aufgabe (siehe `architecture.md` §Caddyfile); der Next.js-Rewrite
+   ist Dev-only, gesteuert über `process.env.NODE_ENV !== 'production'`.
+
+2. **fetch-Wrapper (B1):** `src/lib/api.ts` als typisierter Wrapper.
+   - `credentials: 'include'` immer.
+   - Auf Mutations (`POST/PUT/PATCH/DELETE`) liest der Wrapper das
+     `hcmap_csrf`-Cookie via `document.cookie`-Parsing und setzt
+     `X-CSRF-Token`-Header.
+   - Fehler werden als `ApiError`-Klasse (`status`, `code`, `detail`)
+     geworfen, JSON-Body wird best-effort geparst.
+   - Auf dem Server (Server Components, Middleware) gibt es eine zweite
+     Variante, die mit explizit übergebenen Cookie-Headern arbeitet.
+
+3. **Server-State (C1):** `@tanstack/react-query` mit `QueryClient` in
+   `src/components/providers.tsx` (Client-Component, in `RootLayout`
+   eingebunden). Cache-Keys hierarchisch: `['auth','me']`, `['events']`,
+   `['catalogs', kind]`. Default-Stale-Zeit 30 s, Refetch on Window
+   Focus aus.
+
+4. **Route-Protection (D3):** Hybrid.
+   - `src/middleware.ts` (Edge): prüft Existenz des `hcmap_session`-
+     Cookies. Bei fehlendem Cookie auf `/login` umleiten (außer `/login`
+     selbst und Public-Pfade).
+   - `src/app/(protected)/layout.tsx` (Server-Component): lädt
+     `/api/auth/me` mit weitergereichten Cookies; bei 401 `redirect()`
+     auf `/login`; bei `role`-Mismatch (z. B. `/admin/*` ohne Admin)
+     auf `/`.
+
+5. **Login-Submission (E1):** Client-Component mit `useMutation` →
+   `POST /api/auth/login` über fetch-Wrapper. Nach Erfolg
+   `router.push('/')` und `queryClient.invalidateQueries({queryKey:
+   ['auth','me']})`. Keine Server Action (Cookie-Weitergabe-Aufwand
+   nicht gerechtfertigt).
+
+6. **Layout (F1):** Sidebar ab `md:`, Bottom-Tab-Bar darunter, beide aus
+   einer gemeinsamen Nav-Item-Liste in `src/components/layout/nav.ts`
+   generiert. Komponenten: `AppShell`, `Sidebar`, `BottomNav`,
+   `UserMenu`.
+
+7. **Dark-Mode (G1):** `next-themes` mit `attribute="class"`,
+   `defaultTheme="system"`, `enableSystem`. Theme-Toggle im UserMenu.
+   `suppressHydrationWarning` auf `<html>`.
+
+8. **shadcn-Initialset (H):** Generiert via `pnpm dlx shadcn@latest add`
+   (oder bei fehlendem Netzwerk-Zugriff manuell anhand der offiziellen
+   Templates kopiert): `button`, `input`, `label`, `form` (inkl.
+   `react-hook-form`+`@hookform/resolvers`+`zod` für Validierung),
+   `card`, `dropdown-menu`, `avatar`, `sheet`, `sonner`, `skeleton`.
+   Style "new-york", `cssVariables: false` (bestehende `components.json`).
+
+9. **Stub-Seiten (I):** `/` Dashboard, `/events`, `/map`, `/admin`,
+   `/profile`, `/login`. M4 zeigt End-to-End: Login → Auth-Cookie →
+   `/api/auth/me` → Dashboard mit Display-Name + Rolle. Listen
+   befüllen sich aus echten Backend-Routen
+   (`/api/events?limit=5`, `/api/throwbacks/today`); leere Antworten
+   sind erlaubt. Echte Inhalte folgen mit M5a/M5c/M6/M8.
+
+10. **Tests (J1):** `vitest` + `@testing-library/react` +
+    `@testing-library/jest-dom` + `jsdom`. Pflicht-Tests in M4:
+    - `lib/api.ts`: setzt `X-CSRF-Token` bei Mutations, lässt GET frei.
+    - `useMe`-Hook: 200 → User; 401 → null.
+    - `middleware.ts`: redirected ohne Session-Cookie auf `/login`.
+    - Login-Form: erfolgreicher Submit ruft Wrapper mit korrekter
+      Payload, Fehler zeigt Toast.
+    Coverage-Ziel laut `project-context.md` §7 (60 % Frontend) ist
+    erst nach M5+ abprüfbar; M4 legt nur die Infrastruktur.
+
+11. **Neue Dependencies (K, alle MIT/ISC, lizenzkonform):**
+    Runtime: `@tanstack/react-query`, `@tanstack/react-query-devtools`
+    (dev-only), `next-themes`, `lucide-react`, `class-variance-authority`,
+    `@radix-ui/react-*` (Slot, Dropdown-Menu, Avatar, Dialog, Label),
+    `react-hook-form`, `@hookform/resolvers`, `zod`, `sonner`.
+    Test/Dev: `vitest`, `@vitejs/plugin-react`, `jsdom`,
+    `@testing-library/react`, `@testing-library/jest-dom`,
+    `@testing-library/user-event`.
+
+**Konsequenzen:**
+- Browser-Side hat genau einen Auth-Pfad: Cookie + CSRF, keine zusätzlichen
+  Tokens. Damit deckt M4 alle Pflicht-Sicherheits-Erwartungen aus
+  `project-context.md` §6 ab, ohne Wiederholungslogik.
+- `lib/api.ts` ist die alleinige Stelle für Mutations-Header; künftige
+  Domains erben CSRF- und Credential-Handling automatisch.
+- `(protected)`-Route-Group hält öffentliche (`/login`) und
+  geschützte Pfade auseinander, ohne dass jeder Layout-Boilerplate
+  schreibt.
+- M4 ist ein durchgängiger Auth-Vertical-Slice: Login → Session →
+  Dashboard mit `useMe`. Spätere Domains (Events, Map, Admin) bauen
+  nur Inhalte hinein.
+
+**Verworfene Alternativen:**
+- A2 (CORS + Direkt-Aufruf): zusätzlicher Setup ohne Mehrwert in Dev.
+- B2 (OpenAPI-Codegen): lohnt erst nach M5/M7, wenn Endpunkt-Anzahl
+  hoch ist.
+- D1 (Middleware-Only): Edge-Middleware kann nicht zuverlässig
+  `/api/auth/me` aufrufen (Body-Streaming-Beschränkung) — Rolle-
+  Check gehört in Server-Component.
+- D2 (Layout-Only): Edge-Redirect für Anonyme ist deutlich schneller.
+- E2 (Server Action für Login): Set-Cookie-Weitergabe macht den
+  Code komplizierter ohne UX-Vorteil.
+- F2 (Drawer/Hamburger): kollidiert mit ADR-011 — Live-Modus braucht
+  schnellen Tab-Wechsel auf Mobile.
+- G2 (eigene Tailwind-Class-Strategie): Hydration-Risiko, mehr Code.
 
 ---
 

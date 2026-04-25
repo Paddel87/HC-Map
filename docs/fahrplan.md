@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-25
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** keiner (M3 abgeschlossen)
-- **Nächster Schritt:** M4 — Frontend-Grundgerüst & Auth-Flow
+- **Aktiver Schritt:** keiner (M4 abgeschlossen)
+- **Nächster Schritt:** M5a — Event-Erfassung Live-Modus
 - **Offene STOPP-Situationen:** keine
 
 ## Überblick
@@ -49,7 +49,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M1          | Datenbank-Schema & Migrations                    | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M2          | Auth & User-Management (Backend)                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M3          | Event- und Application-API (Backend)             | [ERLEDIGT] 2026-04-25 |
-| 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [OFFEN]     |
+| 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
@@ -266,6 +266,48 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - ruff check, ruff format, mypy --strict alle clean.
 - ADR-020 dokumentiert die zehn Detail-Entscheidungen.
 - README-Phase-Badge auf `M4-bereit`.
+
+**Status `[ERLEDIGT]` 2026-04-25:**
+- `lib/api.ts` (typisierter fetch-Wrapper mit `credentials: 'include'`,
+  automatischem `X-CSRF-Token`-Header aus `hcmap_csrf`-Cookie,
+  `ApiError`-Klasse, 204-Handling, query-Param-Serialisierung).
+- Auth-Schicht: `useMe`, `useLogin`, `useLogout` (TanStack-Query-Hooks),
+  `getServerMe()` für Server Components mit Cookie-Forwarding.
+- Edge-Middleware (`src/middleware.ts`): redirect anonymer Requests auf
+  `/login?next=...`; Public-Pfade (`/login`, `/forgot-password`,
+  `/reset-password`, `/api/*`, `/_next/*`) durchgelassen.
+- Route-Groups `(public)` und `(protected)`: Server-Component-Layout in
+  `(protected)/layout.tsx` lädt User, redirected bei 401; admin-Layout
+  zusätzlich mit Rolle-Check `redirect("/")` bei nicht-Admin.
+- AppShell mit Sidebar (`md:`+) + BottomNav (`md:hidden`) + Mobile-
+  Header (Sheet + Hamburger + UserMenu compact). Nav-Items aus einer
+  gemeinsamen Liste, Rolle-gefiltert. UserMenu mit Avatar-Initialen,
+  Theme-Radio (system/hell/dunkel), Profil-Link, Logout.
+- Login-Form (`react-hook-form` + zod): submit-Payload form-encoded
+  (fastapi-users-Konvention), nach Erfolg `window.location.assign(next ?? "/")`
+  für vollen Cookie-Reload.
+- Stub-Seiten: `/` Dashboard mit echten Daten aus `/api/events?limit=5`
+  und `/api/throwbacks/today` (RLS-gefiltert), `/events`, `/map`,
+  `/admin` (admin-only), `/profile` (User-Daten + Logout-Button).
+- 11 shadcn-Komponenten manuell (Style "new-york", `cssVariables:false`):
+  button, input, label, form, card, skeleton, avatar, dropdown-menu,
+  sheet, sonner. `tailwindcss-animate` als Plugin.
+- Dark-Mode via `next-themes` (`class`-Strategie, system-Default,
+  `suppressHydrationWarning` auf `<html>`).
+- 16/16 Frontend-Tests grün (vitest + jsdom + @testing-library/react):
+  api.ts (7 Tests: GET ohne CSRF, POST mit CSRF, expliziter Content-Type,
+  Query-Encoding, ApiError-Mapping, 204-Return, ApiError-Klasse),
+  useMe (2: 200, 401), middleware (5: Redirect, Cookie, /login,
+  /api, /-Sonderfall), LoginForm (2: Submit-Payload, Validierung).
+  `pnpm typecheck` / `pnpm lint` / `pnpm build` / `pnpm test` alle grün.
+- Browser-Smoke-Test gegen lokales Backend bestätigt: Login-Form →
+  204 → Cookie + CSRF gesetzt → Server-Component lädt User → Dashboard
+  rendert mit "Hallo, admin@example.com" + Sidebar + RLS-gefilterte
+  Listen (0 Events, 0 Throwbacks gegen leere DB) → Logout → Cookie
+  gelöscht → Redirect auf `/login`.
+- ADR-021 dokumentiert die elf Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a-bereit`, CHANGELOG-Eintrag, Projektstatus
+  aktualisiert.
 
 **Ziel:** Next.js-App mit Login, geschützten Routes, Layout und Navigation.
 

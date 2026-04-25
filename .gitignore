@@ -35,3 +35,7 @@ out/
 Thumbs.db
 *.swp
 *.swo
+
+# --- Claude Code (per-developer state) -----------------------------------
+.claude/settings.local.json
+.claude/worktrees/

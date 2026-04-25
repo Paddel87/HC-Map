@@ -2,26 +2,26 @@
 
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
-[![Status](https://img.shields.io/badge/status-konzeption-orange)](./fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-pre--M0-lightgrey)](./fahrplan.md#phasen-übersicht)
-[![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./project-context.md#1-kerndaten)
-[![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./project-context.md#6-constraints-operationalisierbar)
-[![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./project-context.md)
-[![Scope](https://img.shields.io/badge/scope-Pfad%20A%20(%3C20%20Nutzer)-informational)](./project-context.md#pfad-a-vs-pfad-b-zwei-scope-stufen)
+[![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
+[![Phase](https://img.shields.io/badge/phase-M1--bereit-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
+[![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
+[![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
+[![Scope](https://img.shields.io/badge/scope-Pfad%20A%20(%3C20%20Nutzer)-informational)](./docs/project-context.md#pfad-a-vs-pfad-b-zwei-scope-stufen)
 
 **Stack:**
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
-[![FastAPI](https://img.shields.io/badge/FastAPI-modern-009688?logo=fastapi&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
-[![PostGIS](https://img.shields.io/badge/PostGIS-3-336791)](./decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
-[![Next.js](https://img.shields.io/badge/Next.js-App_Router-000000?logo=nextdotjs&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
-[![Tailwind](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)](./decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
-[![MapLibre](https://img.shields.io/badge/MapLibre-GL_JS-396CB2)](./decisions.md#adr-008--karten-layer-maplibre-gl-js-maptiler-jetzt-self-host-später)
-[![RxDB](https://img.shields.io/badge/RxDB-offline--sync-8D1F89)](./decisions.md#adr-017--rxdb-für-offline-sync-in-live-modus)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](./architecture.md)
-[![Caddy](https://img.shields.io/badge/Caddy-TLS_automatisch-1F88C0)](./architecture.md)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](./docs/decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![FastAPI](https://img.shields.io/badge/FastAPI-modern-009688?logo=fastapi&logoColor=white)](./docs/decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00)](./docs/decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](./docs/decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![PostGIS](https://img.shields.io/badge/PostGIS-3-336791)](./docs/decisions.md#adr-005--backend-stack-fastapi--sqlalchemy--postgrespostgis)
+[![Next.js](https://img.shields.io/badge/Next.js-App_Router-000000?logo=nextdotjs&logoColor=white)](./docs/decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](./docs/decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![Tailwind](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)](./docs/decisions.md#adr-007--frontend-stack-nextjs--typescript--tailwind--shadcnui)
+[![MapLibre](https://img.shields.io/badge/MapLibre-GL_JS-396CB2)](./docs/decisions.md#adr-008--karten-layer-maplibre-gl-js-maptiler-jetzt-self-host-später)
+[![RxDB](https://img.shields.io/badge/RxDB-offline--sync-8D1F89)](./docs/decisions.md#adr-017--rxdb-für-offline-sync-in-live-modus)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](./docs/architecture.md)
+[![Caddy](https://img.shields.io/badge/Caddy-TLS_automatisch-1F88C0)](./docs/architecture.md)
 
 ---
 
@@ -31,7 +31,7 @@
 - [Projektstatus](#projektstatus)
 - [Technischer Stack](#technischer-stack)
 - [Repository-Struktur](#repository-struktur)
-- [Setup (geplant ab M0)](#setup-geplant-ab-m0)
+- [Setup](#setup)
 - [Sicherheit und Datenschutz](#sicherheit-und-datenschutz)
 - [Dokumentation](#dokumentation)
 - [Mitwirken](#mitwirken)
@@ -62,7 +62,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 
-Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). Es gibt aktuell **keine lauffähige Anwendung** — das Repository enthält ausschließlich die Konzeptions- und Planungsdokumente.
+Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0 (Projekt-Setup) ist abgeschlossen; das Repository enthält ein lauffähiges Skeleton aus FastAPI-Backend, Next.js-Frontend und Postgres+PostGIS via Docker Compose. Inhaltliche Funktionalität folgt mit M1 ff.
 
 ---
 
@@ -105,21 +105,19 @@ hc-map/
 └── docs/           # Projekt-Dokumentation (siehe unten)
 ```
 
-**Aktuell** existieren nur Konzeptions-Dokumente im Repository-Root. Die `backend/`-, `frontend/`-, `docker/`- und `ops/`-Bereiche werden in M0 angelegt.
+M0 ist umgesetzt: `backend/`, `frontend/`, `docker/` sind angelegt und lauffähig (Stand: M0). Funktionalität jenseits des Health-Endpoints und einer Platzhalter-Startseite folgt mit den weiteren Meilensteinen.
 
 ---
 
-## Setup (geplant ab M0)
-
-> **Hinweis:** Dieser Abschnitt beschreibt den Zielzustand nach Abschluss von [M0 — Projekt-Setup](./fahrplan.md#m0--projekt-setup). Solange M0 nicht umgesetzt ist, sind die Kommandos unten **nicht ausführbar**.
+## Setup
 
 ### Voraussetzungen
 
-- Docker & Docker Compose (aktuelle Stable)
+- Docker & Docker Compose v2 (aktuelle Stable)
 - Python 3.12 + [uv](https://docs.astral.sh/uv/) (für Backend-Tooling außerhalb von Docker)
-- Node 20+ und [pnpm](https://pnpm.io/) (für Frontend-Tooling außerhalb von Docker)
+- Node 22+ und [pnpm](https://pnpm.io/) 10 (für Frontend-Tooling außerhalb von Docker)
 
-### Lokale Entwicklung
+### Lokale Entwicklung mit Docker
 
 ```bash
 # Repository klonen
@@ -128,45 +126,45 @@ cd hc-map
 
 # Environment vorbereiten
 cp .env.example .env
-# .env anpassen: DB-Credentials, MapTiler-Key, SECRET_KEY, …
 
 # Stack starten (Backend + Frontend + Postgres/PostGIS)
-docker compose up
-
-# Datenbank migrieren und Kataloge seeden (in separater Shell)
-docker compose exec backend alembic upgrade head
-docker compose exec backend python -m app.seeds
-
-# Admin-User anlegen
-docker compose exec backend python scripts/bootstrap_admin.py
+docker compose -f docker/docker-compose.yml up --build
 ```
 
-Nach dem Start:
+Nach dem Start (Ports sind nur an `127.0.0.1` gebunden):
 
 - Frontend: <http://localhost:3000>
-- Backend-API + OpenAPI-Doku: <http://localhost:8000/docs>
-- SQLAdmin: <http://localhost:8000/admin>
+- Backend-Health: <http://localhost:8000/api/health>
+- OpenAPI-Doku: <http://localhost:8000/api/docs>
 
-### Tests
+### Backend ohne Docker
 
 ```bash
-# Backend
-docker compose exec backend pytest
-
-# Frontend
-docker compose exec frontend pnpm test
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+uv run pytest
+uv run ruff check .
+uv run mypy app
 ```
 
-### Linting / Formatierung
+### Frontend ohne Docker
 
 ```bash
-# Backend
-docker compose exec backend ruff check .
-docker compose exec backend mypy --strict app
+cd frontend
+pnpm install
+pnpm dev          # http://localhost:3000
+pnpm lint
+pnpm typecheck
+pnpm format:check
+```
 
-# Frontend
-docker compose exec frontend pnpm lint
-docker compose exec frontend pnpm tsc --noEmit
+### Pre-commit-Hooks (optional)
+
+```bash
+pip install --user pre-commit
+pre-commit install
+pre-commit run --all-files
 ```
 
 ---
@@ -180,8 +178,8 @@ HC-Map verarbeitet Daten der Kategorie Art. 9 DSGVO (Sexualleben). Die Betriebsg
 - **Zugriffskontrolle:** Row-Level-Security auf DB-Ebene, GUC-basierte User-Identität pro Request (100 % Test-Abdeckung für RLS-Policies vorgeschrieben).
 - **Client-Härtung:** App-PIN mit Zwangs-Logout nach 5 Fehlversuchen, Sperre nach Inaktivität.
 - **Logging:** Strukturiertes Logging mit Redaction-Liste — **keine personenbezogenen Daten in Logs** (Namen, Notizen, Koordinaten werden entfernt).
-- **Anonymisierung:** DSGVO-Art.-17-Endpunkt, Namensersatz bei Ausscheiden, Verknüpfungen bleiben erhalten (siehe [ADR-002](./decisions.md#adr-002--anonymisierung-beim-ausscheiden-von-mitgliedern)).
-- **Keine App-seitige Verschlüsselung** der Nutzdaten — bewusste Entscheidung für Pfad A, dokumentiert in [ADR-001](./decisions.md#adr-001--hoster-vertrauen-und-verzicht-auf-app-seitige-verschlüsselung).
+- **Anonymisierung:** DSGVO-Art.-17-Endpunkt, Namensersatz bei Ausscheiden, Verknüpfungen bleiben erhalten (siehe [ADR-002](./docs/decisions.md#adr-002--anonymisierung-beim-ausscheiden-von-mitgliedern)).
+- **Keine App-seitige Verschlüsselung** der Nutzdaten — bewusste Entscheidung für Pfad A, dokumentiert in [ADR-001](./docs/decisions.md#adr-001--hoster-vertrauen-und-verzicht-auf-app-seitige-verschlüsselung).
 
 **Vor Go-Live (M11)** muss ein schriftlicher Einwilligungstext vorliegen, der Vertrauensmodell, Anonymisierungs-Kompromiss, On-the-fly-Personenanlage und Aggregat-Statistik explizit benennt.
 

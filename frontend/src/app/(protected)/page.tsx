@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServerMe } from "@/lib/auth-server";
+import { coerceNumber } from "@/lib/types";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
 
@@ -12,8 +13,8 @@ interface EventListItem {
   id: string;
   started_at: string;
   ended_at: string | null;
-  lat: number;
-  lon: number;
+  lat: number | string;
+  lon: number | string;
   note: string | null;
 }
 
@@ -93,7 +94,7 @@ export default async function DashboardPage() {
                         {new Date(event.started_at).toLocaleString("de-DE")}
                       </span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
-                        {event.lat.toFixed(4)}, {event.lon.toFixed(4)}
+                        {coerceNumber(event.lat).toFixed(4)}, {coerceNumber(event.lon).toFixed(4)}
                         {event.note ? ` — ${event.note}` : ""}
                       </span>
                     </Link>

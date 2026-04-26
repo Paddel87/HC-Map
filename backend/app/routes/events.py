@@ -185,6 +185,28 @@ async def remove_participant(
 # --- Nested Application creation (per architecture.md §API) -----------
 
 
+@router.get(
+    "/{event_id}/applications",
+    response_model=list[ApplicationRead],
+    summary="List applications of an event in sequence order",
+)
+async def list_applications_for_event(
+    event_id: uuid.UUID,
+    session: AsyncSession = Depends(get_rls_session),
+) -> list[ApplicationRead]:
+    event = await event_svc.get_event(session, event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    rows = await application_svc.list_applications_for_event(session, event_id)
+    result: list[ApplicationRead] = []
+    for application in rows:
+        rt_ids = await application_svc.restraint_ids_for(session, application.id)
+        result.append(
+            ApplicationRead.model_validate({**application.__dict__, "restraint_type_ids": rt_ids})
+        )
+    return result
+
+
 @router.post(
     "/{event_id}/applications",
     response_model=ApplicationRead,

@@ -30,7 +30,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 - **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.1 [ERLEDIGT] 2026-04-26**
 - **Nächster Schritt:** M5a.2 — Frontend Startseite, Suche, Export-UI
 - **Offene STOPP-Situationen:** keine
-- **Offene Beobachtungen:** mypy `app/auth/routes.py:20` meldet einen vorbestehenden Fehler (Value of type variable "models.UP" of "FastAPIUsers" cannot be "User"). Der Fehler liegt im M2-Modul, ist nicht durch M5a.1 verursacht und wird separat aufgelöst, sobald jemand am Auth-Modul arbeitet (siehe ADR-024 §Konsequenzen).
+- **Offene Beobachtungen:** keine. (Der vorbestehende mypy-Befund in `app/auth/routes.py:20` ist mit ADR-025 behoben: User erbt jetzt von `SQLAlchemyBaseUserTableUUID`, fünf `# type: ignore`-Workarounds in `app/auth/manager.py` entfernt, Schema unverändert, `mypy --strict` clean.)
 
 ## Überblick
 

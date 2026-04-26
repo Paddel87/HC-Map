@@ -7,6 +7,20 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **M2 — fastapi-users-Typing:** `app/auth/routes.py:20` warf seit M2
+  `Value of type variable "models.UP" of "FastAPIUsers" cannot be "User"`
+  unter `mypy --strict`. Behoben durch Vererbung von
+  `SQLAlchemyBaseUserTableUUID` (ADR-025); Spalten-Overrides in einem
+  `if not TYPE_CHECKING`-Block halten Schema und Verhalten identisch
+  (UUIDv7-Default per ADR-018, server_default auf den Boolean-Flags,
+  benannter UniqueConstraint statt inline `unique=True/index=True`).
+  Fünf bisherige `# type: ignore[type-var]`-Workarounds in
+  `app/auth/manager.py` sind entfernt. `mypy --strict` clean
+  (50 Source-Files, 0 Errors). Schema-Drift verifiziert: keine
+  Migration nötig. Backend-Suite 74/74 grün.
+
 ### Added
 
 - **M5a.1 — Backend-Live-Endpoints + Tile-Proxy:** Sechs neue Backend-

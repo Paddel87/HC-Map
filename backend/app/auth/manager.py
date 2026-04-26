@@ -41,7 +41,7 @@ def _password_helper() -> PasswordHelper:
     return PasswordHelper(hasher)
 
 
-class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):  # type: ignore[type-var]
+class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     """Application UserManager.
 
     ``reset_password_token_secret`` and ``verification_token_secret`` are
@@ -51,7 +51,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):  # type: ignor
 
     def __init__(
         self,
-        user_db: SQLAlchemyUserDatabase[User, uuid.UUID],  # type: ignore[type-var]
+        user_db: SQLAlchemyUserDatabase[User, uuid.UUID],
         email_backend: EmailBackend,
     ) -> None:
         password_helper = _password_helper()
@@ -80,12 +80,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):  # type: ignor
 
 async def get_user_db(
     session: AsyncSession = Depends(get_session),
-) -> AsyncIterator[SQLAlchemyUserDatabase[User, uuid.UUID]]:  # type: ignore[type-var]
-    yield SQLAlchemyUserDatabase(session, User)  # type: ignore[type-var]
+) -> AsyncIterator[SQLAlchemyUserDatabase[User, uuid.UUID]]:
+    yield SQLAlchemyUserDatabase(session, User)
 
 
 async def get_user_manager(
-    user_db: SQLAlchemyUserDatabase[User, uuid.UUID] = Depends(get_user_db),  # type: ignore[type-var]
+    user_db: SQLAlchemyUserDatabase[User, uuid.UUID] = Depends(get_user_db),
     email_backend: EmailBackend = Depends(get_email_backend),
 ) -> AsyncIterator[UserManager]:
     yield UserManager(user_db, email_backend)

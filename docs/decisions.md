@@ -50,6 +50,7 @@ Status-Legende:
 | ADR-022 | LocationPicker und Tile-Proxy in M5a vorgezogen                 | Accepted | 2026-04-26  |
 | ADR-023 | App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)        | Accepted | 2026-04-26  |
 | ADR-024 | Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)   | Accepted | 2026-04-26  |
+| ADR-025 | User-Modell erbt von SQLAlchemyBaseUserTableUUID (typing-fix)   | Accepted | 2026-04-26  |
 
 ---
 
@@ -1700,6 +1701,96 @@ dieses Backend-Paket um.
   `httpx.AsyncClient`-Instance — Verbindungs-Pool-Verlust.
 - G2 (httpx in dev-Group lassen + Production-Imports): bricht Runtime
   in der Produktion.
+
+---
+
+## ADR-025 — User-Modell erbt von SQLAlchemyBaseUserTableUUID (typing-fix)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** `app/auth/routes.py:20` deklariert
+`fastapi_users = FastAPIUsers[User, uuid.UUID](...)`. Der TypeVar `UP`
+in `FastAPIUsers[UP, ID]` ist an einen Protokoll-Vertrag gebunden, den
+unser User-Modell aus M2 nicht statisch erfüllt — User erbte direkt von
+`Base, TimestampMixin, SoftDeleteMixin` und deklarierte alle benötigten
+Spalten (`id`, `email`, `hashed_password`, `is_active`, `is_superuser`,
+`is_verified`) als `Mapped[...]`. Zur Laufzeit funktioniert das via
+Duck-Typing; mypy aber sieht nur die `Mapped[...]`-Descriptor-Typen, nicht
+die Plain-Types, die das Protokoll erwartet. Resultat: persistenter
+mypy-Fehler `Value of type variable "models.UP" of "FastAPIUsers" cannot
+be "User"` plus fünf `# type: ignore[type-var]`-Workarounds in
+`app/auth/manager.py`. Die DoD aus `project-context.md` §7 verlangt
+`mypy --strict` clean — dieser Befund war die einzige Abweichung.
+
+**Entscheidungen:**
+
+1. **Vererbung erweitern (A):** `User` erbt jetzt von
+   `SQLAlchemyBaseUserTableUUID, Base, TimestampMixin, SoftDeleteMixin`.
+   `SQLAlchemyBaseUserTableUUID` deklariert die fastapi-users-Pflicht-
+   Spalten unter `if TYPE_CHECKING` als Plain-Types (`id: UUID_ID`,
+   `email: str`, `hashed_password: str`, `is_active: bool`,
+   `is_superuser: bool`, `is_verified: bool`) und unter `else` als
+   `Mapped[...]`-Spalten — genau das Muster, das mypy als Protokoll-
+   Erfüllung sieht.
+
+2. **Spalten-Overrides per `if not TYPE_CHECKING` (B):** Die geerbten
+   Spaltendefinitionen passen nicht 1:1 zu unserem Schema:
+   - Parent setzt `id` mit `default=uuid.uuid4`. Wir brauchen UUIDv7
+     (ADR-018) → `id: Mapped[uuid.UUID] = pk_column()`.
+   - Parent setzt `email` mit `unique=True, index=True` direkt am
+     Column. Wir haben einen benannten `UniqueConstraint` in
+     `__table_args__` → ohne Override gäbe es einen zusätzlichen
+     impliziten Index plus einen anonymen Unique-Constraint.
+   - Parent setzt `is_active`/`is_superuser`/`is_verified` ohne
+     `server_default`. Unser Schema nutzt `server_default="true"`
+     bzw. `"false"` → ohne Override würde der Server-Default
+     verschwinden.
+   Die Overrides werden in einem `if not TYPE_CHECKING:`-Block
+   deklariert. Damit sind sie zur Laufzeit für SQLAlchemy aktiv, aber
+   für mypy unsichtbar — die Plain-Type-Sicht der Eltern bleibt
+   erhalten und das Protokoll wird erfüllt.
+
+3. **type-ignore-Cleanup (C):** Die fünf `# type: ignore[type-var]`-
+   Kommentare in `app/auth/manager.py` (UserManager-Bases, get_user_db,
+   get_user_manager-Signaturen) sind nicht mehr nötig und werden
+   entfernt. mypy meldet sie als `unused-ignore`, sobald der Hauptfehler
+   verschwindet.
+
+4. **Schema-Drift-Verifikation (D):** Mit den Overrides bleibt das
+   Datenbank-Schema **bit-für-bit identisch**. Verifiziert über:
+   `alembic upgrade head` gegen frische Postgres-DB → `\d "user"` in
+   psql → CREATE TABLE-Output aus der SQLAlchemy-Metadata. Beide
+   stimmen in Spalten (Typ, Nullable, Default), Indizes (`pk_user`,
+   `ix_user_role`, `uq_user_email`, `uq_user_person_id`),
+   Foreign-Keys und Triggern überein. Keine Migration erforderlich.
+
+5. **Test-Verifikation (E):** Komplette Backend-Suite 74/74 grün
+   gegen Postgres 16 + PostGIS 3.4 (M0–M5a.1). RLS-Tests, Auth-Tests,
+   und alle Domain-CRUD-Pfade passieren ohne Anpassungen.
+
+**Konsequenzen:**
+
+- `mypy --strict` ist clean (50 Source-Files, 0 Errors).
+- DoD aus `project-context.md` §7 wieder vollständig erfüllt.
+- Keine `# type: ignore`-Schulden mehr im Auth-Modul.
+- Pattern „Override-Spalten in `if not TYPE_CHECKING`" ist
+  dokumentiert und kann als Vorlage dienen, falls weitere
+  fastapi-users-Erweiterungen (z. B. ein Pfad-B-Audit-Log-Modell)
+  ähnliche Override-Bedürfnisse haben.
+
+**Verworfene Alternativen:**
+
+- B (`# type: ignore[type-var]` an Zeile 20 belassen): hätte den
+  Designmismatch versteckt und den vorhandenen Workaround-Cluster in
+  `app/auth/manager.py` zementiert.
+- C (mypy-per-file-Override für `app/auth/routes.py`): Loch in der
+  `mypy --strict`-Garantie, gilt für jede zukünftige Änderung an der
+  Datei.
+- A ohne Spalten-Overrides: hätte einen impliziten zusätzlichen Index
+  auf `email`, einen anonymen Unique-Constraint, fehlende
+  `server_default`-Werte auf den Boolean-Flags, und UUIDv4 statt
+  UUIDv7 für neue User (Bruch von ADR-018) bedeutet —
+  Schema-Migration plus ADR-Konflikt.
 
 ---
 

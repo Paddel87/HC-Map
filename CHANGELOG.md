@@ -9,6 +9,65 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5b.4 — E2E-Offline-Test + Coverage-Tooling (ADR-035):**
+  Schließt die M5b-Sub-Schritt-Reihe. Damit ist die Offline-Resilienz
+  von Live-Modus → RxDB → Backend End-to-End nachgewiesen.
+  - **Frontend-E2E-Test** (`frontend/tests/replication.e2e.test.ts`,
+    3 Tests grün):
+    - `flushes 3 offline applications exactly once on reconnect` —
+      Offline-Insert × 3 → Reconnect → Mock-Backend hat exakt 3
+      Application-Rows + 7 Auto-Participants (1 Event-Creator + 3 × 2
+      pro Application).
+    - `does not re-push docs that are already in sync` —
+      `acceptedPushes`-Counter stabil bei Re-Sync ohne lokale
+      Änderungen.
+    - `pulls server-authoritative fields back into RxDB after
+      reconnect` — server-bumpte `updated_at`-Werte landen via
+      Pull-Cursor zurück in RxDB.
+    - Test bootet die echten `lib/rxdb/{database,replication}` gegen
+      `fake-indexeddb` (jsdom-IndexedDB-Polyfill) und einen
+      In-Process-Mock-Server (`tests/helpers/sync-mock-server.ts`),
+      der die vier Sync-Endpoints deterministisch in-memory
+      abbildet. Async-Stabilisierung über
+      `replication.{events,applications}.awaitInSync()` statt
+      Timeouts (kein Flakiness-Risiko).
+  - **Provider-Smoke-Test** (`tests/rxdb-provider.test.tsx`):
+    Verifiziert, dass `RxdbProvider` `useDatabase()` /
+    `useDatabaseError()` / `useSyncStatus()` korrekt exponiert.
+  - **Backend-Idempotenz-Tests** (`backend/tests/test_sync_idempotency.py`,
+    3 Tests grün):
+    - Drei wiederholte Event-Pushes → 1 Row + 1 EventParticipant.
+    - Drei wiederholte Application-Pushes → 1 Row, stable
+      `sequence_no = 1`.
+    - Offline-Replay-Batch mit Retry → 3 distinct Application-Rows,
+      contiguous `sequence_no [1,2,3]`, 1 Auto-Participant.
+  - **Coverage Frontend** `lib/rxdb/**`: **92.43 % Lines / 80 %
+    Branches / 100 % Functions** via `@vitest/coverage-v8@2.1.9`
+    (V8-native), CI-Threshold 80/70/80 in `vitest.config.ts`.
+    Pro-File: `replication.ts` 95.3 %, `database.ts` 80.5 %,
+    `provider.tsx` 93.2 %, `schemas.ts` 100 %.
+  - **Coverage Backend** `app/sync/`: bleibt bei **91 %** aus M5b.2;
+    +3 Idempotenz-Tests bringen die Suite auf **128/128 grün**.
+    `mypy --strict` und `ruff check` clean.
+  - **Edge-Cases aus ADR-034 §K** explizit nach M5c verschoben
+    (Variante C2 aus dem M5b.4-Vorschlag, freigegeben):
+    Offline-Insert + direkte Navigation → 404 auf SSR-Detail-Page
+    sowie leere `event.participants` bis zum ersten Pull. Behebung
+    als Pflicht-Deliverable im M5c-Eintrag des Fahrplans
+    festgehalten — gemeinsamer Refactor mit der M5c-Detail-Page.
+  - **Neue Dev-Deps** (Frontend, freigegeben über ADR-035 §A/§B):
+    `fake-indexeddb@6.2.5` (MIT, Standard-IndexedDB-Polyfill der
+    Dexie- und RxDB-Maintainer) und `@vitest/coverage-v8@2.1.9`
+    (offizieller vitest-Coverage-Reporter, MIT, V8-native).
+  - **Kleine Code-Anpassung** in `frontend/src/lib/rxdb/database.ts`:
+    `loadDevPlugin()` lädt das `RxDBDevModePlugin` jetzt nur noch in
+    `NODE_ENV === "development"` statt in „nicht production". Vitest
+    setzt NODE_ENV auf `"test"`, was den dev-mode
+    Schema-Validator-Zwang auslöste; production bleibt unberührt.
+  - ADR-035 dokumentiert die zehn Detail-Entscheidungen,
+    `architecture.md` § Sync um den Test-Stack erweitert,
+    README-Phase-Badge auf `M5b-erledigt`.
+
 - **M5b.3 — RxDB-Setup im Frontend + Live-Modus auf RxDB-Schreibpfad (ADR-034):**
   Frontend-Sync-Schicht. Live-Modus arbeitet ab sofort lokal-zuerst,
   Replication läuft asynchron im Hintergrund.

@@ -25,12 +25,12 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-26
+- **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.3 [ERLEDIGT] 2026-04-26** — RxDB-Frontend-Schicht aktiv, Live-Modus refactored auf RxDB-Schreibpfad und reactive Subscriptions, Sync-Indikator in Sidebar/Mobile-Header, Frontend-Suite 60/60. ADR-034 dokumentiert die zwölf Detail-Entscheidungen.
-- **Nächster Schritt:** M5b.4 E2E-Offline-Test (Flugmodus → 3 Applications → Reconnect → Backend hat alle Daten genau einmal) + Frontend-Coverage-Nachweis ≥ 80 %.
+- **Aktiver Schritt:** **M5b vollständig [ERLEDIGT] 2026-04-27** — alle vier Sub-Schritte abgeschlossen. M5b.4 liefert den E2E-Offline-Beweis (Vitest + fake-indexeddb + In-Process-Mock-Server), Coverage `lib/rxdb/**` 92.43 % Lines / 80 % Branches / 100 % Functions, Backend 128/128 Tests grün (drei neue Idempotenz-Tests). ADR-035 dokumentiert die zehn Detail-Entscheidungen.
+- **Nächster Schritt:** M5c (Nachträgliche Erfassung & Bearbeitung) — Detail-Page von SSR auf Client-only umstellen (übernommen aus ADR-035 §C / ADR-034 §K), Bearbeitungs-UI für Editor/Admin-Rollen, `reveal_participants`-Maskierung.
 - **Offene STOPP-Situationen:** keine
-- **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
+- **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
 ## Überblick
 
@@ -56,11 +56,11 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [IN ARBEIT] |
+| 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5b.1       | └─ ADR-Bündel + Datenmodell-Migration            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [OFFEN]     |
+| 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
@@ -743,16 +743,30 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5b.4 — E2E-Offline-Test & Doc-Updates
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-27
 
-**Deliverables:**
+**Status `[ERLEDIGT]` 2026-04-27 (M5b.4, E2E-Offline-Test + Doc-Updates):**
+
+- **Frontend-E2E-Test** in `frontend/tests/replication.e2e.test.ts` (3 Tests, alle grün) — boot der echten RxDB + `lib/rxdb/replication`-Code gegen `fake-indexeddb` und In-Process-Mock-Server (`tests/helpers/sync-mock-server.ts`):
+  - `flushes 3 offline applications exactly once on reconnect` — Mock-Backend hat nach Reconnect exakt 3 Application-Rows + 7 Auto-Participants (1 Event-Creator + 3 × 2 für jede Application).
+  - `does not re-push docs that are already in sync` — `acceptedPushes`-Counter stabil bei Re-Sync ohne lokale Änderungen.
+  - `pulls server-authoritative fields back into RxDB after reconnect` — server-bumpte `updated_at`-Werte landen via Pull-Cursor zurück in RxDB.
+- **Backend-Idempotenz-Tests** in `backend/tests/test_sync_idempotency.py` (3 Tests, alle grün): drei wiederholte Event-Pushes → 1 Row + 1 EventParticipant; drei wiederholte Application-Pushes → 1 Row, stable `sequence_no = 1`; Offline-Replay-Batch mit Retry → 3 distinct Application-Rows, contiguous `sequence_no [1,2,3]`, 1 Auto-Participant.
+- **Coverage Frontend** `lib/rxdb/**`: **92.43 % Lines / 80 % Branches / 100 % Functions** via `@vitest/coverage-v8@2.1.9` (V8-native), CI-Threshold 80/70/80 in `vitest.config.ts`. Pro-File: `replication.ts` 95.3 %, `database.ts` 80.5 %, `provider.tsx` 93.2 %, `schemas.ts` 100 %. `types.ts` (pure Type-Aliases) und `schemas/*.json` aus dem Threshold ausgeklammert (siehe ADR-035 §B).
+- **Coverage Backend** `app/sync/`: bleibt bei **91 %** aus M5b.2; +3 Idempotenz-Tests bringen die Suite auf **128/128 grün** (vorher 125), `mypy --strict` und `ruff check` clean.
+- **Neue Dev-Deps** (Frontend, freigabepflichtig; in ADR-035 §A/§B als Empfehlung freigegeben): `fake-indexeddb@6.2.5` (MIT, IndexedDB-Polyfill für jsdom/node — Standard-Werkzeug der Dexie- und RxDB-Maintainer), `@vitest/coverage-v8@2.1.9` (offizieller vitest-Coverage-Reporter, MIT, V8-native).
+- **Kleine Code-Anpassung** in `frontend/src/lib/rxdb/database.ts`: `loadDevPlugin()` lädt das `RxDBDevModePlugin` jetzt nur noch in `NODE_ENV === "development"` statt in „nicht production". Vitest setzt NODE_ENV auf `"test"`, was den dev-mode Schema-Validator-Zwang auslöste; production bleibt unberührt.
+- **Edge-Cases aus ADR-034 §K** nach M5c verschoben: Offline-Insert + direkte Navigation → 404 auf SSR-Detail-Page; `event.participants` bleibt bis zum ersten Pull leer. Beide werden in M5c gemeinsam mit dem Detail-Page-Refactor behoben (Variante C2 aus dem M5b.4-Vorschlag, freigegeben).
+- ADR-035 dokumentiert die zehn Detail-Entscheidungen, `architecture.md` § Sync um den Test-Stack erweitert, README-Phase-Badge auf `M5b-erledigt`, CHANGELOG-Eintrag, Projektstatus-Tabelle aktualisiert.
+
+**Deliverables (Soll, alle erfüllt):**
 - E2E-Test: Browser → Flugmodus → 3 Applications erfassen → Reconnect → Backend hat alle Daten genau einmal, kein Duplikat, Reihenfolge korrekt.
 - Coverage-Nachweis ≥ 80 % für Sync-Pfade (Frontend + Backend).
 - `architecture.md` § Sync und § Live-Modus aktualisiert (Verweis auf neue ADRs).
 - README-Badge auf `M5b-erledigt`, CHANGELOG-Eintrag, Projektstatus-Tabelle.
 
-**Akzeptanzkriterien:**
-- E2E-Test grün und reproduzierbar.
+**Akzeptanzkriterien (alle erfüllt):**
+- E2E-Test grün und reproduzierbar (3 Tests in 1.1 s, deterministisch via `awaitInSync()`).
 - M5b komplett `[ERLEDIGT]`.
 
 **Abhängigkeiten:** M5b.3.
@@ -769,13 +783,15 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Bearbeitung bestehender Events: alle Felder editierbar entsprechend der Rolle (Admin alles, Editor nur eigene).
 - Event-Detailseite mit chronologischer Anzeige aller Applications inkl. Lücken zwischen ihnen.
 - Respektiert `reveal_participants`: zeigt „+N weitere" statt Namen, wenn Flag false.
+- **Übernommen aus M5b.4 (ADR-035 §C, ADR-034 §K):** `(protected)/events/[id]/page.tsx` von Server-Side-Render auf Client-only umstellen, damit Offline-Inserts mit direkter Navigation keinen 404-Race mehr produzieren. `event.participants` als reaktive RxDB-Subscription statt Server-Side-Snapshot, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden.
 
 **Akzeptanzkriterien:**
 - Erfassen, bearbeiten, löschen funktioniert entsprechend der Rolle.
 - `reveal_participants`-Verhalten korrekt umgesetzt.
 - Lücken zwischen Applications sind in der Detailansicht ablesbar.
+- Detail-Page rendert Offline-Inserts ohne Server-Round-Trip (kein 404 mehr direkt nach Insert).
 
-**Abhängigkeiten:** M5a.
+**Abhängigkeiten:** M5a, M5b.
 
 ---
 

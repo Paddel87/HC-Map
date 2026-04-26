@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExportButtons } from "@/components/profile/export-buttons";
 import { LogoutButton } from "@/components/profile/logout-button";
 import { getServerMe } from "@/lib/auth-server";
 
@@ -10,7 +11,7 @@ export default async function ProfilePage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Profil</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Eigene Daten und Sitzung. Passwort-Änderung folgt mit M5a/M11.
+          Eigene Daten, Sitzung und Datenexport. Passwort-Änderung folgt mit M11.
         </p>
       </header>
       <Card>
@@ -29,6 +30,18 @@ export default async function ProfilePage() {
             <dt className="text-slate-500 dark:text-slate-400">Person-ID</dt>
             <dd className="font-mono text-xs">{user.person_id}</dd>
           </dl>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Meine Daten exportieren</CardTitle>
+          <CardDescription>
+            Datensouveränität: alle für dich sichtbaren Events und Applications als JSON oder CSV.
+            Admins erhalten zusätzlich einen Vollexport.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ExportButtons role={user.role} />
         </CardContent>
       </Card>
       <Card>

@@ -23,8 +23,9 @@ interface EventListResponse {
 }
 
 interface ThrowbackItem {
-  event_id: string;
+  id: string;
   started_at: string;
+  note: string | null;
   years_ago: number;
 }
 
@@ -62,7 +63,8 @@ export default async function DashboardPage() {
       <section>
         <Button size="lg" disabled className="w-full md:w-auto">
           <Clock className="mr-2 h-5 w-5" />
-          Neues Event starten <span className="ml-2 text-xs opacity-70">M5a folgt</span>
+          Neues Event starten
+          <span className="ml-2 text-xs opacity-70">Live-Modus folgt mit M5a.3</span>
         </Button>
       </section>
       <section className="grid gap-4 md:grid-cols-2">
@@ -79,23 +81,25 @@ export default async function DashboardPage() {
             {events && events.items.length > 0 ? (
               <ul className="flex flex-col gap-2">
                 {events.items.map((event) => (
-                  <li
-                    key={event.id}
-                    className="flex flex-col gap-0.5 rounded-md border border-slate-100 px-3 py-2 dark:border-slate-800"
-                  >
-                    <span className="font-medium">
-                      {new Date(event.started_at).toLocaleString("de-DE")}
-                    </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      {event.lat.toFixed(4)}, {event.lon.toFixed(4)}
-                      {event.note ? ` — ${event.note}` : ""}
-                    </span>
+                  <li key={event.id}>
+                    <Link
+                      href={`/events/${event.id}`}
+                      className="flex flex-col gap-0.5 rounded-md border border-slate-100 px-3 py-2 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                    >
+                      <span className="font-medium">
+                        {new Date(event.started_at).toLocaleString("de-DE")}
+                      </span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {event.lat.toFixed(4)}, {event.lon.toFixed(4)}
+                        {event.note ? ` — ${event.note}` : ""}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-slate-500 dark:text-slate-400">
-                Noch keine Events sichtbar. Live-Erfassung folgt mit M5a.
+                Noch keine Events sichtbar. Live-Erfassung folgt mit M5a.3.
               </p>
             )}
           </CardContent>
@@ -111,11 +115,16 @@ export default async function DashboardPage() {
             {throwbacks && throwbacks.length > 0 ? (
               <ul className="flex flex-col gap-2">
                 {throwbacks.map((tb) => (
-                  <li key={tb.event_id} className="flex justify-between">
-                    <span>{new Date(tb.started_at).toLocaleDateString("de-DE")}</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">
-                      vor {tb.years_ago} Jahren
-                    </span>
+                  <li key={tb.id}>
+                    <Link
+                      href={`/events/${tb.id}`}
+                      className="flex items-center justify-between rounded-md px-2 py-1 transition-colors hover:bg-slate-50 dark:hover:bg-slate-900"
+                    >
+                      <span>{new Date(tb.started_at).toLocaleDateString("de-DE")}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        vor {tb.years_ago} {tb.years_ago === 1 ? "Jahr" : "Jahren"}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
 import { visibleNavItems } from "@/components/layout/nav";
 import type { AuthUser } from "@/lib/auth";
@@ -12,11 +13,14 @@ export function Sidebar({ user }: { user: AuthUser }) {
   const pathname = usePathname();
   const items = visibleNavItems(user.role);
   return (
-    <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6 md:flex dark:border-slate-800 dark:bg-slate-950">
-      <div className="px-2 pb-6">
+    <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6 dark:border-slate-800 dark:bg-slate-950 md:flex">
+      <div className="px-2 pb-4">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           HC-Map
         </Link>
+      </div>
+      <div className="px-1 pb-4">
+        <SearchBox />
       </div>
       <nav className="flex flex-1 flex-col gap-1">
         {items.map((item) => {

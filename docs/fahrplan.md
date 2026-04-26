@@ -27,10 +27,10 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.1 [ERLEDIGT] 2026-04-26**
-- **Nächster Schritt:** M5a.2 — Frontend Startseite, Suche, Export-UI
+- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.2 [ERLEDIGT] 2026-04-26**
+- **Nächster Schritt:** M5a.3 — Frontend Live-Modus + LocationPickerMap
 - **Offene STOPP-Situationen:** keine
-- **Offene Beobachtungen:** keine. (Der vorbestehende mypy-Befund in `app/auth/routes.py:20` ist mit ADR-025 behoben: User erbt jetzt von `SQLAlchemyBaseUserTableUUID`, fünf `# type: ignore`-Workarounds in `app/auth/manager.py` entfernt, Schema unverändert, `mypy --strict` clean.)
+- **Offene Beobachtungen:** Treffer aus der globalen Suche und Listen-Items im Dashboard verlinken auf `/events/{id}`. Die Detail-Route ist bis M5c ein Stub — Klicks führen aktuell auf eine leere Seite. Bewusst akzeptiert (siehe ADR-026 §D).
 
 ## Überblick
 
@@ -53,7 +53,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M4          | Frontend-Grundgerüst & Auth-Flow                 | [ERLEDIGT] 2026-04-25 |
 | 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [IN ARBEIT] |
 | 1 MVP   | M5a.1       | └─ Backend-Live-Endpoints + Tile-Proxy           | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [OFFEN]     |
+| 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [OFFEN]     |
 | 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
@@ -409,6 +409,61 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
   zur Laufzeit). `uv.lock` aktualisiert.
 - ADR-024 dokumentiert die zehn Detail-Entscheidungen.
 - README-Phase-Badge auf `M5a.1-erledigt`, CHANGELOG-Eintrag,
+  Projektstatus-Tabelle aktualisiert.
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5a.2, Frontend Startseite/Suche/Export):**
+- **Globale Suchleiste** (`components/layout/search-box.tsx`,
+  Client-Component): Sticky in der Sidebar (Desktop) und als zweite
+  Zeile im Mobile-Header (`AppShell`). Submit per `useRouter().push`
+  zu `/search?q=<encodeURIComponent>`. Pre-Fill aus
+  `useSearchParams().get("q")`. Whitespace-Submit ist No-Op.
+  Progressive-Enhancement: `<form action="/search" method="get">`
+  funktioniert ohne JS.
+- **Volltext-Suchergebnis-Seite** (`app/(protected)/search/page.tsx`,
+  Server-Component, Next-15-`Promise<{q?:string}>`-API): konsumiert
+  `GET /api/search?q=<q>&limit=50` mit Cookie-Forwarding analog zur
+  Dashboard-Page. Empty-Query → Hinweiskarte; Backend-Fehler →
+  „Suche fehlgeschlagen"-Karte ohne Status-Leak; Erfolg → Treffer-
+  Karte mit Total-Counter und Snippet-Liste.
+- **Sicheres Snippet-Highlighting** (`components/search/search-results.tsx`,
+  `renderSnippet`): tokenisiert Postgres-`<b>…</b>`-Tags per Regex,
+  rendert Treffer als `<mark>` und alles übrige als plain React-
+  Children. Kein `dangerouslySetInnerHTML`. Test deckt
+  `<script>`-Edge-Case ab — Inhalt erscheint als sichtbarer Plain-
+  Text, wird **nicht** ausgeführt.
+- **Treffer-Links** zeigen auf `/events/{event_id}` (auch für
+  Application-Hits). Detail-Route ist bis M5c ein Stub — bewusst
+  akzeptiert (siehe ADR-026 §D).
+- **Export-UI im Profil** (`components/profile/export-buttons.tsx`):
+  vier Download-Links per `<a href download="…">` (Same-Origin-
+  Cookie reicht, GET → kein CSRF). Standard-Set für jede Rolle
+  (`/api/export/me` JSON, `/api/export/me/events.csv`,
+  `/api/export/me/applications.csv`); Admin-Vollexport
+  (`/api/admin/export/all`) nur bei `role === "admin"`.
+- **Dashboard-Polish** (`app/(protected)/page.tsx`):
+  - `ThrowbackEvent.event_id` → `id` korrigiert (Backend-Schema-
+    Drift seit M4); zusätzlich `note` aus dem API-Vertrag übernommen.
+  - Listen-Einträge (Letzte Events + „An diesem Tag") verlinken
+    auf `/events/{id}`.
+  - „Neues Event starten"-CTA bleibt disabled mit Begründung
+    „Live-Modus folgt mit M5a.3" statt vagem „M5a folgt".
+- **Tests:** 11 neue Vitest-Tests (`search-box`, `search-results`,
+  `export-buttons`). Frontend-Suite 16 → 27 Tests grün
+  (`tsc --noEmit`, `next lint`, `prettier --check`, `next build`
+  alle clean). Backend unverändert.
+- **Browser-Smoke** gegen lokalen Stack (Postgres + Backend +
+  Next-Dev-Server) bestätigt: Login → Dashboard mit zweizeiligem
+  Mobile-Header, Volltext-Suche und Suchfeld-Pre-Fill, alle vier
+  Export-Endpoints liefern 200 mit ADR-020-§J-Strukturen
+  (`{version, events, applications, event_participants,
+  application_restraints, restraint_types}` für JSON;
+  `Content-Disposition: attachment; filename=events.csv` für CSV;
+  `/api/admin/export/all` 200). Keine Console-Errors.
+- **Keine Backend-Änderungen, keine neuen Abhängigkeiten,
+  keine Migrations** — M5a.2 ist reiner Frontend-Konsum von
+  M3-Endpoints.
+- ADR-026 dokumentiert die neun Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a.2-erledigt`, CHANGELOG-Eintrag,
   Projektstatus-Tabelle aktualisiert.
 
 ---

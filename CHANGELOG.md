@@ -23,6 +23,46 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5a.2 — Frontend Startseite, Suche, Export:** Reiner Frontend-Konsum
+  bestehender M3-Endpoints (Fahrplan §M5a, ADR-026).
+  - **Globale Suchleiste** im AppShell (Sidebar auf Desktop, zweite
+    Header-Zeile auf Mobile). Submit navigiert zu `/search?q=…`,
+    Pre-Fill aus dem aktuellen Query-Param. Funktioniert auch ohne JS
+    (Progressive-Enhancement-Form-Action).
+  - **/search-Seite** (Server-Component, RLS-konform via
+    Cookie-Forwarding) zeigt Treffer aus `GET /api/search` mit
+    Total-Counter, Limit-Hinweis und Snippet-Liste. Empty-Query und
+    Backend-Fehler werden als Hinweiskarten gerendert.
+  - **Sicheres Snippet-Highlighting:** Postgres-`<b>…</b>`-Tags werden
+    per Tokenizer in React-`<mark>`-Elemente überführt; Plain-Text
+    wird von React automatisch escaped. Test deckt
+    `<script>`-Injection-Edge-Case explizit ab.
+  - **Export-UI im Profil:** Vier Download-Links per
+    `<a href download="…">` für `/api/export/me` (JSON),
+    `/api/export/me/events.csv`, `/api/export/me/applications.csv`
+    plus admin-only `/api/admin/export/all`. Same-Origin-Cookie
+    reicht, GET → kein CSRF.
+  - 11 neue Vitest-Tests (`search-box`, `search-results`,
+    `export-buttons`). Frontend-Suite 16 → 27 Tests grün.
+    `tsc --noEmit`, `next lint`, `prettier --check`, `next build`
+    alle clean.
+  - **Keine Backend-Änderungen, keine neuen Abhängigkeiten,
+    keine Migrations.**
+  - ADR-026 dokumentiert die neun Detail-Entscheidungen (Searchbox-
+    Pattern, /search-Page-Lade-Strategie, Snippet-Tokenisierung,
+    Treffer-Link-Ziel, Export-Download-Pattern, Dashboard-Polish,
+    Tests, Browser-Smoke, Scope-Abgrenzung).
+
+### Fixed
+
+- **Dashboard — Throwback-Schema-Drift:** Die Sektion „An diesem Tag"
+  rendete `throwback.event_id`; das Backend liefert seit M3 das Feld
+  `id` (siehe `backend/app/schemas/search.py:21`). Frontend-Schema an
+  Backend angepasst (`note`-Feld zusätzlich übernommen). Listen-
+  Einträge im Dashboard verlinken jetzt zusätzlich auf
+  `/events/{id}` (Detail-Route bleibt bis M5c ein Stub — bewusste
+  ADR-026 §D-Konsequenz).
+
 - **M5a.1 — Backend-Live-Endpoints + Tile-Proxy:** Sechs neue Backend-
   Routen für die Live-Erfassung (Fahrplan §M5a, ADR-022/-024).
   - `POST /api/events/start` setzt `started_at = now()`, fügt den Creator

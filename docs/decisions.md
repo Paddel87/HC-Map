@@ -1794,6 +1794,170 @@ be "User"` plus fünf `# type: ignore[type-var]`-Workarounds in
 
 ---
 
+## ADR-026 — Implementierungsstrategie M5a.2 (Frontend Startseite, Suche, Export)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** ADR-024 §J schneidet M5a.2 als reinen Frontend-Konsum
+bestehender M3-Endpoints zu: Volltextsuche (`GET /api/search`),
+„On this day" (`GET /api/throwbacks/today`), JSON- und CSV-Export
+(`/api/export/me`, `/api/export/me/events.csv`,
+`/api/export/me/applications.csv`, `/api/admin/export/all`).
+Die Sub-Schritte M5a.3 (Live-Modus + LocationPickerMap) und M5a.4
+(App-PIN) bleiben bewusst außen vor. M5a.2 fällt vollständig in den
+Autonomiebereich (CLAUDE.md §5) — keine neuen Module, keine
+Backend-Änderungen, keine neuen Abhängigkeiten.
+
+**Entscheidungen:**
+
+1. **Globale Suchleiste (A):** `components/layout/search-box.tsx` als
+   Client-Component (`"use client"`) mit `<form role="search">` und
+   `Input type="search" name="q"`. Submit per `useRouter().push` zu
+   `/search?q=<encodeURIComponent(value)>`. Defaultwert wird aus
+   `useSearchParams().get("q")` gelesen und über `useEffect` an URL-
+   Änderungen synchronisiert. Leerer/whitespace-Submit ist No-Op.
+   Form hat zusätzlich `action="/search" method="get"` als
+   Progressive-Enhancement-Fallback (funktioniert ohne JS).
+   - **Platzierung Desktop:** in der Sidebar oberhalb der Nav-Items
+     (`Sidebar`-Component).
+   - **Platzierung Mobile:** als zweite Zeile im Sticky-Header der
+     `AppShell`. Erste Zeile bleibt `Hamburger | Brand | UserMenu`,
+     zweite Zeile volle Breite mit `<SearchBox />`.
+   Verworfen wurde eine reine Modal-Suche (zusätzlicher Tap, schwerer
+   auffindbar) und eine Submit-only-Variante per `<form action>` ohne
+   Router (verliert Vorbelegung des Felds beim Pre-Fill, weil bei
+   reload das Default-Value hart in den DOM gehen würde).
+
+2. **Search-Page (B):** Neue Route
+   `app/(protected)/search/page.tsx` als Server-Component. `searchParams`
+   wird gemäß Next 15 als `Promise<{q?: string}>` ge-awaited.
+   Empty-Query → Hinweiskarte „Suchbegriff eingeben". Sonst wird
+   `/api/search?q=<q>&limit=50` mit Cookie-Forwarding (analog zur
+   Dashboard-Page) ge-fetcht; Fehler werden als Karte „Suche
+   fehlgeschlagen" gerendert (ohne Backend-Statuscode-Leak), Erfolg
+   als Treffer-Liste. Die Hilfs-Function `loadSearch` ist file-lokal
+   (kein neues Service-Modul, weil bisher nur diese eine Stelle so
+   ein Pattern braucht).
+
+3. **Snippet-Highlighting sicher (C):** Backend liefert via
+   `ts_headline('german', …)` HTML-Schnipsel mit `<b>…</b>` um die
+   Treffer. Das Frontend rendert `dangerouslySetInnerHTML` **nicht**.
+   Stattdessen tokenisiert `renderSnippet` per Regex
+   `/<b>(.*?)<\/b>/gi` in plain Strings und `<mark>`-Elemente; der
+   Rest wird als React-Children-Strings gerendert (React escaped
+   automatisch). Damit wird ein in Notes eingebettetes
+   `<script>...</script>` als sichtbarer Plain-Text dargestellt, nicht
+   ausgeführt. Test deckt diesen Edge-Case ab. Verworfen wurde eine
+   Backend-Änderung (Snippet ohne HTML, mit Match-Positionen) — das
+   wäre eine API-Vertragsänderung außerhalb M5a.2-Scope.
+
+4. **Treffer-Link-Ziel (D):** Jeder Hit verlinkt auf
+   `/events/{event_id}` — auch Hits vom Typ `application`, weil die
+   Detailseite eines Events ohnehin alle zugehörigen Applications
+   chronologisch zeigt (M5c). Die `/events/[id]`-Detail-Route ist
+   in M5a.2 noch ein Stub; die Links werden in M5c lebendig und
+   bleiben bis dahin als toter Link. Akzeptiert, weil ohne sinnvolles
+   Link-Ziel die Suche nicht navigierbar wäre.
+
+5. **Export-UI per `<a download>` (E):** `ExportButtons`-Component
+   rendert vier Download-Links: drei für jede Rolle (`/api/export/me`,
+   `/api/export/me/events.csv`, `/api/export/me/applications.csv`),
+   plus `/api/admin/export/all` nur für `role === "admin"`. Jeder
+   Link nutzt das native `<a href download="…">`-Pattern, gestylt
+   über `buttonVariants(...)`. Same-Origin-Auth-Cookie wird vom
+   Browser automatisch mitgeschickt; CSRF entfällt (GET-Requests).
+   `download`-Attribut sorgt dafür, dass der Browser auch
+   ohne `Content-Disposition`-Header (JSON-Endpoints) speichert
+   statt inline zu rendern. Verworfen wurde fetch-Blob-Object-URL —
+   bringt nur Loading-Spinner, der bei <5000 Events kaum sichtbar
+   wäre; Komplexität ohne Mehrwert.
+
+6. **Dashboard-Polish (F):** Drei kleinere Korrekturen am bestehenden
+   Stub aus M4:
+   - **Throwback-Bug fixen:** Backend liefert `ThrowbackEvent.id`
+     (siehe `backend/app/schemas/search.py:21`); das Dashboard
+     rendert seither `tb.event_id`, was undefined ist. Schema im
+     Frontend an Backend angepasst, plus `note`-Feld ergänzt.
+   - **Dashboard-Treffer verlinken:** Letzte-Events-Liste und
+     Throwback-Liste linken auf `/events/{id}` (siehe D).
+   - **CTA-Text klarer:** „Neues Event starten" disabled-Button
+     trägt jetzt die Begründung „Live-Modus folgt mit M5a.3" statt
+     vagem „M5a folgt".
+   Diese Punkte sind Bestandteil von „Startseite mit großem
+   ‚Neues Event starten'-Knopf, Liste der letzten Events und
+   ‚On this day'-Sektion" aus dem M5a-Deliverable und keine
+   Scope-Erweiterung.
+
+7. **Tests (G):** 11 neue Vitest-Tests in `frontend/tests/`:
+   - `search-box.test.tsx` (3): Submit navigiert mit URL-encoded
+     Query, leerer/whitespace-Submit ist No-Op, Pre-Fill aus
+     `?q=`-Param.
+   - `search-results.test.tsx` (5): Empty-State, Treffer-Links zeigen
+     auf `/events/{event_id}`, `<b>`-Tokens werden zu `<mark>`,
+     `<script>` wird **nicht** ausgeführt sondern als Plain-Text
+     dargestellt, leerer Snippet-String → leeres Array.
+   - `export-buttons.test.tsx` (3): Drei Standard-Links mit
+     `download`-Attribut für editor/viewer, Admin-Link nur für
+     admin, kein Admin-Link für viewer.
+   Frontend-Suite: 16 → 27 Tests, alles grün. `tsc --noEmit`,
+   `next lint`, `prettier --check` clean. `next build` erstellt
+   `/search` als ƒ (Server-rendered on demand).
+
+8. **Browser-Smoke (H):** Lokales Stack (DB + Backend +
+   Next-Dev-Server) bestätigt:
+   - Login → Dashboard mit Mobile-Header + zweizeiliger Suchleiste.
+   - `/search?q=clejuso` rendert „Keine Treffer für ‚clejuso'"
+     gegen leere DB; Suchfeld ist mit dem Query vorbelegt.
+   - `/profile` zeigt vier Export-Buttons (admin); per
+     `fetch('/api/export/me')` aus Browser-Console → 200 mit den
+     ADR-020 §J-Top-Level-Keys (`version`, `events`, `applications`,
+     `event_participants`, `application_restraints`,
+     `restraint_types`); CSV-Endpoint mit
+     `Content-Disposition: attachment; filename=events.csv`;
+     `/api/admin/export/all` mit 200.
+   - Keine Console-Errors in der Session.
+
+9. **Scope-Abgrenzung gegen M5a.3/.4 (I):**
+   - **M5a.2 (dieser ADR):** Frontend-Startseite-Polish, globale
+     Suche, Export-UI, plus Stub-Detailseite-Link-Ziele.
+   - **M5a.3:** Live-Modus mit Wakelock, GPS, Timer, on-the-fly-
+     Personenanlage, `LocationPickerMap`. Wird den disabled-CTA
+     auf der Startseite aktivieren.
+   - **M5a.4:** App-PIN-Sperre nach ADR-023, querliegend zu allen
+     Frontend-Routen.
+   Die Trennung minimiert PR-Größe und macht Reviews abnehmbar.
+
+**Konsequenzen:**
+
+- Frontend hat ab M5a.2 eine globale, RLS-konforme Suche und einen
+  Export-Pfad für jeden User. Datensouveränitäts-Anforderung aus
+  ADR-015 ist Frontend-seitig erfüllt.
+- `/events/{id}`-Stub-Route wird in M5c lebendig — bis dahin
+  produzieren Suche und Dashboard-Listen tote Links. Bewusst
+  akzeptiert (siehe D).
+- Snippet-Tokenisierung ist getestet gegen `<script>`-Injection.
+  Falls Postgres in einer späteren Version andere Marker verwendet,
+  brechen die Tests deterministisch — kein Stille.
+- Keine neuen Abhängigkeiten, keine Backend-Änderungen, keine
+  Migrations.
+
+**Verworfene Alternativen:**
+
+- A2 (Modal-Suche statt Inline-Searchbox): zusätzlicher Tap,
+  schlechter auffindbar, kollidiert mit Mobile-First-Prinzip.
+- B2 (Client-Side-fetch in Search-Page): kein SSR-Ergebnis,
+  Suchparameter müssten zusätzlich im Browser-Hook geladen werden,
+  Auth-Cookie-Forwarding nicht nötig — alles ohne Vorteil.
+- C2 (`dangerouslySetInnerHTML` mit DOMPurify): zusätzlicher
+  Library-Zugriff (freigabepflichtig); Tokenisierung reicht.
+- E2 (fetch-Blob-Download mit Spinner): Komplexität ohne UX-Vorteil
+  bei <5000-Events-Datenmenge.
+- F2 (Throwback-Bug erst in M5c fixen): das Dashboard ist Bestandteil
+  von M5a-Deliverables — Bug innerhalb der eigenen Modulgrenze
+  fixen statt verschieben.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

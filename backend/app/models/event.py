@@ -22,14 +22,21 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, CreatedByMixin, TimestampMixin, pk_column
+from app.models.base import (
+    Base,
+    CreatedByMixin,
+    SoftDeleteMixin,
+    TimestampMixin,
+    pk_column,
+)
 
 
-class Event(Base, TimestampMixin, CreatedByMixin):
+class Event(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     __tablename__ = "event"
     __table_args__ = (
         CheckConstraint("lat >= -90 AND lat <= 90", name="lat_range"),
@@ -43,6 +50,7 @@ class Event(Base, TimestampMixin, CreatedByMixin):
             func.to_tsvector("german", "note"),
             postgresql_using="gin",
         ),
+        Index("ix_event_cursor", "updated_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = pk_column()
@@ -60,6 +68,13 @@ class Event(Base, TimestampMixin, CreatedByMixin):
         nullable=False, default=False, server_default="false"
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ADR-030: updated_at is the RxDB pull cursor → NOT NULL with a server-side
+    # default (clock_timestamp matches the set_updated_at trigger from M1).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
+    )
 
 
 class EventParticipant(Base):

@@ -7,6 +7,48 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M5b.1 — Sync-Datenmodell-Vorbereitung (ADR-029…ADR-032):**
+  Datenmodell-Fundament für die RxDB-Replication aus M5b.2/M5b.3.
+  Reine Backend-/DB-Änderung, kein Sync-Code.
+  - **ADR-029 — Conflict-Resolution-Strategie (Live-First mit
+    Reconciliation):** Pro-Feld-Tabelle für `event` und `application`.
+    Identitäts-/Zeit-/Geo-Felder sind nach erstem Push immutable;
+    `ended_at` ist First-Write-Wins; Notizen, Beteiligte und Positionen
+    sind Last-Write-Wins; `sequence_no`-Konflikte löst der Server durch
+    Re-Numbering. Konkret prägt das die `POST /api/sync/push`-Logik in
+    M5b.2.
+  - **ADR-030 — Soft-Delete und Cursor-Felder:** `event` und
+    `application` erhalten `is_deleted boolean NOT NULL DEFAULT false`
+    + `deleted_at timestamptz NULL`, `updated_at` wird auf `NOT NULL`
+    mit `DEFAULT clock_timestamp()` gehoben (Backfill mit `created_at`),
+    Cursor-Indices `(updated_at, id)` für `/api/sync/pull`. Cascade-
+    Trigger `cascade_event_soft_delete` propagiert Soft-Delete eines
+    Events auf alle nicht-gelöschten Child-Applications; Restore
+    propagiert bewusst nicht. RLS-Policies bleiben in M5b.1 unverändert
+    — Soft-Delete-bewusste Service-Filterung kommt mit M5b.2.
+  - **ADR-031 — RxDB-Schema-Source-of-Truth:** Frontend-RxDB-Schemas
+    und Backend-Pydantic-Schemas werden manuell parallel gepflegt;
+    Drift wird in M5b.2 durch einen automatisierten Test in der
+    Backend-Suite verhindert.
+  - **ADR-032 — Keine IndexedDB-Encryption in Pfad A:** Storage bleibt
+    unverschlüsselt; Geräteverschlüsselung ist User-Verantwortung. App-
+    PIN aus M5a.4 deckt das primäre Bedrohungsmodell. Einwilligungstext
+    (Pre-M11) wird entsprechend ergänzt.
+  - **Alembic-Migration** `20260426_1800_m5b1_sync_columns`: Backfill
+    `updated_at`, `NOT NULL`-Hochzug, Soft-Delete-Spalten, Cursor-
+    Indices, Cascade-Trigger. Down-Migration vollständig reversibel.
+  - **ORM-Modelle:** `Event` und `Application` erben jetzt zusätzlich
+    von `SoftDeleteMixin`, mit explizitem `updated_at`-Override
+    (`nullable=False`, `server_default=text("clock_timestamp()")`).
+    `SoftDeleteMixin`-Docstring erweitert (M5b-Scope dokumentiert).
+  - **Tests:** Sieben neue Trigger-Tests in
+    `tests/test_sync_columns_migration.py` decken Insert-Default,
+    Update-Bump auf `event` und `application`, Soft-Delete-Cascade,
+    Restore-No-Cascade und Application-Soft-Delete-Isolation ab.
+    Backend-Suite 84/84 grün, `mypy` und `ruff` clean.
+
 ### Fixed
 
 - **M2 — fastapi-users-Typing:** `app/auth/routes.py:20` warf seit M2

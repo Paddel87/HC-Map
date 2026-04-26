@@ -245,7 +245,9 @@ Bei Anonymisierung: `name = '[gelöscht]'`, `alias = NULL`, `note = NULL`, `is_d
 | note                  | text                         | NULL                                                           |
 | created_by            | uuid                         | FK → user.id                                                   |
 | created_at            | timestamptz                  | NOT NULL DEFAULT now()                                         |
-| updated_at            | timestamptz                  | NULL                                                           |
+| updated_at            | timestamptz                  | NOT NULL DEFAULT clock_timestamp() — RxDB-Pull-Cursor (siehe ADR-030) |
+| is_deleted            | boolean                      | NOT NULL DEFAULT false — Tombstone für RxDB (siehe ADR-030)    |
+| deleted_at            | timestamptz                  | NULL                                                           |
 
 Indizes:
 - `started_at` (BTREE)
@@ -253,6 +255,7 @@ Indizes:
 - `geom` (GiST)
 - `created_by`
 - `note` (GIN auf `to_tsvector('german', note)` für Volltextsuche, siehe ADR-015)
+- `(updated_at, id)` (BTREE) — Cursor-Index für `/api/sync/pull` (siehe ADR-030)
 
 #### `event_participant`
 
@@ -282,10 +285,13 @@ Indizes: `person_id`, `event_id`.
 | note                  | text         | NULL — auch für "Materialwechsel danach" o. ä. nutzbar      |
 | created_by            | uuid         | FK → user.id                                                |
 | created_at            | timestamptz  | NOT NULL DEFAULT now()                                      |
-| updated_at            | timestamptz  | NULL                                                        |
+| updated_at            | timestamptz  | NOT NULL DEFAULT clock_timestamp() — RxDB-Pull-Cursor (siehe ADR-030) |
+| is_deleted            | boolean      | NOT NULL DEFAULT false — Tombstone für RxDB (siehe ADR-030) |
+| deleted_at            | timestamptz  | NULL                                                        |
 
-Indizes: `event_id`, `performer_id`, `recipient_id`, composite (event_id, sequence_no), GIN auf `to_tsvector('german', note)` (siehe ADR-015).
+Indizes: `event_id`, `performer_id`, `recipient_id`, composite (event_id, sequence_no), GIN auf `to_tsvector('german', note)` (siehe ADR-015), `(updated_at, id)` (Cursor-Index für `/api/sync/pull`, siehe ADR-030).
 Constraint: UNIQUE(event_id, sequence_no).
+Cascade: `AFTER UPDATE OF is_deleted`-Trigger `cascade_event_soft_delete` propagiert `is_deleted = true` auf einem Event auf alle nicht-gelöschten Child-Applications (siehe ADR-030).
 
 `performer_id != recipient_id` ist als Business-Regel im Service/Schema, nicht als DB-Constraint (zu strikt für mögliche Self-Bondage-Fälle).
 
@@ -664,12 +670,14 @@ Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Rou
 |---------|------------------|--------|------------------------|
 | GET     | `/api/health`    | öffentlich | Liveness/Readiness  |
 
-### Sync (RxDB Replication-Protokoll, siehe ADR-017)
+### Sync (RxDB Replication-Protokoll, siehe ADR-017, ADR-029, ADR-030, ADR-031)
 
 | Methode | Pfad                | Rolle | Zweck                                           |
 |---------|---------------------|-------|-------------------------------------------------|
-| GET     | `/api/sync/pull`    | alle (RLS) | Query: `updatedAt` und `id` Cursor; liefert Änderungen an Events/Applications seit Cursor |
-| POST    | `/api/sync/push`    | alle (RLS) | Akzeptiert clientseitige Änderungen, gibt Konflikte zurück |
+| GET     | `/api/sync/pull`    | alle (RLS) | Query: `updatedAt` und `id` Cursor; liefert Änderungen an Events/Applications seit Cursor inkl. Tombstones (`_deleted: true`). Cursor-Index `(updated_at, id)` (ADR-030). |
+| POST    | `/api/sync/push`    | alle (RLS) | Akzeptiert `[{assumedMasterState, newDocumentState}]` und validiert pro Feld nach ADR-029 (Live-First mit Reconciliation). Gibt Liste der Konflikte mit aktuellem Server-Stand zurück. |
+
+Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{event,application}.schema.json`) und Backend-Pydantic-Schemas (`backend/app/sync/schema.py`) werden manuell parallel gepflegt; Drift-Test in `backend/tests/test_rxdb_schema_drift.py` schlägt bei Abweichungen fehl (ADR-031).
 
 ### Admin-UI (SQLAdmin, siehe ADR-016)
 

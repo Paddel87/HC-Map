@@ -249,6 +249,7 @@ Pfad A produktiv starten, Architektur so bauen, dass Pfad B (oder Multi-Instanz)
   - Anonymisierungs-Kompromiss bei Ausscheiden (ADR-002).
   - On-the-fly-Erfassung externer Personen ohne deren vorherige Einwilligung (ADR-014).
   - Kollektive Aggregat-Statistiken sind in einer kleinen Gruppe nur scheinbar anonym (ADR-015).
+  - **IndexedDB-Inhalte des eigenen Endgeräts liegen unverschlüsselt vor (ADR-032).** Geräteverschlüsselung (FileVault, BitLocker, Android FBE, iOS Data Protection) ist User-Verantwortung; App-PIN aus M5a.4 schützt nur die UI, nicht den Storage.
 - Interne Mini-Datenschutzerklärung, auch wenn geschlossener Rahmen.
 
 ### Vor Aktivierung Phase-2-Features (M15)

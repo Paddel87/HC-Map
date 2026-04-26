@@ -1,8 +1,9 @@
 """SQLAlchemy declarative base, shared mixins, and column helpers.
 
 UUIDv7 primary keys are generated client-side via ``uuid_utils.uuid7()``
-(see ADR-018). Soft-delete fields live on User and Person only; other
-entities are deleted hard.
+(see ADR-018). Soft-delete fields live on User and Person (anonymisation
+per ADR-002) and on Event and Application (RxDB tombstone replication
+per ADR-030). Catalog rows and link tables remain hard-delete only.
 """
 
 from __future__ import annotations
@@ -70,7 +71,12 @@ class CreatedByMixin:
 
 
 class SoftDeleteMixin:
-    """Reserved for User and Person only (anonymisation per ADR-002)."""
+    """``is_deleted`` / ``deleted_at`` for tombstone-style deletion.
+
+    Used by User and Person (anonymisation per ADR-002) and by Event and
+    Application (RxDB tombstone replication per ADR-030). Catalog rows and
+    link tables stay hard-delete.
+    """
 
     is_deleted: Mapped[bool] = mapped_column(
         nullable=False,

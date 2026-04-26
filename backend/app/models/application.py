@@ -20,14 +20,21 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, CreatedByMixin, TimestampMixin, pk_column
+from app.models.base import (
+    Base,
+    CreatedByMixin,
+    SoftDeleteMixin,
+    TimestampMixin,
+    pk_column,
+)
 
 
-class Application(Base, TimestampMixin, CreatedByMixin):
+class Application(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     __tablename__ = "application"
     __table_args__ = (
         UniqueConstraint("event_id", "sequence_no", name="uq_application_event_sequence"),
@@ -40,6 +47,7 @@ class Application(Base, TimestampMixin, CreatedByMixin):
             func.to_tsvector("german", "note"),
             postgresql_using="gin",
         ),
+        Index("ix_application_cursor", "updated_at", "id"),
     )
 
     id: Mapped[uuid.UUID] = pk_column()
@@ -77,6 +85,13 @@ class Application(Base, TimestampMixin, CreatedByMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ADR-030: updated_at is the RxDB pull cursor → NOT NULL with a server-side
+    # default (clock_timestamp matches the set_updated_at trigger from M1).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
+    )
 
 
 class ApplicationRestraint(Base):

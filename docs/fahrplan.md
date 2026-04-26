@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.4 [ERLEDIGT] 2026-04-26** — M5a komplett.
-- **Nächster Schritt:** M5b — Offline-Resilienz (RxDB-Sync)
+- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.1 [ERLEDIGT] 2026-04-26** — ADR-029…ADR-032 angenommen, Migration `20260426_1800_m5b1_sync_columns` läuft, Backend-Suite 84/84 grün.
+- **Nächster Schritt:** M5b.2 Backend-Sync-Endpoints `/api/sync/{pull,push}`.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -56,7 +56,11 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
+| 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [IN ARBEIT] |
+| 1 MVP   | M5b.1       | └─ ADR-Bündel + Datenmodell-Migration            | [ERLEDIGT] 2026-04-26 |
+| 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{pull,push}` | [OFFEN]     |
+| 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [OFFEN]     |
+| 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
@@ -611,7 +615,9 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Funklöcher führen nicht zu Datenverlust. Live-Modus funktioniert auch ohne stabile Verbindung.
 
-**Deliverables:**
+**Sub-Schritt-Aufteilung (freigegeben 2026-04-26):** Analog zur M5a-Granularität in vier Sub-Schritte aufgeteilt; M5b.1 bündelt die freigabepflichtigen Entscheidungen vor dem ersten Code-Eingriff.
+
+**Deliverables (Gesamt-M5b):**
 - **RxDB-Setup im Frontend** (siehe ADR-017): `lib/rxdb/database.ts`, Schemas für Event und Application entsprechend Backend-Modell.
 - **Backend-Sync-Endpoints** `/api/sync/pull` und `/api/sync/push` entsprechend RxDB-Replication-Protokoll. RLS-konform (User bekommt nur seine sichtbaren Events).
 - **Schreib-Strategie:** Jede Live-Aktion schreibt zuerst in RxDB, der Replication-Worker repliziert im Hintergrund ans Backend.
@@ -620,13 +626,100 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - **Test:** bewusst Offline gehen, drei Applications erfassen, wieder online — alle Daten landen korrekt im Backend, keine Duplikate.
 - **Storage-Recovery:** Bei Reconnect nach längerer Pause (Safari löscht IndexedDB nach 7 Tagen Inaktivität) Re-Sync mit Server-Stand.
 
-**Akzeptanzkriterien:**
+**Akzeptanzkriterien (Gesamt-M5b):**
 - Event komplett im Flugmodus erfassbar; Sync nach Wiederverbindung erfolgreich.
 - Keine Duplikate bei Resync.
 - UI zeigt Offline-Status klar an.
 - RxDB-Schemas und Backend-Modell bleiben synchron (wird durch gemeinsame Typ-Definitionen oder OpenAPI-basierte Generierung sichergestellt).
+- Coverage Sync-Pfade ≥ 80 % (siehe `project-context.md` §7).
 
 **Abhängigkeiten:** M5a.
+
+#### M5b.1 — ADR-Bündel + Datenmodell-Migration
+
+**Status:** [ERLEDIGT] 2026-04-26
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5b.1, ADR-Bündel + Datenmodell-Migration):**
+
+- ADR-029 (Conflict-Resolution Live-First mit Reconciliation), ADR-030 (Soft-Delete + Cursor-Felder), ADR-031 (RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test), ADR-032 (keine IndexedDB-Encryption in Pfad A) in `docs/decisions.md` als `Accepted` 2026-04-26 angelegt; ADR-Übersichtstabelle gleichzeitig auf aktuellen Stand gebracht (M5a.2/3/4-ADRs nachgetragen).
+- Alembic-Migration `backend/migrations/versions/20260426_1800_m5b1_sync_columns.py`: Backfill `updated_at = COALESCE(updated_at, created_at)` (mit temporärem Trigger-Disable, sonst überschreibt der set_updated_at-Trigger den Backfill sofort), `ALTER COLUMN updated_at SET DEFAULT clock_timestamp() / NOT NULL` auf `event` und `application`, neue Spalten `is_deleted boolean NOT NULL DEFAULT false` und `deleted_at timestamptz NULL`, Cursor-Indices `ix_event_cursor` und `ix_application_cursor` auf `(updated_at, id)`, `cascade_event_soft_delete()`-Funktion + AFTER-UPDATE-OF-Trigger auf `event` (Cascade nur bei `false→true`-Übergang, Restore propagiert bewusst nicht). Down-Migration entfernt Trigger, Indices, Soft-Delete-Spalten und macht `updated_at` wieder nullable.
+- ORM-Modelle synchron: `Event` und `Application` erben zusätzlich von `SoftDeleteMixin` (`backend/app/models/event.py`, `backend/app/models/application.py`); `updated_at`-Override mit `nullable=False, server_default=text("clock_timestamp()")` für SQLAlchemy/DB-Kohärenz; `Index("ix_*_cursor", "updated_at", "id")` in den `__table_args__` ergänzt; `SoftDeleteMixin`-Docstring in `app/models/base.py` erweitert (jetzt explizit Event/Application im Scope).
+- RLS-Policies in M5b.1 **bewusst nicht angefasst** (Scope endet am Datenmodell). Soft-Delete-bewusste Service-Layer-Filterung wird zusammen mit den Sync-Endpoints in M5b.2 nachgezogen — bis dahin existieren keine Soft-Deletes, also kein Verhaltensunterschied gegenüber dem Ist-Zustand.
+- Trigger-Tests `backend/tests/test_sync_columns_migration.py` (sieben Tests): `test_event_updated_at_is_non_null_on_insert`, `test_application_updated_at_is_non_null_on_insert`, `test_event_updated_at_trigger_bumps_on_update`, `test_application_updated_at_trigger_bumps_on_update`, `test_event_soft_delete_cascades_to_applications`, `test_event_restore_does_not_cascade_to_applications`, `test_application_soft_delete_does_not_touch_event` — alle grün.
+- Volle Backend-Suite: **84/84 Tests grün** (zuvor 77, +7 neue Trigger-Tests). `ruff check` und `mypy --strict` clean.
+- `architecture.md` §Datenmodell um neue Spalten + Cursor-Index ergänzt; §Sync um Cursor-Hinweis, Conflict-Resolution-Verweis und Schema-Drift-Test-Pfad erweitert.
+- README-Phase-Badge auf `M5b.1-erledigt`, CHANGELOG-Eintrag mit Detail-Auflistung der vier ADRs und der Migration, Projektstatus-Tabelle aktualisiert.
+- **Folge-Notiz an Pre-M11-Einwilligungstext:** Hinweis aus ADR-032 in `project-context.md` aufgenommen — IndexedDB-Inhalte des Endgeräts liegen unverschlüsselt vor; Geräteverschlüsselung ist User-Verantwortung.
+
+**Scope:** Vier zusammenhängende ADRs, die M5b.2/M5b.3 entweder voraussetzen oder konkret formen, plus die daraus folgende Alembic-Migration. **Kein Sync-Code in diesem Sub-Schritt.**
+
+**Deliverables:**
+- **ADR-029 — Conflict-Resolution-Strategie pro Feld** auf `event` und `application`: Welche Felder sind server-authoritative (z. B. `id`, `created_at`, `created_by`, alle Zeitstempel), welche LWW (z. B. `note`), welche im Live-Mode-Lock (z. B. `lat`/`lon` ab `started_at`).
+- **ADR-030 — Soft-Delete und Cursor-Felder** auf `event` und `application`: `is_deleted boolean NOT NULL DEFAULT false` + `deleted_at timestamptz NULL` + `updated_at NOT NULL DEFAULT clock_timestamp()`. Trigger `set_updated_at` existiert bereits seit M1; in M5b.1 wird `updated_at` nur auf `NOT NULL` gehoben und mit `created_at` backfilled. Cursor-Tupel für `pull`: `(updated_at, id)`.
+- **ADR-031 — RxDB-Schema-Source-of-Truth:** Wie wird verhindert, dass RxDB-Schemas und Backend-Modell auseinanderlaufen (Akzeptanzkriterium aus M5b).
+- **ADR-032 — Storage-Encryption für IndexedDB** ja/nein, und wenn ja: für welche Felder.
+- **Alembic-Migration** aus ADR-030 (additiv, rückwärtskompatibel: Backfill `updated_at = COALESCE(updated_at, created_at)`, `NOT NULL` hochziehen, Soft-Delete-Spalten ergänzen, Cascade-Trigger für Event→Application-Soft-Delete, Cursor-Indices).
+- **Integrationstest** für Trigger: jeder `UPDATE` auf `event`/`application` bumpt `updated_at`; Cascade-Trigger soft-löscht alle Child-Applications eines Events.
+
+**Akzeptanzkriterien:**
+- Vier ADRs mit Status `Accepted` in `decisions.md`.
+- Migration läuft auf leerer DB grün und auf Test-DB mit Seed-Daten ohne Datenverlust.
+- Trigger-Test grün (Einfügen, Updaten, `updated_at` ändert sich; `is_deleted = true` setzbar).
+- README-Phase-Badge auf `M5b.1-erledigt`, CHANGELOG-Eintrag.
+
+**Abhängigkeiten:** M5a.
+
+#### M5b.2 — Backend-Sync-Endpoints
+
+**Status:** [OFFEN]
+
+**Deliverables:**
+- `GET /api/sync/pull?updatedAt={iso}&id={uuid}&limit=100` mit Cursor-Pagination, RLS-konform, liefert `{documents: [...], checkpoint: {updatedAt, id}}` nach RxDB-Replication-Protokoll. Soft-gelöschte Dokumente erscheinen mit `_deleted: true`.
+- `POST /api/sync/push` nimmt `[{assumedMasterState, newDocumentState}]`, validiert via Conflict-Resolution-Regeln aus ADR-029, gibt Liste der Konflikte zurück (Server-Doc, das gewinnt).
+- Pydantic-Schemas in `backend/app/sync/schema.py` deckungsgleich mit Frontend-RxDB-Schemas (gemäß ADR-031).
+- Tests: Pull/Push happy path, RLS-Negativtest pro Rolle, Conflict-Cases (LWW, Server-Authoritative, Live-Lock), Soft-Delete-Replikation.
+
+**Akzeptanzkriterien:**
+- 100 % RLS-Test-Coverage für Sync-Endpoints (analog zu `tests/test_rls.py`).
+- Coverage Sync-Endpoints ≥ 80 %.
+- OpenAPI-Doku enthält beide Endpoints korrekt.
+
+**Abhängigkeiten:** M5b.1.
+
+#### M5b.3 — RxDB-Setup + Live-Modus auf RxDB-Schreibpfad
+
+**Status:** [OFFEN]
+
+**Deliverables:**
+- `lib/rxdb/database.ts` (RxDatabase-Initialisierung mit Dexie-Storage, ggf. Encryption-Plugin gemäß ADR-032).
+- `lib/rxdb/schemas.ts` (Event- und Application-Schemas, Quelle gemäß ADR-031).
+- `lib/rxdb/replication.ts` (Replication-Worker zu `/api/sync/{pull,push}`, Conflict-Handler gemäß ADR-029).
+- Live-Modus-Aktionen aus M5a.3 von direktem REST auf RxDB-Schreibpfad umgestellt; Replication läuft im Hintergrund.
+- UI-Indikator „synchronisiert / pending / offline" in Hauptnavigation.
+- Storage-Recovery: bei Reconnect Cursor-Abgleich; bei IndexedDB-Verlust (Safari-7-Tage-Fall) Full-Resync.
+
+**Akzeptanzkriterien:**
+- Live-Modus-Aktionen unter 200 ms vom Tap bis lokale RxDB-Persistierung (Performance-Constraint aus `project-context.md` §6).
+- Reaktive UI: Änderungen an RxDB-Daten propagieren ohne expliziten Refetch.
+- ESLint, `tsc --noEmit` grün; Component-Tests für Sync-Indikator-Komponente.
+
+**Abhängigkeiten:** M5b.2.
+
+#### M5b.4 — E2E-Offline-Test & Doc-Updates
+
+**Status:** [OFFEN]
+
+**Deliverables:**
+- E2E-Test: Browser → Flugmodus → 3 Applications erfassen → Reconnect → Backend hat alle Daten genau einmal, kein Duplikat, Reihenfolge korrekt.
+- Coverage-Nachweis ≥ 80 % für Sync-Pfade (Frontend + Backend).
+- `architecture.md` § Sync und § Live-Modus aktualisiert (Verweis auf neue ADRs).
+- README-Badge auf `M5b-erledigt`, CHANGELOG-Eintrag, Projektstatus-Tabelle.
+
+**Akzeptanzkriterien:**
+- E2E-Test grün und reproduzierbar.
+- M5b komplett `[ERLEDIGT]`.
+
+**Abhängigkeiten:** M5b.3.
 
 ---
 

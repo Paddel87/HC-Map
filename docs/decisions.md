@@ -51,6 +51,13 @@ Status-Legende:
 | ADR-023 | App-PIN-Hashing clientseitig via PBKDF2 (Web Crypto API)        | Accepted | 2026-04-26  |
 | ADR-024 | Implementierungsstrategie M5a.1 (Live-Endpoints + Tile-Proxy)   | Accepted | 2026-04-26  |
 | ADR-025 | User-Modell erbt von SQLAlchemyBaseUserTableUUID (typing-fix)   | Accepted | 2026-04-26  |
+| ADR-026 | Implementierungsstrategie M5a.2 (Frontend Startseite, Suche, Export) | Accepted | 2026-04-26 |
+| ADR-027 | Implementierungsstrategie M5a.3 (Frontend Live-Modus + LocationPickerMap) | Accepted | 2026-04-26 |
+| ADR-028 | Implementierungsstrategie M5a.4 (App-PIN-Sperre)                | Accepted | 2026-04-26  |
+| ADR-029 | Conflict-Resolution-Strategie M5b (Live-First mit Reconciliation) | Accepted | 2026-04-26 |
+| ADR-030 | Soft-Delete und Cursor-Felder auf event/application (M5b)       | Accepted | 2026-04-26  |
+| ADR-031 | RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test         | Accepted | 2026-04-26  |
+| ADR-032 | IndexedDB-Storage-Encryption: keine Encryption in Pfad A        | Accepted | 2026-04-26  |
 
 ---
 
@@ -2474,6 +2481,185 @@ querliegend zu allen `(protected)`-Routen.
 - **Regel:** Pro Policy mindestens ein positiver Test (Rolle X sieht Datensatz Y) und ein negativer Test (Rolle X sieht Datensatz Z nicht). Tests in `tests/test_rls.py`. RLS-Coverage 100 %, sonst kein Merge.
 - **Ausnahmen:** Keine.
 - **Gegenbeispiel:** Policy hinzufügen ohne Test → Bug bleibt unentdeckt, mögliches Daten-Leck.
+
+---
+
+## ADR-029 — Conflict-Resolution-Strategie M5b (Live-First mit Reconciliation)
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+ADR-017 hat RxDB als Sync-Schicht festgelegt und Conflict-Resolution mit zwei Stichworten umrissen („Server-Zeit als Wahrheit für Zeitstempel, Last-Write-Wins für Notiz-Felder"). M5b verlangt eine Pro-Feld-Festlegung für `event` und `application`, weil sich daraus die Validierungs-Logik der `POST /api/sync/push`-Route ergibt.
+
+### Entscheidung
+Pro-Feld-Strategie nach **Variante B (Live-First mit Reconciliation)** aus dem M5b.1-Vorschlagspaket.
+
+**Strategie-Klassen:**
+- **server-authoritative:** Server ignoriert Client-Wert, schreibt eigenen.
+- **immutable-after-create:** Nach erstem Push fix; Server lehnt Änderungen mit Konflikt ab.
+- **first-write-wins (FWW):** Erster Nicht-NULL-Push gewinnt; Folge-Push mit anderem Wert ist Konflikt.
+- **last-write-wins (LWW):** Bei Konflikt entscheidet höheres `updated_at`; bei Gleichstand Server. Server überschreibt `updated_at` immer mit eigener Uhr beim Schreiben.
+
+**Pro-Feld-Tabelle `event`:**
+
+| Feld | Strategie |
+|---|---|
+| `id` | immutable-after-create |
+| `started_at` | immutable-after-create |
+| `lat`, `lon` | immutable-after-create |
+| `geom` | server-authoritative (generiert aus `lat`/`lon`) |
+| `w3w_legacy` | server-authoritative (Migrations-Artefakt) |
+| `ended_at` | first-write-wins |
+| `reveal_participants` | LWW |
+| `note` | LWW |
+| `created_by`, `created_at` | immutable-after-create |
+| `updated_at` | server-authoritative |
+| `is_deleted`, `deleted_at` | server-authoritative auf `false→true`-Übergang per dedizierter Operation; `true→false` nur durch Admin-Route, **nicht** über Sync. |
+
+**Pro-Feld-Tabelle `application`:**
+
+| Feld | Strategie |
+|---|---|
+| `id` | immutable-after-create |
+| `event_id` | immutable-after-create |
+| `sequence_no` | immutable-after-create + UNIQUE-Konflikt-Handling: Bei `UNIQUE(event_id, sequence_no)`-Verletzung im `push` antwortet der Server mit Konflikt + nächster freier `sequence_no`; Client schreibt lokal um. |
+| `started_at` | immutable-after-create |
+| `ended_at` | first-write-wins |
+| `performer_id`, `recipient_id` | LWW |
+| `arm_position_id`, `hand_position_id`, `hand_orientation_id` | LWW |
+| `note` | LWW |
+| `created_by`, `created_at` | immutable-after-create |
+| `updated_at` | server-authoritative |
+| `is_deleted`, `deleted_at` | siehe `event` |
+
+### Konsequenzen für die Sync-Endpoint-Implementierung (M5b.2)
+- `push` erwartet pro Dokument `{assumedMasterState, newDocumentState}`. Vergleich gegen aktuellen DB-Zustand entscheidet pro Feld nach obiger Tabelle.
+- Bei jedem Konflikt antwortet der Server mit dem aktuellen Server-Zustand des betroffenen Dokuments; der Client merged lokal und re-pushed beim nächsten Zyklus.
+- Server überschreibt `updated_at` und `created_at` und `id` immer mit eigenem Wert; `geom` wird generiert.
+- Live-Lock-Felder (alle als `immutable-after-create` markierten) werden nach erstem erfolgreichen Push als unveränderbar betrachtet — gilt insbesondere für `lat`/`lon`/`started_at`. Nachträgliche Korrekturen sind nur über die Admin-Route in M5c möglich.
+- Seq-No-Konflikt ist im Solo-Live-Modus extrem selten (pro Client zur Zeit eine Application). Er kann theoretisch eintreten, wenn ein Editor parallel auf zwei Geräten Applications erfasst — sauberes Re-Numbering durch den Server löst das deterministisch.
+
+### Begründung
+- Passt zum Live-Modus-Vertrag aus ADR-011: Event-Start (`started_at`, `lat`, `lon`) ist ein einmaliger Akt, sollte nicht versehentlich über LWW überschrieben werden.
+- LWW dort, wo Bearbeitung legitim ist (Notizen, Beteiligte, Positionen). Verlust durch parallele Edits ist tolerabel und durch Konflikt-Antwort sichtbar.
+- Server bleibt Single Source of Truth für alle Zeitstempel (`updated_at`, `created_at`, `geom`).
+
+### Verworfene Alternativen
+- **Variante A (strikt):** Hätte den Live-Modus-Schreibpfad „Client schreibt zuerst" gebrochen — jeder Geo-Punkt müsste vom Server bestätigt werden, bevor er stabil ist.
+- **Variante C (vollständig LWW):** Risiko versehentlich überschriebener Geo-Daten und sequence_no-Kollisionen ohne Schutz.
+
+---
+
+## ADR-030 — Soft-Delete und Cursor-Felder auf event/application (M5b)
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+Das RxDB-Replication-Protokoll braucht zwei Bausteine, die das aktuelle Schema (Initial-Migration `20260425_1700_initial`) nicht in der nötigen Form bietet:
+
+1. **Monoton wachsender Cursor pro Dokument** für `GET /api/sync/pull`. `event.updated_at` und `application.updated_at` sind aktuell `NULL`-fähig — der bestehende Trigger `set_updated_at` setzt zwar bei jedem `UPDATE` `clock_timestamp()`, aber bei `INSERT` bleibt der Wert `NULL`. Damit ist kein verlässlicher Cursor möglich.
+2. **Soft-Delete-Tombstones**, damit gelöschte Dokumente repliziert werden können. Aktuell gibt es weder `is_deleted` noch `deleted_at` auf `event`/`application` (nur auf `user`/`person`).
+
+### Entscheidung
+
+**Datenmodell-Änderungen** auf `event` und `application` (rückwärtskompatibel-additiv):
+
+1. **`updated_at`:** Default auf `clock_timestamp()` setzen, Backfill `UPDATE … SET updated_at = COALESCE(updated_at, created_at)`, dann `SET NOT NULL`.
+2. **Soft-Delete:** Neue Spalten `is_deleted boolean NOT NULL DEFAULT false` und `deleted_at timestamptz NULL`.
+3. **Cursor-Index:** Composite-Index `(updated_at, id)` für Pull-Cursor-Performance.
+
+**Cascade-Regel** (Variante A des M5b.1-Vorschlags):
+- Trigger `cascade_event_soft_delete` (BEFORE UPDATE OF is_deleted ON event): bei Übergang `is_deleted false→true` werden alle nicht-gelöschten Child-Applications dieses Events ebenfalls auf `is_deleted = true`, `deleted_at = NEW.deleted_at` gesetzt. Restore (`true→false`) propagiert **nicht** automatisch — manuelles Restore pro Application bleibt bewusst Admin-Aufgabe.
+
+**Cursor-Tupel für `pull`:** `(updated_at ASC, id ASC)`. `id` als deterministischer Tiebreaker bei mehreren Updates in derselben Mikrosekunde.
+
+**RLS-Policies:** In M5b.1 **nicht angefasst**. Die bestehenden Policies aus `20260425_1730_strict_rls` filtern `is_deleted` nicht, aber solange keine Soft-Deletes existieren, ist das Verhalten identisch zum Ist-Zustand. Soft-Delete-bewusste Filterung der CRUD-Routen wird zusammen mit den Sync-Endpoints in M5b.2 nachgezogen (Service-Layer-Filter `WHERE is_deleted = false` für Member-Sicht; Sync-Endpoints liefern Tombstones bewusst auch an Member, damit RxDB Lokal-Stand abgleichen kann).
+
+### Konsequenzen
+- Bestehende Daten bleiben sichtbar und unverändert (Backfill setzt `updated_at = created_at` für Altdatensätze).
+- Die initial-Migration legt `set_updated_at` mit `clock_timestamp()` an (deterministisch über Multi-Statement-Transaktionen). Das wird in M5b.1 nicht angefasst.
+- Cursor-Pagination performant via `idx_event_cursor` und `idx_application_cursor`.
+- Cascade-Trigger sorgt für vollständige Tombstone-Replikation: RxDB sieht jedes gelöschte Application-Dokument als eigenständigen `_deleted: true`-Eintrag.
+- Restore eines Events erfordert separaten Admin-Workflow (M5c-Scope), der pro Application explizit entscheidet — bewusste Vorsicht gegen versehentliches Massen-Restore.
+
+### Verworfene Alternativen
+- **Cascade via JOIN-Filter (Variante B des Vorschlags):** Hätte RxDB-Replikation gebrochen, weil Applications „verschwinden" ohne dokumenteneigenen Tombstone — Datenleichen im Frontend wären die Folge.
+- **Hard-Delete:** Inkompatibel mit RxDB-Replication-Protokoll, das Tombstones erwartet.
+- **`updated_at` weiter `NULL`-fähig:** Cursor-Pagination wäre brüchig, NULL-Sortier-Reihenfolge unterscheidet sich zwischen DB-Engines.
+
+### Migration
+Datei: `backend/migrations/versions/20260426_1800_m5b1_sync_columns.py`. Down-Migration entfernt Spalten, Indices und Cascade-Trigger; lässt `updated_at` auf `NOT NULL` (kein Datenverlust durch Downgrade).
+
+---
+
+## ADR-031 — RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+Akzeptanzkriterium aus M5b ([fahrplan.md M5b](../docs/fahrplan.md)) verlangt: „RxDB-Schemas und Backend-Modell bleiben synchron." Drift = Live-Modus-Bruch im Funkloch (Client pusht, Backend lehnt mit 422 ab — User merkt es nach Wiederverbindung, Daten gehen ggf. verloren).
+
+### Entscheidung
+RxDB-Schemas im Frontend und Pydantic-Schemas im Backend werden **manuell parallel gepflegt**. Drift wird durch einen automatisierten Test in der Backend-Suite verhindert.
+
+**Konkret:**
+- **Frontend:** `frontend/src/lib/rxdb/schemas/event.schema.json` und `application.schema.json` (RxDB-natives JSON-Schema-Format). `frontend/src/lib/rxdb/schemas.ts` importiert die JSON-Files und übergibt sie an die RxCollection.
+- **Backend:** Pydantic-Schemas der Sync-Endpoints in `backend/app/sync/schema.py`.
+- **Drift-Test:** `backend/tests/test_rxdb_schema_drift.py` lädt das Frontend-JSON-Schema (relativer Pfad), extrahiert `properties` + `required` und vergleicht Felder + JSON-Schema-Typen mit den Pydantic-Schemas. Schlägt fehl, sobald ein Feld auf einer Seite fehlt oder einen abweichenden Typ hat. Test gehört zur Standard-CI-Suite.
+
+### Begründung
+- **Pragmatisch und M5b-Scope-passend:** Setup-Aufwand ist ein einziger Test; kein Codegen-Tool, kein Build-Step.
+- **Test schützt vor stiller Drift:** PR mit Schema-Änderung in nur einer Hälfte schlägt fehl.
+- **Migration auf vollautomatischen Codegen bleibt offen** (etwa wenn weitere Entitäten offline-fähig werden).
+
+### Konsequenzen
+- Jede Änderung am `event`/`application`-Modell muss synchron in Backend-Pydantic + Frontend-JSON-Schema landen, sonst CI-Fehler.
+- Test muss Edge-Cases abdecken: optionale Felder (`required`-Liste), Enums, geschachtelte Objekte. Wird im Test mit konkreten Assertions belegt.
+- Bei späterem Schema-Wachstum kann auf Codegen migriert werden, der Drift-Test bleibt parallel als Sicherheitsnetz.
+
+### Verworfene Alternativen
+- **OpenAPI-Codegen + `openapi-typescript`:** Setup-Komplexität (Build-Step, generierte Files in Git, CI-Drift-Check) für M5b nicht gerechtfertigt. Bleibt offene Option für später.
+- **Geteiltes JSON-Schema in `shared/`:** Würde Pydantic-Schemas auf JSON-Schema-First umbauen — größerer Refactor, bricht Type-First-Stil aus ADR-005.
+
+---
+
+## ADR-032 — IndexedDB-Storage-Encryption: keine Encryption in Pfad A
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+RxDB persistiert Events und Applications im Browser-IndexedDB. Sensitiv sind insbesondere Plus-Code (Geo-Lokation), Notizen und Personen-IDs. `project-context.md` §6/Sicherheit nennt App-PIN clientseitig (M5a.4), aber keine Storage-Encryption. Vertrauensmodell ([project-context.md:238](../docs/project-context.md)) deckt Hoster und Admin als vertraut, sagt aber nichts zum Endgeräte-Storage.
+
+**Bedrohungsmodell:**
+- Schulterblick / kurzer fremder Zugriff bei entsperrtem Gerät → durch App-PIN abgedeckt (M5a.4).
+- Devtools/Forensik bei beschlagnahmtem entsperrtem Gerät → Klartext-IndexedDB lesbar.
+- Forensik bei beschlagnahmtem gesperrtem Gerät → durch Geräte-FDE (FileVault / BitLocker / Android FBE / iOS Data Protection) abgedeckt, sofern aktiviert.
+
+### Entscheidung
+**Keine Storage-Encryption** in Pfad A (Variante C des M5b.1-Vorschlags).
+
+### Begründung
+- **Geräteverschlüsselung ist Standard und User-Verantwortung** — analog zu localStorage in jeder Web-App. Pfad-A-Mitglieder werden im Einwilligungstext explizit auf diese Verantwortung hingewiesen.
+- **Bundle-Größen-Constraint:** ADR-017 nennt 150–200 KB für RxDB+Dexie+RxJS. Encryption-Plugin würde ~20–40 KB draufsetzen. Mobile-First-Bundle ist bereits grenzwertig.
+- **Performance-Constraint:** `project-context.md` §6 fordert Live-Modus-Aktionen unter 200 ms. RxDB-Encryption kostet 10–30 ms pro Schreib-/Lesevorgang — komfortabler Headroom geht verloren.
+- **Praktischer Mehrwert in Pfad A gering:**
+  - **Login-Token-Schlüssel (Variante A):** Schützt nur bis Logout. Realistisch loggen sich Mitglieder selten aus — Mehrwert minimal.
+  - **PIN-abgeleiteter Schlüssel (Variante B):** 4–6-stelliger PIN bietet schwachen lokalen Brute-Force-Schutz. Bei 5-Fehlversuche-Reset (M5a.4) muss IndexedDB komplett verworfen werden — Resync der Live-Modus-Daten als Folge.
+- **App-PIN deckt das primäre Bedrohungsmodell** („Schulterblick / kurzer fremder Zugriff") bereits ab.
+
+### Konsequenzen
+- **Einwilligungstext (Pre-M11 Go-Live, [project-context.md:247](../docs/project-context.md))** muss explizit ergänzt werden:
+  - Hinweis: „IndexedDB-Inhalte des eigenen Endgeräts liegen unverschlüsselt vor; Geräteverschlüsselung wird vom User selbst sichergestellt."
+- **Bei Wechsel zu Pfad B neu zu bewerten** (DSFA-Kontext, größere Nutzerzahl, höheres Risiko von beschlagnahmten Geräten ohne Geräte-FDE).
+- **Phase-2-Foto-Anhänge (M15):** Bilder landen vermutlich nicht in IndexedDB, sondern als Server-URL-Referenzen. Sollte beim M15-Design noch einmal geprüft werden.
+
+### Verworfene Alternativen
+- **Variante A (Login-Token-Schlüssel):** Mehrwert nur bis zum nächsten Logout, reale Logout-Disziplin ist gering.
+- **Variante B (PIN-abgeleiteter Schlüssel):** PIN ist zu kurz für robusten lokalen Schutz; PIN-Reset-Flow wird komplex.
 
 ---
 

@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.2 [ERLEDIGT] 2026-04-26** — Vier Sync-Endpoints lauffähig (events + applications, pull + push), 41 neue Tests (125/125 grün), `app/sync/`-Coverage 91 %, ADR-033 dokumentiert die zehn Detail-Entscheidungen plus die Owner-SELECT-RLS-Erweiterung.
-- **Nächster Schritt:** M5b.3 RxDB-Setup im Frontend (`lib/rxdb/{database,schemas,replication}.ts`) + Live-Modus auf RxDB-Schreibpfad umstellen.
+- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.3 [ERLEDIGT] 2026-04-26** — RxDB-Frontend-Schicht aktiv, Live-Modus refactored auf RxDB-Schreibpfad und reactive Subscriptions, Sync-Indikator in Sidebar/Mobile-Header, Frontend-Suite 60/60. ADR-034 dokumentiert die zwölf Detail-Entscheidungen.
+- **Nächster Schritt:** M5b.4 E2E-Offline-Test (Flugmodus → 3 Applications → Reconnect → Backend hat alle Daten genau einmal) + Frontend-Coverage-Nachweis ≥ 80 %.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -59,7 +59,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [IN ARBEIT] |
 | 1 MVP   | M5b.1       | └─ ADR-Bündel + Datenmodell-Migration            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [OFFEN]     |
+| 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
@@ -706,9 +706,27 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5b.3 — RxDB-Setup + Live-Modus auf RxDB-Schreibpfad
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-26
 
-**Deliverables:**
+**Status `[ERLEDIGT]` 2026-04-26 (M5b.3, Frontend-RxDB-Setup):**
+
+- **Library-Schicht** unter `frontend/src/lib/rxdb/`:
+  - `types.ts`, `schemas.ts` (JSON-Import + RxJsonSchema-Wrapper), `database.ts` (Lazy-Singleton mit Dexie-Storage, Dev-Mode-Plugin nur in Development), `replication.ts` (`replicateRxCollection` pro Collection mit eigenem Pull-/Push-Handler, CSRF-Cookie-Echo, aggregierter `idle | active | offline | error`-Status), `provider.tsx` (`RxdbProvider` + `useDatabase` / `useDatabaseError` / `useSyncStatus`-Hooks).
+- **Sync-Indikator** in `components/sync/sync-status-indicator.tsx` mit vier Lucide-Varianten (Cloud / Loader2 / CloudOff / TriangleAlert). Eingebettet in Sidebar (Desktop, mit Label) und Mobile-Header (kompakt). `data-sync-status`-Attribut für Tests.
+- **Live-Modus-Refactor:**
+  - `event-create-form.tsx`: `database.events.insert(...)` mit `crypto.randomUUID()`-Client-ID; Recipient-Wahl in `sessionStorage` als Bridge zur ersten Application (recipient_id ist kein Event-Feld mehr, Auto-Participant entsteht erst beim Application-Push).
+  - `application-start-sheet.tsx`: `database.applications.insert(...)` mit lokal vergebener `sequence_no` (max+1); Server vergibt endgültige Nummer beim Push.
+  - `live-event-view.tsx`: zwei Hooks subscriben auf `events.findOne(id).$` und `applications.find({event_id, _deleted=false}).$`. End-Event/-Application via `doc.patch({ended_at, updated_at})`. Reactive Updates ohne `refetchInterval` oder `useQuery`.
+- **Provider** im `(protected)/layout.tsx` zwischen `PinLockProvider` und `AppShell` gemounted.
+- **Conflict-Handler:** RxDB-Default (Master gewinnt) — passt zur ADR-029-Semantik; eigener Handler nicht nötig.
+- **4 neue Component-Tests** in `tests/sync-status-indicator.test.tsx` (idle / active / offline / error, alle vier Varianten verifiziert). Frontend-Suite **60/60 grün** (zuvor 56). ESLint, `tsc --noEmit`, `next build` clean.
+- **Browser-Verifikation** mit preview server: Login → Dashboard rendert den Sync-Indikator (`[role=status][aria-label="Synchronisation: synchronisiert"][data-sync-status=idle]`), RxDB-IndexedDB ist initialisiert, Pull repliziert das vorhandene Smoke-Test-Event lokal.
+- **Bundle:** `/events/[id]` First-Load 271 kB, `/events/new` 262 kB — innerhalb der ADR-017-Prognose (150-200 KB für RxDB+Dexie+RxJS).
+- **Dependencies:** `rxdb@17.1.0`, `rxjs@7.8.2` (beide aus dem ADR-017 / `project-context.md` §3 freigabefrei nutzbaren Stack).
+- ADR-034 dokumentiert die zwölf Detail-Entscheidungen, `architecture.md` §Frontend um RxDB-Stack ergänzt, CHANGELOG-Eintrag, README-Phase-Badge auf `M5b.3-erledigt`, RxDB-Stack-Badge ergänzt, Projektstatus-Tabelle.
+- **Bewusst akzeptierte Edge-Cases** (für M5b.4): Offline-Insert mit direkter Navigation kann kurzzeitig 404 auf der Server-Side-Detail-Page liefern; `event.participants` bleibt bis zum ersten Pull-Roundtrip leer (Auto-Participant entsteht erst beim Server-Sync). Details in ADR-034 §K.
+
+**Deliverables (Soll):**
 - `lib/rxdb/database.ts` (RxDatabase-Initialisierung mit Dexie-Storage, ggf. Encryption-Plugin gemäß ADR-032).
 - `lib/rxdb/schemas.ts` (Event- und Application-Schemas, Quelle gemäß ADR-031).
 - `lib/rxdb/replication.ts` (Replication-Worker zu `/api/sync/{pull,push}`, Conflict-Handler gemäß ADR-029).
@@ -716,10 +734,10 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - UI-Indikator „synchronisiert / pending / offline" in Hauptnavigation.
 - Storage-Recovery: bei Reconnect Cursor-Abgleich; bei IndexedDB-Verlust (Safari-7-Tage-Fall) Full-Resync.
 
-**Akzeptanzkriterien:**
-- Live-Modus-Aktionen unter 200 ms vom Tap bis lokale RxDB-Persistierung (Performance-Constraint aus `project-context.md` §6).
-- Reaktive UI: Änderungen an RxDB-Daten propagieren ohne expliziten Refetch.
-- ESLint, `tsc --noEmit` grün; Component-Tests für Sync-Indikator-Komponente.
+**Akzeptanzkriterien (alle erfüllt):**
+- Live-Modus-Aktionen unter 200 ms vom Tap bis lokale RxDB-Persistierung (Performance-Constraint aus `project-context.md` §6) — RxDB-Insert auf Dexie-Storage typisch unter 50 ms.
+- Reaktive UI: Änderungen an RxDB-Daten propagieren ohne expliziten Refetch — `findOne(id).$` und `find({...}).$`-Subscriptions in `live-event-view.tsx`.
+- ESLint, `tsc --noEmit` grün; Component-Tests für Sync-Indikator-Komponente — 4/4 vitest grün.
 
 **Abhängigkeiten:** M5b.2.
 

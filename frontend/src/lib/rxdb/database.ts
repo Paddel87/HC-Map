@@ -33,7 +33,11 @@ let devPluginLoaded = false;
 
 async function loadDevPlugin(): Promise<void> {
   if (devPluginLoaded) return;
-  if (process.env.NODE_ENV === "production") return;
+  // Production strips it for bundle size; vitest skips it because the
+  // plugin demands a schema-validator wrapper around the storage that
+  // we don't ship in production. Only the interactive `next dev` path
+  // (NODE_ENV === "development") loads it.
+  if (process.env.NODE_ENV !== "development") return;
   const { RxDBDevModePlugin } = await import("rxdb/plugins/dev-mode");
   addRxPlugin(RxDBDevModePlugin);
   devPluginLoaded = true;

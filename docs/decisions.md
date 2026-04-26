@@ -60,6 +60,7 @@ Status-Legende:
 | ADR-032 | IndexedDB-Storage-Encryption: keine Encryption in Pfad A        | Accepted | 2026-04-26  |
 | ADR-033 | Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy) | Accepted | 2026-04-26 |
 | ADR-034 | Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor) | Accepted | 2026-04-26 |
+| ADR-035 | Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)   | Accepted | 2026-04-27 |
 
 ---
 
@@ -2821,6 +2822,71 @@ ADR-029 verlangt „Server gewinnt bei Konflikt". RxDB's Default-Conflict-Handle
 ### Folge-Arbeit (M5b.4)
 - E2E-Offline-Test: Browser → Flugmodus → 3 Applications erfassen → Reconnect → Backend hat alle Daten genau einmal, kein Duplikat, Reihenfolge korrekt.
 - Coverage-Nachweis Frontend ≥ 80 % für Sync-Pfade.
+
+---
+
+## ADR-035 — Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5b.1–M5b.3 haben das Datenmodell, die Backend-Sync-Endpoints und den Frontend-RxDB-Stack geliefert. M5b.4 schließt den Sub-Schritt-Block mit dem End-to-End-Beweis: „Browser → Flugmodus → 3 Applications erfassen → Reconnect → Backend hat alle Daten genau einmal" plus Coverage-Nachweis ≥ 80 % für die Sync-Pfade. Backend-Coverage `app/sync/` lag aus M5b.2 schon bei 91 %; der eigentliche Engpass ist `frontend/src/lib/rxdb/replication.ts`, das bisher nur indirekt über das Component-Sync-Indicator-Test getestet war. Der Frontend-Test-Stack hatte weder Coverage-Reporter noch eine IndexedDB-fähige Umgebung.
+
+### Entscheidungen
+
+**A. Test-Stack: Vitest + `fake-indexeddb` + In-Process-Mock-Server (Hybrid A4 aus dem M5b.4-Vorschlag).**
+Statt Playwright (architecture.md sagt explizit „Phase 2 sinnvoll, MVP optional") wird der Replication-Roundtrip in jsdom/Vitest gefahren. `fake-indexeddb@6.x` (MIT, ~80 KB, Standard-IndexedDB-Polyfill der Dexie- und RxDB-CIs) ersetzt den fehlenden Browser-IndexedDB; ein in-Process-Mock-Server in `frontend/tests/helpers/sync-mock-server.ts` reimplementiert die vier Sync-Endpoints deterministisch in-memory. Die Tests verwenden den **echten** Replication-Code aus `lib/rxdb/replication.ts` und die echte Database aus `lib/rxdb/database.ts` — kein Code-Pfad-Bypass.
+
+**B. Coverage-Tooling: `@vitest/coverage-v8`.**
+Offizieller Coverage-Reporter im vitest-Ökosystem (MIT, V8-native). Konfiguration in `vitest.config.ts`: `coverage.provider = 'v8'`, `coverage.include = ['src/lib/rxdb/**']` für den M5b.4-Nachweis, plus `coverage.thresholds.lines = 80` als CI-Gate auf den Sync-Pfaden. `pnpm test -- --coverage` erzeugt einen JSON-Summary, gegen den der Akzeptanz-Wert gemessen wird.
+
+**C. Edge-Cases ADR-034 §K nach M5c verschoben.**
+Die zwei in M5b.3 bewusst akzeptierten Edge-Cases (Server-Side-Detail-Page liefert 404 bei Offline-Insert mit direkter Navigation; `event.participants` bleibt bis zum ersten Pull leer) werden **nicht** in M5b.4 behoben. Die saubere Lösung verlangt eine Architekturänderung (`/events/[id]` auf Client-only umstellen), die dieselbe Detail-Page in M5c (Nachträgliche Erfassung & Bearbeitung) ohnehin anfasst. Eine kombinierte Refactor-Runde ist sauberer als zwei aufeinanderfolgende. Eintrag in `fahrplan.md` § M5c als Pflicht-Deliverable hinzugefügt.
+
+**D. Backend-Idempotenz-Test als Ergänzung zu Frontend-E2E.**
+`backend/tests/test_sync_idempotency.py` deckt die zweite Hälfte des Akzeptanzkriteriums „genau einmal" ab: drei Pushes desselben Application-Documents (assumedMasterState wird zwischen den Pushes mitgeführt) → exakt eine Row in der DB, `sequence_no` stabil, kein zweites `EventParticipant`-Insert. Kein neuer Dep, ergänzt `test_sync_conflict_resolution.py`.
+
+**E. Mock-Server-Scope.**
+Der Mock-Server bildet das Replication-Protokoll ab, nicht die volle Backend-Logik:
+- **Pull:** Filter `(updated_at, id) > checkpoint`, ASC-Sortierung, Limit, Tombstone-Reflection.
+- **Push (events):** Insert wenn nicht vorhanden; bei Re-Push mit gleichem `assumedMasterState` (idempotent) keine zweite Row, keine Konflikt-Antwort.
+- **Push (applications):** wie events, plus Auto-Bump der `sequence_no` analog zum Server.
+- **CSRF:** Wird gegen das in `document.cookie` gesetzte Test-Token verglichen, fehlt der Header, antwortet der Mock mit 403 (analog Backend-Verhalten).
+Der Mock implementiert **nicht** die volle Pro-Feld-Konfliktauflösung aus ADR-029 — die ist Backend-Pflicht und im pytest-Suite vollständig gecovert.
+
+**F. Offline-Simulation via globaler `fetch`-Stub + `navigator.onLine`-Toggle.**
+Der Test ersetzt `globalThis.fetch` mit einem Stub, der bei `online === false` `TypeError("Network request failed")` wirft (entspricht dem Browser-Verhalten bei deaktiviertem Netz). Zusätzlich wird `Object.defineProperty(navigator, 'onLine', ...)` und `window.dispatchEvent(new Event('offline'/'online'))` getoggelt, damit `replication.ts`-`recompute()` den Status korrekt aufnimmt.
+
+**G. Kein BroadcastChannel-Workaround nötig.**
+Node 22 (per `package.json` engines) liefert `BroadcastChannel` global, RxDB's `waitForLeadership: true` erkennt im Single-Tab-Test sofort den Leader. Kein Test-spezifischer Override des Replication-Configs.
+
+**H. Test-Isolation: Datenbank-Reset zwischen Tests.**
+`afterEach`: `database.remove()` löscht die RxDB-Instanz inkl. IndexedDB-State; `_resetDatabaseForTests()` aus `database.ts` setzt das Modul-Singleton zurück. `globalThis.fetch` wird auf den Original-Wert zurückgesetzt, damit andere Tests nicht beeinflusst werden.
+
+**I. Verlässliche Async-Stabilisierung statt blinder Sleeps.**
+Der Test wartet auf `replication.events.awaitInSync()` (RxDB-Standard) statt fester Timeouts. Damit ist der Test deterministisch reproduzierbar und vermeidet die in CLAUDE.md §6 verbotene Flakiness.
+
+**J. Doc-Updates.**
+`architecture.md` § Sync wird um den Test-Stack ergänzt; `README.md` Phase-Badge wechselt auf `M5b-erledigt` (M5b komplett); `CHANGELOG.md` erhält den Sub-Schritt-Eintrag mit den vier ADR-Detailpunkten; `docs/fahrplan.md` setzt M5b.4 auf `[ERLEDIGT]` und propagiert den Edge-Case-Übertrag in M5c.
+
+### Ergebnis
+- **Frontend-Replication-E2E-Test** in `frontend/tests/replication.e2e.test.ts` mit drei Szenarien: (1) `offline → 3 application inserts → reconnect → mock backend hat genau drei rows`, (2) `re-trigger replication → keine Doppelten`, (3) `pull-after-reconnect repliziert Server-Master-Werte zurück in RxDB`.
+- **Backend-Idempotenz-Test** in `backend/tests/test_sync_idempotency.py`: drei wiederholte Pushes → 1 Row, 1 EventParticipant, stable `sequence_no`.
+- **Coverage Frontend** für `lib/rxdb/**`: Ziel ≥ 80 %, gemessen via `pnpm test -- --coverage`.
+- **Backend-Suite** weiterhin grün (125 + neue Idempotenz-Tests).
+- **Edge-Cases ADR-034 §K** explizit nach M5c überstellt, dort als Pflicht-Deliverable hinterlegt.
+
+### Verworfene Alternativen
+- **A1 — Playwright + headless Chromium:** Würde Browser-Binary (~150 MB), CI-Job-Erweiterung und ~30 s/Test in den MVP zwingen, ohne dass eine M5b.4-spezifische Lücke bliebe. architecture.md hatte Playwright bewusst auf Phase 2 verschoben.
+- **A3 — Backend-Only-Test ohne Frontend-Coverage:** Verfehlt das Akzeptanzkriterium „Coverage Sync-Pfade ≥ 80 % (Frontend + Backend)" und lässt `replication.ts` ungetestet — der Test würde genau das nicht prüfen, wofür er da ist.
+- **B2 — `@vitest/coverage-istanbul`:** Robuster bei Source-Map-Edge-Cases, aber ~50 % langsamer und liefert für reine TS-Files keinen Mehrwert gegenüber V8-Native. Bei späteren Tooling-Problemen jederzeit wechselbar.
+- **B3 — Verzicht auf Coverage-Reporter, manuelle Test-Mapping-Tabelle:** Verfehlt CLAUDE.md §9 („konkrete Zahl, nicht ‚ausreichend'") und gibt CI keinen Schutz gegen Coverage-Regression.
+- **C1 — Offline-Insert-Edge-Case in M5b.4 mitnehmen:** Architekturänderung (Detail-Page Client-only) wäre freigabepflichtig (CLAUDE.md §4.1) und überschreibt den Test-/Doku-Scope von M5b.4 deutlich.
+
+### Folge-Arbeit (M5c)
+- `(protected)/events/[id]/page.tsx` von Server-Side-Render auf Client-only umstellen, damit Offline-Inserts ohne 404-Race direkt navigierbar sind.
+- `event.participants` als reaktive RxDB-Subscription statt Server-Side-Snapshot, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden.
 
 ---
 

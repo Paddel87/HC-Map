@@ -28,6 +28,9 @@ out/
 *.tsbuildinfo
 .pnpm-store/
 
+# Coverage reports (vitest + pytest-cov)
+coverage/
+
 # --- Editors / OS --------------------------------------------------------
 .vscode/
 .idea/

@@ -1,0 +1,72 @@
+{
+  "title": "Event",
+  "description": "Event document replicated via /api/sync/events. Wire-format contract shared with backend Pydantic EventDoc (ADR-031).",
+  "version": 0,
+  "primaryKey": "id",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "maxLength": 36
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ended_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "w3w_legacy": {
+      "type": ["string", "null"]
+    },
+    "reveal_participants": {
+      "type": "boolean"
+    },
+    "note": {
+      "type": ["string", "null"]
+    },
+    "created_by": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deleted_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "_deleted": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "started_at",
+    "lat",
+    "lon",
+    "created_at",
+    "updated_at"
+  ],
+  "indexes": [
+    "started_at",
+    ["updated_at", "id"]
+  ]
+}

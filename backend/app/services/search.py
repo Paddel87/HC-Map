@@ -30,18 +30,28 @@ async def search(
 
     tsq = func.plainto_tsquery("german", query)
 
-    event_q = select(
-        literal("event").label("type"),
-        Event.id.label("id"),
-        Event.id.label("event_id"),
-        func.ts_headline("german", func.coalesce(Event.note, ""), tsq).label("snippet"),
-    ).where(func.to_tsvector("german", func.coalesce(Event.note, "")).op("@@")(tsq))
-    app_q = select(
-        literal("application").label("type"),
-        Application.id.label("id"),
-        Application.event_id.label("event_id"),
-        func.ts_headline("german", func.coalesce(Application.note, ""), tsq).label("snippet"),
-    ).where(func.to_tsvector("german", func.coalesce(Application.note, "")).op("@@")(tsq))
+    # Soft-deleted rows are excluded from search hits (ADR-030); sync
+    # endpoints are the only consumer that sees tombstones.
+    event_q = (
+        select(
+            literal("event").label("type"),
+            Event.id.label("id"),
+            Event.id.label("event_id"),
+            func.ts_headline("german", func.coalesce(Event.note, ""), tsq).label("snippet"),
+        )
+        .where(func.to_tsvector("german", func.coalesce(Event.note, "")).op("@@")(tsq))
+        .where(Event.is_deleted.is_(False))
+    )
+    app_q = (
+        select(
+            literal("application").label("type"),
+            Application.id.label("id"),
+            Application.event_id.label("event_id"),
+            func.ts_headline("german", func.coalesce(Application.note, ""), tsq).label("snippet"),
+        )
+        .where(func.to_tsvector("german", func.coalesce(Application.note, "")).op("@@")(tsq))
+        .where(Application.is_deleted.is_(False))
+    )
     union = event_q.union_all(app_q).subquery()
 
     total = await session.scalar(select(func.count()).select_from(union))
@@ -65,6 +75,7 @@ async def throwbacks_today(session: AsyncSession) -> list[ThrowbackEvent]:
             .where(func.extract("month", Event.started_at) == now.month)
             .where(func.extract("day", Event.started_at) == now.day)
             .where(func.extract("year", Event.started_at) < now.year)
+            .where(Event.is_deleted.is_(False))
             .order_by(Event.started_at.desc())
         )
     ).all()

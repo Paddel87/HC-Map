@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.1 [ERLEDIGT] 2026-04-26** — ADR-029…ADR-032 angenommen, Migration `20260426_1800_m5b1_sync_columns` läuft, Backend-Suite 84/84 grün.
-- **Nächster Schritt:** M5b.2 Backend-Sync-Endpoints `/api/sync/{pull,push}`.
+- **Aktiver Schritt:** M5b (Offline-Resilienz / RxDB-Sync) — Sub-Schritt **M5b.2 [ERLEDIGT] 2026-04-26** — Vier Sync-Endpoints lauffähig (events + applications, pull + push), 41 neue Tests (125/125 grün), `app/sync/`-Coverage 91 %, ADR-033 dokumentiert die zehn Detail-Entscheidungen plus die Owner-SELECT-RLS-Erweiterung.
+- **Nächster Schritt:** M5b.3 RxDB-Setup im Frontend (`lib/rxdb/{database,schemas,replication}.ts`) + Live-Modus auf RxDB-Schreibpfad umstellen.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -58,7 +58,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [IN ARBEIT] |
 | 1 MVP   | M5b.1       | └─ ADR-Bündel + Datenmodell-Migration            | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{pull,push}` | [OFFEN]     |
+| 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [OFFEN]     |
 | 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
@@ -671,18 +671,36 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5b.2 — Backend-Sync-Endpoints
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-26
 
-**Deliverables:**
-- `GET /api/sync/pull?updatedAt={iso}&id={uuid}&limit=100` mit Cursor-Pagination, RLS-konform, liefert `{documents: [...], checkpoint: {updatedAt, id}}` nach RxDB-Replication-Protokoll. Soft-gelöschte Dokumente erscheinen mit `_deleted: true`.
-- `POST /api/sync/push` nimmt `[{assumedMasterState, newDocumentState}]`, validiert via Conflict-Resolution-Regeln aus ADR-029, gibt Liste der Konflikte zurück (Server-Doc, das gewinnt).
-- Pydantic-Schemas in `backend/app/sync/schema.py` deckungsgleich mit Frontend-RxDB-Schemas (gemäß ADR-031).
+**Status `[ERLEDIGT]` 2026-04-26 (M5b.2, Backend-Sync-Endpoints):**
+
+- Vier Endpoints aktiv (siehe `app/sync/routes.py`):
+  - `GET /api/sync/events/pull` und `POST /api/sync/events/push`
+  - `GET /api/sync/applications/pull` und `POST /api/sync/applications/push`
+- Cursor-Pagination via Query-Params `updated_at` + `id`; Pull liefert `{documents, checkpoint}` mit Tombstones (`_deleted: true`).
+- Conflict-Resolution pro Feld nach ADR-029 in `app/sync/services.py` (immutable-after-create, FWW, LWW, server-authoritative, Auto-Participant).
+- `app/sync/schemas.py` mit `EventDoc`, `ApplicationDoc`, `SyncCheckpoint`, `*PullResponse`, `*PushItem` (Wire-Flag `_deleted` als Pydantic-Alias).
+- Frontend-JSON-Schemas als Vertragsdatei in `frontend/src/lib/rxdb/schemas/{event,application}.schema.json` (RxDB-Konsumtion folgt mit M5b.3).
+- Drift-Test `tests/test_rxdb_schema_drift.py` vergleicht Properties + Typen + `required` zwischen Frontend-JSON und Pydantic.
+- **Latent-Bug aus M2 behoben:** Migration `20260426_1830_m5b2_owner_select` ergänzt `event_editor_select_own` und `application_editor_select_own` (Permissive-SELECT-Policies, `created_by = current_user_id`). Notwendig, weil `INSERT … RETURNING` die SELECT-Policy auf der frisch eingefügten Zeile prüft, bevor der Auto-Participant-Insert stattfindet. Separat freigegeben 2026-04-26 (Variante A des STOPP-Vorschlags). Details in ADR-033 §E.
+- **Soft-Delete-Filter** in `app/services/{events,applications,search,exports}.py` ergänzt (ADR-033 §D); Sync-Endpoints sind die einzigen Tombstone-Konsumenten.
+- **asyncpg `statement_cache_size = 0`** in `app/db.py` als defensive Schutzschicht (asyncpg #200; Per-Connection-Plan-Cache + `SET LOCAL`-GUCs).
+- **41 neue Tests** (6 sync_api + 8 sync_rls + 7 conflict + 9 applications + 5 soft-delete + 6 drift). Backend-Suite **125/125 grün** (zuvor 84). `mypy --strict` und `ruff check` clean.
+- **Coverage `app/sync/`: 91 %** (Soll ≥ 80 %, gemessen mit `coverage>=7.13.5` als neuer Dev-Dep, Concurrency `greenlet,thread`).
+- ADR-033 dokumentiert die zehn Detail-Entscheidungen (Endpoint-Layout, Cursor-Format, RLS-Strategie, Soft-Delete-Filter, Owner-SELECT, asyncpg-Cache, Conflict-Resolution-Implementierung, Server-Authoritative Felder, Auto-Participant, Schema-Vertragsdatei, Coverage-Tooling).
+- README-Phase-Badge auf `M5b.2-erledigt`, CHANGELOG-Eintrag, Projektstatus-Tabelle aktualisiert.
+
+**Deliverables (Soll):**
+- `GET /api/sync/{collection}/pull` mit Cursor-Pagination, RLS-konform, liefert `{documents, checkpoint}` nach RxDB-Replication-Protokoll. Soft-gelöschte Dokumente erscheinen mit `_deleted: true`.
+- `POST /api/sync/{collection}/push` nimmt `[{assumedMasterState, newDocumentState}]`, validiert via Conflict-Resolution-Regeln aus ADR-029, gibt Liste der Konflikte zurück (Server-Doc, das gewinnt).
+- Pydantic-Schemas in `backend/app/sync/schemas.py` deckungsgleich mit Frontend-RxDB-Schemas (gemäß ADR-031).
 - Tests: Pull/Push happy path, RLS-Negativtest pro Rolle, Conflict-Cases (LWW, Server-Authoritative, Live-Lock), Soft-Delete-Replikation.
 
-**Akzeptanzkriterien:**
-- 100 % RLS-Test-Coverage für Sync-Endpoints (analog zu `tests/test_rls.py`).
-- Coverage Sync-Endpoints ≥ 80 %.
-- OpenAPI-Doku enthält beide Endpoints korrekt.
+**Akzeptanzkriterien (alle erfüllt):**
+- 100 % RLS-Test-Coverage für Sync-Endpoints (8 Tests in `test_sync_rls.py`).
+- Coverage Sync-Endpoints ≥ 80 % (gemessen 91 %).
+- OpenAPI-Doku enthält alle vier Endpoints korrekt (FastAPI-autogeneriert).
 
 **Abhängigkeiten:** M5b.1.
 

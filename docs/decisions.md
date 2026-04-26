@@ -58,6 +58,7 @@ Status-Legende:
 | ADR-030 | Soft-Delete und Cursor-Felder auf event/application (M5b)       | Accepted | 2026-04-26  |
 | ADR-031 | RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test         | Accepted | 2026-04-26  |
 | ADR-032 | IndexedDB-Storage-Encryption: keine Encryption in Pfad A        | Accepted | 2026-04-26  |
+| ADR-033 | Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy) | Accepted | 2026-04-26 |
 
 ---
 
@@ -2660,6 +2661,96 @@ RxDB persistiert Events und Applications im Browser-IndexedDB. Sensitiv sind ins
 ### Verworfene Alternativen
 - **Variante A (Login-Token-Schlüssel):** Mehrwert nur bis zum nächsten Logout, reale Logout-Disziplin ist gering.
 - **Variante B (PIN-abgeleiteter Schlüssel):** PIN ist zu kurz für robusten lokalen Schutz; PIN-Reset-Flow wird komplex.
+
+---
+
+## ADR-033 — Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy)
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+M5b.1 hat das Datenmodell für die RxDB-Replication vorbereitet (ADR-029…ADR-032). M5b.2 setzt die Backend-Endpoints `GET /api/sync/{collection}/pull` und `POST /api/sync/{collection}/push` für `event` und `application` um. Während der Implementierung sind sechs Detail-Entscheidungen getroffen worden, die in dieser ADR gebündelt dokumentiert sind.
+
+### Entscheidungen
+
+**A. Endpoint-Layout: pro Collection ein eigener Endpoint.**
+Architecture.md hatte „/api/sync/pull" und „/api/sync/push" generisch beschrieben. RxDB-Replication arbeitet pro Collection — daher gibt es vier Endpoints:
+- `GET /api/sync/events/pull`, `POST /api/sync/events/push`
+- `GET /api/sync/applications/pull`, `POST /api/sync/applications/push`
+
+**B. Cursor-Format: Query-Parameter `updated_at` und `id`.**
+Pull-Cursor wird als zwei separate Query-Params übergeben (`updated_at` als ISO-Timestamp, `id` als UUID, beide optional). Composite-Vergleich `(updated_at, id) > (cp.updated_at, cp.id)` ist im Service-Layer als `OR(updated_at > x, AND(updated_at == x, id > y))` ausgeschrieben (statt SQLAlchemy `tuple_()`), weil Letzteres mit mypy-Strict + datetime/UUID-Argumenten nicht typeable war. Funktional identisch.
+
+**C. Sync-Endpoints respektieren bestehende RLS, Tombstones inklusive.**
+Kein BYPASSRLS-User. Tombstones (`is_deleted = true`) bleiben für jeden User sichtbar, der den Datensatz vorher schon gesehen hat (via `event_participant`-Verknüpfung — die Verknüpfung bleibt beim Soft-Delete bestehen). Soft-gelöschte Events des Editors sind zusätzlich über die neue `event_editor_select_own`-Policy sichtbar (siehe E).
+
+**D. Soft-Delete-Filter im Service-Layer der bestehenden Routes.**
+ADR-030 hatte angekündigt, die Soft-Delete-bewusste Filterung in M5b.2 nachzuziehen. Konkret umgesetzt:
+- `app/services/events.py`: `list_events` und `get_event` filtern `is_deleted = false`.
+- `app/services/applications.py`: `get_application` und `list_applications_for_event` analog.
+- `app/services/search.py`: Volltextsuche und Throwbacks filtern beide Collections.
+- `app/services/exports.py`: JSON- und CSV-Export filtern.
+- **RLS-Policies bleiben unverändert** — der Filter ist zusätzlicher Service-Layer-Filter; Defense-in-Depth-Erweiterung der RLS würde Sync-Pulls brechen, weil die Endpoints Tombstones explizit zurückliefern müssen.
+
+**E. Owner-SELECT-Policy für Editor (freigegeben separate Anfrage 2026-04-26).**
+Während der Test-Implementierung trat ein latent-Bug aus M2 zutage: `INSERT … RETURNING` triggert die SELECT-Policy auf der frisch eingefügten Zeile, und die `event_member_select`-Policy verlangt `event_participant`-Mitgliedschaft, die der Auto-Participant-Insert erst nach dem Event-Insert anlegt. Im bisherigen Code-Stand war kein HTTP-Test als Editor-INSERT auf `event` betroffen — daher unentdeckt. Sync-Endpoints sind die ersten Editor-Inserts via HTTP.
+
+Lösung in Migration `20260426_1830_m5b2_owner_select`: zwei additive Permissive-SELECT-Policies, die einem Editor erlauben, seine eigenen Events/Applications zu sehen (gleiches Predicate wie die bestehenden `_editor_update`/`_editor_delete`-Policies):
+```sql
+CREATE POLICY event_editor_select_own ON event
+    FOR SELECT TO app_user
+    USING (
+        current_setting('app.current_role', true) = 'editor'
+        AND created_by = current_setting('app.current_user_id', true)::uuid
+    );
+-- analog application_editor_select_own
+```
+Verworfen: (B) Auto-Participant via DB-Trigger — Trigger müsste sich mit Application-Auto-Participant koordinieren, deutlich invasiver. (C) ORM-Insert ohne RETURNING — Service-Layer-Refactor erforderlich, plus zwei Roundtrips pro Insert; Bug bliebe latent für andere Stellen.
+
+**F. asyncpg `statement_cache_size = 0`.**
+Während der Diagnose des E-Befunds wurde sicherheitshalber der asyncpg-Statement-Cache deaktiviert (siehe `app/db.py`-Docstring). Per-Connection-Plan-Cache von asyncpg kann mit Per-Request-`SET LOCAL`-GUCs interagieren — Hintergrund: asyncpg #200, SQLAlchemy-Doku. Cost ist niedrig (Mikrosekunden pro Query) und der Workaround ist dokumentiert. Bleibt als Schutzschicht erhalten, auch nachdem das eigentliche Problem über (E) gelöst wurde.
+
+**G. Conflict-Resolution-Implementierung.**
+Pro Push-Item:
+1. `session.get(Model, id)` — RLS-gefiltert.
+2. Wenn Server-Doc existiert, Client-`assumedMasterState` ist `None` → Konflikt: server master returned.
+3. Wenn Server-Doc nicht existiert, Client-`assumedMasterState` ist gesetzt → synthetischer Tombstone returned.
+4. Wenn Server-Doc nicht existiert, Client-`assumedMasterState` ist `None` → Insert-Pfad. Insert in `begin_nested()`-Savepoint; bei `IntegrityError`/`ProgrammingError` (RLS, FK, UNIQUE): synthetischer Tombstone.
+5. Wenn Server-Doc existiert, Client-`assumedMasterState` gesetzt → Update-Pfad mit Pro-Feld-Validation aus ADR-029. Konflikt: server master returned. OK: ORM-Apply + Flush.
+
+`(IntegrityError, ProgrammingError)` als Catch-Tupel — ProgrammingError fängt asyncpg's `InsufficientPrivilegeError` (RLS-Verletzung), IntegrityError fängt FK/UNIQUE.
+
+**H. Server-authoritative Felder beim Insert.**
+- `created_by = user.id` (RLS-Policy verlangt das ohnehin; Client-Wert wird ignoriert; Test `test_editor_cannot_push_event_owned_by_someone_else` belegt das).
+- `created_at`, `updated_at`, `geom`: DB-Defaults / generated.
+- `Application.sequence_no`: server-vergeben über `_next_sequence_no(event_id)`; Client-Wert wird ignoriert (Test belegt das).
+- `id`: vom Client gesetzt (UUIDv7 im Frontend), Server akzeptiert wenn frei.
+
+**I. Auto-Participant beim Sync-Insert.**
+- Event-Insert: Creator's person_id wird `event_participant`.
+- Application-Insert: performer_id und recipient_id (sofern unterschiedlich) werden `event_participant`. Idempotent über PK-Konflikt-Catch (Race-Safety).
+Spiegelt die Logik aus `app/services/events.py:start_event` und `app/services/applications.py:start_application`. Konsistent mit ADR-012.
+
+**J. Frontend-JSON-Schemas als Vertragsdatei in `frontend/src/lib/rxdb/schemas/`.**
+ADR-031 sah vor, dass die Schemas im Frontend liegen. Da der Drift-Test sie braucht, sind die JSON-Files in M5b.2 angelegt — als reine Daten/Vertragsdatei, ohne Code-Verbindung zu RxDB selbst. Die RxDB-Konsumtion (`schemas.ts`) erfolgt erst in M5b.3. Diese Vorabanlage ist keine Modulgrenz-Verletzung, weil JSON-Schema die Schnittstelle zwischen Backend und Frontend definiert.
+
+**K. Coverage-Tooling.**
+`coverage>=7.13.5` als Dev-Abhängigkeit hinzugefügt — Test-Infrastruktur, vergleichbar mit dem schon existierenden `pytest`/`pytest-asyncio`/`testcontainers`-Set in der `[dependency-groups.dev]`-Section. project-context.md §3 listet Test-Bibliotheken als „freigabefrei nutzbar". Verwendet mit `--concurrency=greenlet,thread` (SQLAlchemy 2.x Async nutzt greenlet intern).
+
+### Ergebnis
+- Alle vier Sync-Endpoints lauffähig, OpenAPI-Doku automatisch generiert.
+- 116 → 125 Backend-Tests (+ 41 für M5b.2: 6 sync_api + 8 sync_rls + 7 conflict + 9 applications + 5 soft-delete + 6 drift). 100 % grün.
+- Coverage `app/sync/`: 91 % (Soll ≥ 80 %).
+- Latent M2-Bug bei Editor-INSERT-via-HTTP behoben.
+- `mypy --strict` und `ruff` clean.
+
+### Verworfene Alternativen
+Siehe Punkte E (Owner-SELECT) für die kompletten Optionen.
+
+### Folge-Arbeit (M5b.3+)
+- M5b.3: RxDB-Setup im Frontend nutzt die hier angelegten JSON-Schemas.
+- M5b.4: E2E-Offline-Test verifiziert die End-to-End-Replikation.
 
 ---
 

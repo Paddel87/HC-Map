@@ -23,12 +23,21 @@ from app.config import get_settings
 
 @lru_cache(maxsize=1)
 def get_engine() -> AsyncEngine:
-    """Return the process-wide async engine, creating it on first call."""
+    """Return the process-wide async engine, creating it on first call.
+
+    asyncpg's per-connection prepared-statement cache plus our per-request
+    ``SET LOCAL`` GUCs interact badly: a cached plan can resolve
+    ``current_setting('app.current_user_id')`` against the role that
+    prepared it, not the one running it. Disabling the cache costs a
+    handful of microseconds per query and is the documented workaround
+    (asyncpg #200, SQLAlchemy docs).
+    """
     settings = get_settings()
     return create_async_engine(
         settings.database_url,
         pool_pre_ping=True,
         future=True,
+        connect_args={"statement_cache_size": 0},
     )
 
 

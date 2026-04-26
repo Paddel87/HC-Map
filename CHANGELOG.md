@@ -23,6 +23,51 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5a.4 — App-PIN-Sperre (PBKDF2 / Web Crypto API):** Clientseitige
+  UI-Sperre nach ADR-023, querliegend zu allen `(protected)`-Routen.
+  Frontend-only, kein Backend-Anteil (Fahrplan §M5a, ADR-028).
+  - **Crypto-Lib** (`lib/pin.ts`): PBKDF2-SHA-256, 600.000 Iterationen,
+    16-Byte-Salt, 32-Byte-Hash, base64-Encoding, konstantzeit-XOR-
+    Vergleich. PIN-Länge 4–6 Ziffern.
+  - **Storage** (`lib/pin-storage.ts`): native IndexedDB-CRUD im
+    Object-Store `hcmap-pin/pin/pin_v1`. Schema-Versionierung erlaubt
+    späteren Algorithmus-Wechsel (ADR-023 §8).
+  - **Provider** (`components/pin/pin-lock-provider.tsx`): React-Context
+    + `usePinLock`-Hook. Inaktivitäts-Timer Default 60 s, konfigurierbar
+    30 s–15 min, persistiert in `localStorage`. Reset bei
+    `pointerdown`/`keydown`/`visibilitychange`. Eingebettet
+    zwischen Server-Layout und `<AppShell>` in
+    `app/(protected)/layout.tsx` — Login bleibt frei.
+  - **`fail_count`-Schutz:** vor Hash-Vergleich inkrementiert
+    (Crash-resistent). Bei Erfolg auf 0 Reset. Bei 5 Fehlversuchen
+    Zwangs-Logout: IDB-Wipe + State-Reset + `POST /api/auth/logout` +
+    Redirect auf `/login?error=pin` mit deutschem Hinweistext.
+  - **`LockOverlay`-UI** (`components/pin/lock-overlay.tsx`): Vollbild-
+    Modal mit numerischem Input, Mobile-Tastatur, verbleibende
+    Versuche bei Fehlschlag.
+  - **Profil-UI** (`components/profile/pin-settings.tsx`): PIN
+    setzen/ändern/entfernen, Inaktivitäts-Dropdown mit fünf Stufen,
+    „Jetzt sperren"-Knopf.
+  - 15 neue Vitest-Tests (`pin`: 10 inkl. Determinismus + falsche-
+    PIN + Salt-Variabilität, `pin-lock`: 5 inkl. Force-Logout-Pfad).
+    Frontend-Suite 37 → 52 Tests grün. `tsc --noEmit`, `next lint`,
+    `prettier --check`, `next build` alle clean.
+  - Browser-Smoke gegen lokales Stack bestätigt: Set/Lock/Wrong/Right
+    end-to-end, fail-counter persistiert in IDB. Force-Logout-Pfad
+    in Vitest abgedeckt.
+  - **Keine neuen Backend-Routen, keine neuen Dependencies, keine
+    Migrations.**
+  - ADR-028 dokumentiert die vierzehn Detail-Entscheidungen.
+
+### Fixed
+
+- **Dashboard — Decimal-Serialisierung:** `app/(protected)/page.tsx`
+  crashte mit `event.lat.toFixed is not a function`, weil das Backend
+  Decimals als String liefert (Pydantic v2 Default), die Listen-
+  Item-Komponente aber `.toFixed()` direkt aufrief. Bei leerer Liste
+  fiel der Bug seit M4 nicht auf. Fix: `coerceNumber()`-Helper aus
+  `lib/types.ts` (M5a.3) wird jetzt auch im Dashboard verwendet.
+
 - **M5a.3 — Frontend Live-Modus + LocationPickerMap:** Live-Erfassung
   end-to-end im Frontend, plus eine kleine additive Backend-Erweiterung
   für die Application-Liste pro Event (Fahrplan §M5a, ADR-027).

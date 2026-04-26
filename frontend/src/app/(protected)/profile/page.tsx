@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButtons } from "@/components/profile/export-buttons";
 import { LogoutButton } from "@/components/profile/logout-button";
+import { PinSettings } from "@/components/profile/pin-settings";
 import { getServerMe } from "@/lib/auth-server";
 
 export default async function ProfilePage() {
@@ -42,6 +43,18 @@ export default async function ProfilePage() {
         </CardHeader>
         <CardContent>
           <ExportButtons role={user.role} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">App-PIN</CardTitle>
+          <CardDescription>
+            Clientseitige UI-Sperre (PBKDF2 via Web Crypto, ADR-023). Schützt vor Schulterblick und
+            kurzer fremder Übernahme. Nicht gegen forensischen Zugriff auf das entsperrte Gerät.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PinSettings />
         </CardContent>
       </Card>
       <Card>

@@ -37,6 +37,7 @@ type LoginValues = z.infer<typeof schema>;
 export function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? null;
+  const error = searchParams.get("error");
   const login = useLogin();
   const form = useForm<LoginValues>({
     resolver: zodResolver(schema),
@@ -68,6 +69,11 @@ export function LoginForm() {
       <CardHeader>
         <CardTitle>Anmelden</CardTitle>
         <CardDescription>HC-Map — Pfad A, geschlossener Nutzerkreis.</CardDescription>
+        {error === "pin" ? (
+          <p className="pt-2 text-sm text-amber-700 dark:text-amber-400" role="alert">
+            Sitzung wurde nach 5 falschen PIN-Eingaben beendet. Bitte erneut anmelden.
+          </p>
+        ) : null}
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>

@@ -2179,6 +2179,237 @@ Backend-Erweiterung um, die diese Lücke schließt.
 
 ---
 
+## ADR-028 — Implementierungsstrategie M5a.4 (App-PIN-Sperre)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** ADR-023 hat das PIN-Verfahren festgelegt (PBKDF2-SHA-256
+via Web Crypto API, 600.000 Iterationen, 16-Byte-Salt, IndexedDB-
+Storage `hcmap-pin/pin_v1`, Inaktivitäts-Timer 60 s, Zwangs-Logout
+nach 5 Fehlversuchen). M5a.4 setzt diese Spezifikation als
+Frontend-Modul um — kein Backend-Anteil, keine neuen Dependencies,
+querliegend zu allen `(protected)`-Routen.
+
+**Entscheidungen:**
+
+1. **Modul-Aufteilung (A):** Vier Dateien als saubere Schichten:
+   - `lib/pin.ts` (Crypto): PBKDF2-Wrapper, base64-Helper,
+     `constantTimeEqual`. Reine Funktionen, ohne State, ohne
+     IndexedDB. Direkt mit Vitest testbar gegen Node-Crypto.
+   - `lib/pin-storage.ts` (Persistence): IndexedDB-CRUD für den
+     `hcmap-pin/pin/pin_v1`-Eintrag. Mockable per `vi.mock`.
+   - `components/pin/pin-lock-provider.tsx` (State): React-Context
+     mit `usePinLock`-Hook, Inaktivitäts-Timer, fail-counter,
+     Force-Logout.
+   - `components/pin/lock-overlay.tsx` (UI): Vollbild-PIN-Eingabe,
+     wird vom Provider gerendert, sobald `status === "locked"`.
+   Trennung erlaubt unabhängige Tests und macht den späteren
+   Algorithmus-Wechsel auf Argon2id (ADR-023 §8) auf einen
+   Crypto-File begrenzt.
+
+2. **Crypto-Parameter (B):** Wie ADR-023 §2 festgelegt
+   (`PIN_VERSION=1`, `PIN_ALGORITHM="PBKDF2-SHA256"`,
+   `PIN_ITERATIONS=600_000`, `PIN_SALT_BYTES=16`,
+   `PIN_HASH_BYTES=32`, `PIN_FAIL_LIMIT=5`). Konstanten als
+   benannte Exporte, damit Tests sie referenzieren und nicht
+   duplizieren. PIN-Länge wird auf 4–6 Ziffern validiert
+   (`hashPin` wirft sonst). `constantTimeEqual` vergleicht die
+   abgeleiteten Bytes XOR-akkumuliert — kein early-exit. Der
+   Vergleich auf base64-Strings wäre ebenfalls möglich, aber die
+   Byte-Variante ist robuster gegen Padding-Edge-Cases.
+
+3. **IndexedDB-Wrapper (C):** `pin-storage.ts` nutzt das native
+   `indexedDB`-API ohne Fremd-Library. Helper-Function `withStore`
+   öffnet die DB, startet eine Transaktion, ruft die übergebene
+   Operation auf und schließt die DB nach `oncomplete`.
+   `loadPinRecord` gibt `null` zurück, wenn IDB nicht verfügbar
+   ist (z. B. Server-Side oder in jsdom) — der Provider
+   degradiert dann sauber zum `no-pin`-Zustand. Verworfen wurde
+   `idb-keyval` als Convenience-Lib: zusätzliche Dependency,
+   freigabepflichtig nach CLAUDE.md §4, sparte ~30 Zeilen Code.
+
+4. **Provider-Pattern (D):** `PinLockProvider` ist eine
+   Client-Component, die in `app/(protected)/layout.tsx` zwischen
+   die Server-Layout-Logik und `<AppShell>` gewickelt wird. Damit
+   ist `usePinLock()` in jedem geschützten Pfad verfügbar — auch
+   in der Sidebar/UserMenu, falls dort später ein „Sperren"-Knopf
+   eingebaut wird. Auf `(public)`-Routen (Login, Forgot-Password)
+   ist der Provider absichtlich nicht aktiv: sperren ohne Session
+   ergibt keinen Sinn, und das Login-Form muss frei zugänglich
+   bleiben.
+
+5. **State-Maschine (E):** Vier Status-Werte, klar voneinander
+   abgegrenzt:
+   - `loading` (Initial-Load aus IDB läuft).
+   - `no-pin` (kein Record vorhanden — UI-Sperre deaktiviert).
+   - `unlocked` (Record vorhanden, App ist nutzbar).
+   - `locked` (Record vorhanden, LockOverlay rendert).
+   Übergänge:
+   - `loading → no-pin | unlocked` nach erstem IDB-Read.
+   - `no-pin → unlocked` durch `setPin()`.
+   - `unlocked → locked` durch `lock()` oder Inaktivitäts-Timer.
+   - `locked → unlocked` durch `tryUnlock()` mit korrekter PIN.
+   - `unlocked|locked → no-pin` durch `clearPin()`.
+   - `locked → no-pin` durch Force-Logout (5× falsch).
+
+6. **fail_count vor Vergleich inkrementiert (F):** ADR-023 §5
+   verlangt, dass `fail_count` **vor** dem Hash-Vergleich erhöht
+   und persistiert wird. Damit überlebt ein Crash mitten im
+   Vergleich (z. B. Tab schließen) den Anti-Brute-Force-Schutz.
+   Bei Erfolg wird `fail_count` auf 0 zurückgesetzt; bei
+   Erreichen von `PIN_FAIL_LIMIT=5` triggert `forceLogout` den
+   Zwangs-Logout.
+
+7. **Force-Logout-Sequenz (G):** Reihenfolge:
+   1. `clearPinRecord()` (best-effort) — entfernt den
+      IndexedDB-Eintrag, damit der Angreifer nicht durch
+      Reload weiter probieren kann.
+   2. Provider-State auf `no-pin` setzen — UI-Sperre löst sich,
+      bevor der Logout-Roundtrip zurückkehrt.
+   3. `POST /api/auth/logout` (best-effort, Fehler ignoriert).
+   4. `router.push("/login?error=pin")` + `router.refresh()` —
+      die LoginForm zeigt einen deutschen Hinweis, dass die
+      Sitzung wegen falscher PINs beendet wurde.
+
+8. **Inaktivitäts-Timer (H):** Default 60.000 ms, konfigurierbar
+   im Profil aus einem Dropdown mit fünf Stufen (30 s, 1 min,
+   2 min, 5 min, 15 min). Der Wert wird in `localStorage` unter
+   `hcmap.pinLock.inactivityMs` persistiert (geräte-, nicht
+   user-spezifisch — der nächste User auf demselben Gerät erbt
+   die Einstellung). Server-seitiges Persistieren wäre eine
+   API-Vertragsänderung außerhalb M5a.4-Scope.
+   Timer-Reset bei `pointerdown`, `keydown`, `visibilitychange`.
+   `visibilitychange` mit `document.visibilityState === "visible"`
+   resettet, mit `"hidden"` clearet — d. h. ein Tab-Wechsel
+   pausiert den Timer (sonst würde ein langer Tab-Wechsel zur
+   instant-Sperre nach Rückkehr führen). Werte werden auf das
+   Intervall [15 s, 15 min] geclamped — kürzer macht die App
+   unnutzbar, länger entspricht keinem realistischen
+   Schutzziel mehr.
+
+9. **LockOverlay-UI (I):** Fixed-position Vollbild-Modal mit
+   `z-[100]`, Backdrop-Blur, dunklem Card und numerischem Input
+   (`inputMode="numeric"`, `pattern="[0-9]*"`,
+   `autoComplete="one-time-code"`). Auf Mobile öffnet sich
+   automatisch das Zahlentastatur-Layout. Konstantzeit-Render
+   auch im Wrong-PIN-Fall (kein „Versuch X von Y"-Spinner-Flackern).
+   Verbleibende Versuche werden nach dem ersten Fehlschlag
+   eingeblendet. Eingabe wird beim Submit auf reine Ziffern
+   gefiltert (`replace(/[^0-9]/g, "")`).
+
+10. **Profil-UI (J):** `PinSettings`-Component zeigt drei
+    Modi:
+    - **no-pin:** Form mit „neue PIN" + „PIN bestätigen", Submit
+      → `setPin`. Bei Mismatch deutsche Toast-Meldung.
+    - **configured:** drei Buttons („PIN ändern" → Edit-Mode,
+      „Jetzt sperren" → `lock()`, „PIN entfernen" → `clearPin()`)
+      plus Inaktivitäts-Dropdown.
+    - **edit:** wie no-pin, plus „Abbrechen"-Button.
+    react-hook-form wird hier bewusst nicht verwendet — die Form
+    hat nur zwei Felder mit einfacher Validation, ein direkter
+    `useState`-Pfad ist kürzer und vermeidet eine doppelte
+    Validation-Schicht.
+
+11. **Tests (K):** 15 neue Vitest-Tests:
+    - `tests/pin.test.ts` (10): hashPin produziert dokumentierte
+      Parameter; verifyPin korrekt für richtige/falsche PIN;
+      zwei hashPin-Calls für gleiche PIN haben verschiedene
+      Salts/Hashes; verifyPin lehnt unbekannten Algorithmus
+      ab; hashPin lehnt zu kurze/lange PINs ab; base64-
+      Round-Trip; constantTimeEqual für gleiche/verschiedene/
+      unterschiedlich-lange Arrays.
+    - `tests/pin-lock.test.tsx` (5): Initial-no-pin,
+      `setPin`-Transition, korrekte PIN unlocks + reset
+      fail_count, falsche PIN inkrementiert + bleibt locked,
+      5× falsch triggert Force-Logout mit
+      `/login?error=pin`-Push und IDB-Wipe.
+    Frontend-Suite 37 → 52 Tests grün. PIN-Storage wird per
+    `vi.mock` durch in-memory-Implementation ersetzt — IDB ist
+    in jsdom nicht stabil verfügbar. LockOverlay-UI-Tests
+    werden im Browser-Smoke verifiziert.
+
+12. **Browser-Smoke (L):** Lokales Stack (Postgres + Backend +
+    Next-Dev-Server) bestätigt:
+    - `/profile` rendert App-PIN-Card mit Set-Form, wenn keine
+      PIN existiert.
+    - PIN-Record direkt in IDB schreiben (PBKDF2 mit korrekten
+      Parametern) → Reload → Provider lädt Record → Card zeigt
+      „PIN ist aktiv" mit drei Action-Buttons + Timeout-
+      Dropdown („1 Minute (Default)").
+    - „Jetzt sperren" → LockOverlay rendert über allem als
+      Dialog `aria-label="App ist gesperrt"`.
+    - Korrekte PIN „1234" → Dialog verschwindet, App entsperrt.
+    - Falsche PIN „9999" → Dialog bleibt, Fehler-Hinweis
+      „PIN ist falsch. Verbleibende Versuche: 4.", IDB
+      `fail_count: 1`.
+    Force-Logout-Pfad ist im Vitest-Test abgedeckt — kein
+    weiterer Browser-Smoke nötig.
+
+13. **Dashboard-Bug aus M4 mitgefixt (M):** Beim Browser-Smoke
+    crashte `/` mit `event.lat.toFixed is not a function`. Das
+    Backend serialisiert Decimals als String (Pydantic v2
+    Default), das Dashboard rief aber `.toFixed()` direkt auf —
+    ein versteckter Bug aus M4, der bei leerer Liste in M5a.2
+    nicht auffiel und in M5a.3 nur live war, weil das Smoke-
+    Event auf `/dashboard` nicht aufgerufen wurde. Fix mit
+    `coerceNumber()`-Helper aus M5a.3 (`lib/types.ts`). Das ist
+    keine Scope-Erweiterung, sondern ein offensichtlicher Bug
+    in einer Komponente, deren Hinweis-Text ich in M5a.4
+    ohnehin überschritten hätte.
+
+14. **Scope-Abgrenzung (N):**
+    - **M5a.4 (dieser ADR):** App-PIN-Sperre, Frontend-only.
+    - **M5b:** Offline-Sync via RxDB. Wird beim Force-Logout
+      ebenfalls IDB-leeren müssen — der `forceLogout`-Pfad
+      bekommt dann einen weiteren `await rxdb.removeDatabase()`-
+      Aufruf. M5a.4 nimmt das nicht vorweg, weil RxDB noch nicht
+      eingerichtet ist.
+    - **M11:** Vor Go-Live wird die PIN-Doku Teil der
+      Onboarding-Anleitung („PIN setzen empfohlen, schützt
+      vor Schulterblick").
+
+**Konsequenzen:**
+
+- App-PIN-Schicht ist produktiv und über alle geschützten Routen
+  aktiv. Schutzziel aus ADR-023 (Schulterblick + kurze fremde
+  Übernahme) ist erreicht.
+- Keine neuen Backend-Routen, keine neuen Dependencies, keine
+  Migrations.
+- Frontend-Suite 37 → 52 Tests grün; tsc/eslint/prettier/build
+  alle clean.
+- Dashboard-Bug aus M4 ist im Vorbeigehen behoben — Listen mit
+  echten Lat/Lon-Werten rendern wieder.
+- `forceLogout` setzt UI-State **vor** dem Server-Logout-Roundtrip
+  zurück. Auch bei Backend-Ausfall ist die UI nach dem 5. Versuch
+  unverzüglich entsperrt (auf `/login` redirectet) — der
+  Server-Cookie wird durch die Middleware oder beim nächsten
+  authenticated Request invalidiert.
+- LocalStorage-basierte Inaktivitäts-Konfiguration ist
+  geräte-, nicht user-gebunden. Bei mehreren Usern auf einem
+  Gerät teilen sie die Einstellung. Akzeptiert für Pfad A
+  (Hobby-Setup); für Pfad B müsste das in den User-Profil-
+  Endpoint gehen.
+
+**Verworfene Alternativen:**
+
+- C2 (`idb-keyval` als Convenience-Library): zusätzliche
+  Dependency, freigabepflichtig — der native IDB-Wrapper sind
+  ~70 Zeilen, die ich verstehe und teste.
+- D2 (Provider in `RootLayout` statt `(protected)/layout`):
+  würde den Login-Pfad ebenfalls einbinden, der aber kein PIN
+  haben darf.
+- E2 (zwei States `lockState`/`hasPin` statt Single-Status):
+  unnötig, weil ein gültiger Status `locked` ohne `hasPin`
+  semantisch unmöglich ist und durch das Type-System schöner
+  ausgeschlossen wird.
+- I2 (Web-Worker für PBKDF2): laut ADR-023 §7 nicht
+  erforderlich, weil die UI während des Hash-Vergleichs ohnehin
+  unbenutzbar ist (LockOverlay).
+- J2 (react-hook-form für PIN-Setting): zwei Felder, eine
+  Validation-Regel — overengineering für den Use Case.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

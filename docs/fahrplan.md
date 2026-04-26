@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.3 [ERLEDIGT] 2026-04-26**
-- **Nächster Schritt:** M5a.4 — App-PIN-Sperre (PBKDF2 / Web Crypto API)
+- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.4 [ERLEDIGT] 2026-04-26** — M5a komplett.
+- **Nächster Schritt:** M5b — Offline-Resilienz (RxDB-Sync)
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -55,7 +55,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5a.1       | └─ Backend-Live-Endpoints + Tile-Proxy           | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [OFFEN]     |
+| 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
@@ -544,6 +544,66 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - ADR-027 dokumentiert die zwölf Detail-Entscheidungen.
 - README-Phase-Badge auf `M5a.3-erledigt`, CHANGELOG-Eintrag,
   Projektstatus-Tabelle aktualisiert.
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5a.4, App-PIN-Sperre):**
+- **Crypto-Lib** (`lib/pin.ts`): PBKDF2-SHA-256 via Web Crypto API,
+  600.000 Iterationen, 16-Byte-Salt, 32-Byte-Hash, base64-Encoding,
+  konstantzeit-XOR-Vergleich. PIN-Länge 4–6 Ziffern. Konstanten als
+  benannte Exporte.
+- **IndexedDB-Storage** (`lib/pin-storage.ts`): Native IDB-Wrapper
+  (kein `idb-keyval` o. ä.), Object-Store `hcmap-pin/pin/pin_v1`,
+  CRUD-Funktionen plus `updateFailCount`-Convenience-Funktion.
+  Degradiert sauber zu `null` bei nicht-vorhandenem IDB.
+- **State-Provider** (`components/pin/pin-lock-provider.tsx`):
+  React-Context mit vier Stati (`loading | no-pin | unlocked |
+  locked`), `usePinLock`-Hook. Eingebettet zwischen Server-Layout
+  und `<AppShell>` in `(protected)/layout.tsx` — **nur** auf
+  geschützten Pfaden aktiv, Login bleibt frei. Inaktivitäts-Timer
+  Default 60 s, konfigurierbar 30 s–15 min, persistiert in
+  `localStorage` (`hcmap.pinLock.inactivityMs`). Reset bei
+  `pointerdown`/`keydown`/`visibilitychange`; Tab-Wechsel zu
+  `hidden` pausiert den Timer.
+- **fail_count vor Vergleich inkrementiert** (ADR-023 §5):
+  Crash-resistent. Bei Erfolg → 0 Reset. Bei `fail_count >= 5`
+  → Force-Logout-Sequenz: IDB-Wipe → State zurücksetzen →
+  `POST /api/auth/logout` (best-effort) → `router.push("/login?error=pin")`.
+- **`LockOverlay`** (`components/pin/lock-overlay.tsx`): Vollbild-
+  Modal (`z-[100]`, Backdrop-Blur), numerischer Input
+  (`inputMode="numeric"`, `autoComplete="one-time-code"`),
+  Mobile-Tastatur-Layout. Verbleibende Versuche werden bei
+  Fehlversuch eingeblendet.
+- **Profil-UI** (`components/profile/pin-settings.tsx`): drei
+  Modi (set / configured / edit) mit „PIN ändern", „Jetzt
+  sperren", „PIN entfernen", Inaktivitäts-Dropdown mit fünf Stufen.
+  `useState` statt `react-hook-form` (zwei Felder, eine
+  Validation-Regel — kürzer und ausreichend).
+- **Login-Form** zeigt jetzt einen deutschen Hinweis-Text bei
+  `?error=pin`-Param (Sitzung wegen falscher PIN beendet).
+- **Tests:** 15 neue Vitest-Tests (`tests/pin.test.ts`: 10,
+  `tests/pin-lock.test.tsx`: 5). Frontend-Suite 37 → 52 Tests
+  grün gegen Postgres 16 + Web-Crypto-API. PIN-Storage in
+  `pin-lock.test.tsx` per `vi.mock` durch in-memory-Implementation
+  ersetzt — IDB ist in jsdom nicht stabil verfügbar.
+  `tsc --noEmit`, `next lint`, `prettier --check`,
+  `next build` alle clean.
+- **Browser-Smoke** gegen lokales Stack: PIN-Card auf `/profile`,
+  Set-Form bei `no-pin`, Status „PIN ist aktiv" nach IDB-Schreibzugriff,
+  „Jetzt sperren" → LockOverlay als `aria-label="App ist gesperrt"`-
+  Dialog, korrekte PIN entsperrt sofort, falsche PIN behält Lock
+  + zeigt „Verbleibende Versuche: 4" + persistiert `fail_count: 1`
+  in IDB.
+- **Bug-Fix mitgenommen:** Dashboard
+  (`app/(protected)/page.tsx`) crashte beim Rendern von Events
+  mit echten Daten, weil `event.lat.toFixed()` direkt auf den als
+  String gelieferten Decimal aufgerufen wurde. Fix mit
+  `coerceNumber()` aus `lib/types.ts`. Versteckter Bug aus M4,
+  fiel bei leerer Liste in M5a.2 nicht auf.
+- **Keine neuen Backend-Routen, keine neuen Dependencies,
+  keine Migrations.**
+- ADR-028 dokumentiert die vierzehn Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a.4-erledigt`, CHANGELOG-Eintrag,
+  Projektstatus-Tabelle aktualisiert. **Damit ist M5a (Live-Modus)
+  vollständig abgeschlossen.**
 
 ---
 

@@ -23,6 +23,53 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5a.3 — Frontend Live-Modus + LocationPickerMap:** Live-Erfassung
+  end-to-end im Frontend, plus eine kleine additive Backend-Erweiterung
+  für die Application-Liste pro Event (Fahrplan §M5a, ADR-027).
+  - **Karten:** `maplibre-gl@^4` und `react-map-gl@^7` als Runtime-Deps
+    (beide MIT, freigabefrei nach ADR-022). Tile-URL aus
+    `NEXT_PUBLIC_TILE_URL` (Default `/api/tiles/{z}/{x}/{y}`),
+    Default-Center aus `NEXT_PUBLIC_DEFAULT_MAP_CENTER`. Raster-Style
+    mit Tile-Proxy als Source.
+  - **`LocationPickerMap`-Komponente:** Single-Marker, Tap-to-Adjust,
+    draggable, controlled `{lat, lon, onChange}`. Kein Clustering,
+    kein URL-Sync — minimal-Scope nach ADR-022; `MapView`-Vollausbau
+    folgt mit M6.
+  - **Hooks:** `useWakeLock`, `useGeolocation`, `useNow` in
+    `src/hooks/`. Wakelock mit Re-Acquire bei `visibilitychange` und
+    Permission-Denied-Hinweis.
+  - **`/events/new`-Flow:** GPS-Auto-Request, Karten-Picker,
+    Recipient-Combobox mit On-the-fly-Sheet (`POST /api/persons/quick`,
+    ADR-014), Notiz, Submit → `POST /api/events/start` → Redirect.
+    Auto-Participant-Hinweis (ADR-012) bei gewähltem Recipient.
+    `viewer`-Rolle wird abgewiesen.
+  - **`/events/[id]`-Live-Ansicht:** Server-Component lädt das Event,
+    branched zwischen Live (Wakelock + Sekunden-Timer + Action-Buttons
+    + Application-Liste) und Ended (Stub mit Notiz, Plus-Code,
+    M5c-Hinweis). Action-Buttons: „Neue Application", „Aktuelle
+    beenden", „Event beenden" — verbunden mit den drei Live-POSTs aus
+    M5a.1 (`/applications/start`, `/applications/{id}/end`,
+    `/events/{id}/end`).
+  - **Dashboard-CTA aktiviert:** „Neues Event starten" ist jetzt ein
+    funktionaler Link auf `/events/new` (ersetzt den disabled-Button
+    aus M5a.2).
+  - **Backend additiv:** Neuer Endpoint
+    `GET /api/events/{event_id}/applications` (List sortiert nach
+    `sequence_no`). Schließt eine Lücke aus ADR-024 §J — rein additiv,
+    freigabefrei. Drei neue HTTP-Tests; Backend-Suite 74 → 77 Tests
+    grün.
+  - 10 neue Vitest-Tests (`duration` 6 + `use-wake-lock` 4).
+    Frontend-Suite 27 → 37 Tests grün. `tsc --noEmit`, `next lint`,
+    `prettier --check`, `next build` alle clean.
+  - **Browser-Smoke** gegen lokales Stack bestätigt: Anlegen → Live
+    mit Timer + Plus-Code → Application start/end → Event end →
+    EndedView. Wakelock-Permission im Headless verweigert (erwartet),
+    Tile-Proxy liefert ohne `HCMAP_MAPTILER_API_KEY` 503 — Karte
+    rendert ohne Tiles, Picker-Flow trotzdem funktional.
+  - Zwei neue ENV-Variablen: `NEXT_PUBLIC_TILE_URL`,
+    `NEXT_PUBLIC_DEFAULT_MAP_CENTER`.
+  - ADR-027 dokumentiert die zwölf Detail-Entscheidungen.
+
 - **M5a.2 — Frontend Startseite, Suche, Export:** Reiner Frontend-Konsum
   bestehender M3-Endpoints (Fahrplan §M5a, ADR-026).
   - **Globale Suchleiste** im AppShell (Sidebar auf Desktop, zweite

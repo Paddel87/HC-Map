@@ -1958,6 +1958,227 @@ Backend-Änderungen, keine neuen Abhängigkeiten.
 
 ---
 
+## ADR-027 — Implementierungsstrategie M5a.3 (Frontend Live-Modus + LocationPickerMap)
+
+**Status:** Akzeptiert (2026-04-26)
+
+**Kontext:** ADR-024 §J definierte M5a.3 als „Frontend Live-Modus +
+LocationPickerMap, konsumiert die in M5a.1 gebauten Endpoints + den
+Tile-Proxy". Bei der Umsetzung zeigte sich, dass die in
+`fahrplan.md` §M5a deliverable verlangte „Liste bisheriger
+Applications mit eigenen Timern" einen Endpoint braucht, der weder
+in M3 noch in M5a.1 vorhanden ist. M5a.3 setzt deshalb (a) den
+vollen Frontend-Live-Modus und (b) eine **rein additive**
+Backend-Erweiterung um, die diese Lücke schließt.
+
+**Entscheidungen:**
+
+1. **Karten-Setup (A):** `maplibre-gl@^4` und `react-map-gl@^7` als
+   Runtime-Deps (beide MIT, in `project-context.md` §3 als „empfohlen"
+   gelistet, freigabefrei). Tile-URL wird via
+   `NEXT_PUBLIC_TILE_URL`-ENV gesteuert (Default
+   `/api/tiles/{z}/{x}/{y}`). Default-Map-Center via
+   `NEXT_PUBLIC_DEFAULT_MAP_CENTER` (Default Berlin
+   `52.52,13.405`). MapLibre-CSS wird als `@import` in
+   `globals.css` geladen — damit braucht keine Komponente einen
+   eigenen CSS-Import. Karten-Style ist eine **Raster-Style** mit
+   einer Source `hcmap-raster`, die unseren Tile-Proxy als
+   Tile-Quelle nutzt — keine Vector-Style, kein Glyph-Loading. Für
+   den Picker reicht das; M6/M12 können auf Vector umstellen.
+
+2. **LocationPickerMap (B):** Einzelne `"use client"`-Komponente mit
+   einem verschiebbaren Marker (`anchor="bottom"`, `draggable`),
+   Tap-to-Adjust und `cursor="crosshair"`. Props sind
+   `{lat: number | null, lon: number | null, onChange}` — controlled
+   Pattern. Marker erscheint nur, wenn beide Werte gesetzt sind;
+   solange null, zeigt die Karte den Default-Center und reagiert
+   ausschließlich auf den ersten Tap. Koordinaten werden auf
+   6 Nachkommastellen gerundet (Lat/Lon-Schema-Genauigkeit). Kein
+   Clustering, kein URL-Sync, kein Popup — bewusst minimaler
+   M5a-Scope (siehe ADR-022). Auf der `/events/new`-Seite wird die
+   Komponente per `next/dynamic({ ssr: false })` geladen, weil
+   maplibre-gl `window` direkt nutzt und Server-Render bricht.
+
+3. **Hooks (C):**
+   - **`useWakeLock(enabled)`:** kapselt
+     `navigator.wakeLock.request('screen')`, behandelt Re-Acquire
+     bei `visibilitychange`, gibt Sentinel beim Unmount frei. Status:
+     `idle | requesting | active | released | unsupported | error`.
+     Liefert eine deutsche Hinweismeldung in `message`, wenn die
+     API fehlt oder die Anfrage scheitert (Headless/Permission).
+   - **`useGeolocation({auto, enableHighAccuracy, timeoutMs})`:**
+     `navigator.geolocation.getCurrentPosition` mit Klassifizierung
+     `success | denied | unavailable | unsupported`. Bei `auto`
+     wird einmal beim Mount angefragt; `request()` macht Retry
+     möglich.
+   - **`useNow(intervalMs=1000)`:** schlanker Sekunden-Tick für
+     Live-Timer.
+   Beide Hooks sind in `frontend/src/hooks/` abgelegt — neuer
+   Sammel-Ordner, der bislang nicht existierte.
+
+4. **Backend-Lücke geschlossen (D):** Neuer Endpoint
+   `GET /api/events/{event_id}/applications` (List, sortiert nach
+   `sequence_no`). Implementierung in `app/routes/events.py`,
+   Service-Methode `application_svc.list_applications_for_event`
+   existierte bereits. RLS greift automatisch via Postgres-Policies.
+   Drei neue HTTP-Tests in `test_applications_list_api.py`
+   (Empty-Event, Sequenz-Order, 404). Backend-Suite 74 → 77 Tests
+   grün. **Bewusste Scope-Erweiterung gegenüber ADR-024 §J** —
+   API-Vertragsänderung, aber rein additiv und damit nach
+   CLAUDE.md §4 freigabefrei. Verworfen wurde die Alternative,
+   `EventDetail.applications` als Embedded-Liste zu liefern: das
+   würde den Vertrag von `GET /api/events/{id}` ändern (zusätzliches
+   Feld) und das Listing-Pagination-Modell für lange Anwendungs-
+   ketten ungeschickt mit dem Detail-Endpoint koppeln.
+
+5. **/events/new (E):** Server-Component-Wrapper, der
+   `<EventCreateForm user={user} />` einbettet. `viewer`-Rolle
+   wird mit `redirect("/?error=role")` abgewiesen (Editor und Admin
+   dürfen Events anlegen). Die Form ist eine Client-Component mit:
+   - GPS-Auto-Request beim Mount, Re-Try-Button.
+   - LocationPickerMap (controlled `coords`-State).
+   - RecipientPicker mit Suche + „+ Neue Person hinzufügen".
+   - Notiz-Textarea.
+   - Submit → `POST /api/events/start` → `router.push('/events/{id}')`.
+   - Sticky-Bottom-Submit-Bar auf Mobile, normale Buttons auf
+     Desktop.
+   Auto-Participant-Hinweis (ADR-012) erscheint sobald ein
+   Recipient gewählt wurde („Daniela wird automatisch als
+   Beteiligte:r erfasst…").
+
+6. **RecipientPicker + PersonQuickSheet (F, ADR-014):**
+   `RecipientPicker` ist eine simple Combobox-Variante: Suchfeld,
+   Liste (gefiltert nach `name`/`alias`, exklusive der eigenen
+   `person_id`), `+ Neue Person hinzufügen`-Button am Ende.
+   `PersonQuickSheet` ist ein Bottom-Sheet mit Pflichtfeld `name`
+   und optional `alias`, sendet
+   `POST /api/persons/quick`. Bei 403 wird eine deutsche Fehler-
+   meldung gezeigt. Verworfen wurde eine vollwertige Combobox-
+   Komponente (`@radix-ui/react-popover` + `cmdk`): zusätzliche
+   Dependency, freigabepflichtig — die simple Variante reicht für
+   <50 Personen.
+
+7. **/events/[id] (G):** Server-Component mit Cookie-Forwarding
+   lädt das Event-Detail. Bei 404 → `notFound()`, bei 401/Backend-
+   Fehler → Hinweiskarte. Branching im Render:
+   - `ended_at === null` → `<LiveEventView>` (Live-Modus mit Timer,
+     Buttons, Application-Liste, Wakelock).
+   - `ended_at !== null` → `<EndedEventView>` (Stub mit Notiz,
+     Plus-Code, Hinweis „Detailansicht folgt mit M5c").
+
+8. **LiveEventView (H):**
+   - `useQuery` für Event-Detail (initialData = SSR-Snapshot,
+     Refetch alle 30 s).
+   - `useQuery` für Applications-Liste (Refetch alle 5 s, solange
+     Event live).
+   - `useNow(1000)` als Sekunden-Tick für lokale Timer.
+   - Timer-Berechnung lokal (`now - Date.parse(started_at)`) mit
+     `formatDuration`-Helper aus `lib/duration.ts` (`MM:SS` unter
+     einer Stunde, `H:MM:SS` darüber).
+   - Drei Action-Buttons:
+     - „Neue Application" → öffnet `<ApplicationStartSheet>`.
+     - „Aktuelle beenden" → `POST /api/applications/{id}/end`,
+       wird disabled, wenn keine offene Application existiert.
+     - „Event beenden" (`destructive`) → `POST /api/events/{id}/end`
+       → `router.push('/')`.
+   - `useWakeLock(isLive)` hält den Bildschirm an; Hinweis-Text bei
+     Permission-Denied.
+   - Auto-Recipient-Heuristik: Default-Recipient für die nächste
+     Application wird aus dem `recipient_id` der letzten
+     Application abgeleitet (häufigster Fall: gleiche Person über
+     mehrere Applications). Der User kann jederzeit ändern.
+
+9. **ApplicationStartSheet (I):** Bottom-Sheet mit
+   `<RecipientPicker>` + Notiz-Textarea. Submit
+   → `POST /api/events/{event_id}/applications/start`.
+   Restraints/Positionen sind **bewusst nicht** im Modal — das
+   spart einen großen Sekundärformular-Block, und das Backend
+   erlaubt explizit `PATCH /api/applications/{id}` zum Nachpflegen
+   (Fahrplan §M5a: „auch nachträglich pflegbar"). Nachpflege-UI
+   kommt in M5c.
+
+10. **Tests (J):** 10 neue Vitest-Tests:
+    - `tests/duration.test.ts` (6): `formatDuration` für Sub-Hour-
+      und Hour-Spans, Negativ-Clamp, Float-Rounding;
+      `diffSeconds` für ISO-Strings, End-vor-Start-Clamp,
+      Unparseable-Start.
+    - `tests/use-wake-lock.test.tsx` (4): Sentinel-Acquire bei
+      Enable, Unsupported-Path ohne API, Release-on-Unmount,
+      Idle-while-Disabled.
+    Frontend-Suite 27 → 37 Tests grün. **LocationPickerMap-Smoke-
+    Test bewusst übersprungen** — maplibre-gl benötigt
+    `HTMLCanvasElement.prototype.getContext('webgl')`, das jsdom
+    nicht stabil simuliert. Der End-to-End-Browser-Smoke
+    verifiziert die Komponente.
+
+11. **Browser-Smoke (K):** Lokales Stack (Postgres + Backend +
+    Next-Dev-Server) bestätigt:
+    - Dashboard-CTA-Link führt nach `/events/new`.
+    - `/events/new` rendert vollständig (Standort-Card mit
+      Karte, Recipient-Card mit Picker, Notiz, Submit-Bar).
+    - `POST /api/events/start` mit `{lat, lon, note}` → 201,
+      Event-ID + `started_at` zurück.
+    - `/events/{id}` rendert Live-View mit Timer „00:08",
+      Plus-Code „9F4MGCC4+222", Wakelock-Hinweis-Pfad
+      (Headless: „Wake Lock permission request denied").
+    - `POST /events/{id}/applications/start` (sequence_no=1) +
+      `POST /applications/{id}/end` + `POST /events/{id}/end`
+      → 201/200/200.
+    - Re-Visit `/events/{id}` rendert EndedEventView mit
+      Notiz, M5c-Hinweis und Zurück-Link.
+    - Wegen leerem `HCMAP_MAPTILER_API_KEY` liefert der
+      Tile-Proxy 503 — die Karte rendert ohne Tiles, der
+      Picker-Flow funktioniert weiter (User kann auf graue
+      Fläche klicken). Erwartetes Verhalten laut ADR-022.
+
+12. **Scope-Abgrenzung gegen M5a.4 (L):**
+    - **M5a.3 (dieser ADR):** Frontend Live-Modus + Backend-
+      List-Endpoint.
+    - **M5a.4:** App-PIN-Sperre nach ADR-023, querliegend zu
+      allen Frontend-Routen, kein Backend-Anteil.
+    - **M5b:** RxDB-Offline-Resilienz für Live-Modus.
+    - **M5c:** Detailseite `/events/{id}` mit chronologischer
+      Application-Liste, Lücken-Anzeige, nachträgliche
+      Bearbeitung. Stub-EndedEventView aus M5a.3 wird dort durch
+      die volle Detailansicht ersetzt.
+
+**Konsequenzen:**
+
+- Live-Modus-Vertical-Slice ist produktiv: Anlegen → Live →
+  Application-Erfassung → Beenden — alles ohne Verlassen der App.
+- 50 → 51 Backend-Routen (`GET /api/events/{event_id}/applications`).
+  Backend-Suite 74 → 77 Tests grün.
+- 27 → 37 Frontend-Vitest-Tests grün.
+- Zwei neue Frontend-Runtime-Dependencies (`maplibre-gl`,
+  `react-map-gl`). Beide MIT, freigabefrei (ADR-022 + project-
+  context.md §3).
+- Zwei neue ENV-Variablen (`NEXT_PUBLIC_TILE_URL`,
+  `NEXT_PUBLIC_DEFAULT_MAP_CENTER`).
+- Wakelock-Permission im Headless verweigert — `useWakeLock`
+  zeigt deshalb robust eine deutsche Hinweismeldung. Auf echten
+  Mobile-Browsern wird der Lock akzeptiert.
+- Ohne MapTiler-API-Key (`HCMAP_MAPTILER_API_KEY` leer) zeigt die
+  Karte keine Tiles; der Picker-Flow funktioniert per
+  Tap-to-Adjust trotzdem. Vor M11 muss der Key konfiguriert sein.
+
+**Verworfene Alternativen:**
+
+- D2 (`EventDetail.applications` als Embedded-Liste statt
+  separatem Endpoint): koppelt Detail-Response an Anwendungs-
+  Pagination, schlecht skalierbar.
+- F2 (Combobox via `cmdk` + Popover): zusätzliche Dependencies,
+  freigabepflichtig — der simple Filter-Picker reicht für
+  <50 Personen.
+- I2 (Restraints/Positions im Application-Start-Modal): macht
+  das Modal groß, langsam und kollidiert mit dem 30-Sekunden-
+  Akzeptanz­kriterium aus M5a. Nachpflege via PATCH ist
+  ausdrücklich vorgesehen.
+- J2 (LocationPickerMap-jsdom-Mock-Test): maplibre-gl-WebGL-
+  Path ist in jsdom nicht stabil simulierbar; Browser-Smoke
+  verifiziert die Komponente realistischer.
+
+---
+
 # Teil B — Entscheidungsregeln
 
 <!-- Wiederkehrende Muster, die aus ADRs hervorgehen.

@@ -27,10 +27,10 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-26
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.2 [ERLEDIGT] 2026-04-26**
-- **Nächster Schritt:** M5a.3 — Frontend Live-Modus + LocationPickerMap
+- **Aktiver Schritt:** M5a (Live-Modus) — Sub-Schritt **M5a.3 [ERLEDIGT] 2026-04-26**
+- **Nächster Schritt:** M5a.4 — App-PIN-Sperre (PBKDF2 / Web Crypto API)
 - **Offene STOPP-Situationen:** keine
-- **Offene Beobachtungen:** Treffer aus der globalen Suche und Listen-Items im Dashboard verlinken auf `/events/{id}`. Die Detail-Route ist bis M5c ein Stub — Klicks führen aktuell auf eine leere Seite. Bewusst akzeptiert (siehe ADR-026 §D).
+- **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View. Die Live-View ist M5a.3-fertig; die Ended-View ist ein Stub mit Notiz, Plus-Code und Hinweis „Detailansicht folgt mit M5c". Suche und Dashboard-Treffer verlinken weiterhin auf `/events/{id}` (laufende Events landen in der Live-View, beendete im Stub). Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
 ## Überblick
 
@@ -54,7 +54,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5a         | Event-Erfassung Live-Modus (mobile, GPS, Timer)  | [IN ARBEIT] |
 | 1 MVP   | M5a.1       | └─ Backend-Live-Endpoints + Tile-Proxy           | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.2       | └─ Frontend Startseite, Suche, Export            | [ERLEDIGT] 2026-04-26 |
-| 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [OFFEN]     |
+| 1 MVP   | M5a.3       | └─ Frontend Live-Modus + LocationPickerMap      | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5a.4       | └─ App-PIN-Sperre (PBKDF2 / Web Crypto API)     | [OFFEN]     |
 | 1 MVP   | M5b         | Offline-Resilienz (RxDB-Sync)                    | [OFFEN]     |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
@@ -464,6 +464,85 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
   M3-Endpoints.
 - ADR-026 dokumentiert die neun Detail-Entscheidungen.
 - README-Phase-Badge auf `M5a.2-erledigt`, CHANGELOG-Eintrag,
+  Projektstatus-Tabelle aktualisiert.
+
+**Status `[ERLEDIGT]` 2026-04-26 (M5a.3, Frontend Live-Modus + LocationPickerMap):**
+- **Karten-Layer:** `maplibre-gl@^4` und `react-map-gl@^7` als
+  Runtime-Deps (beide MIT, freigabefrei laut ADR-022 +
+  `project-context.md` §3). Tile-URL über
+  `NEXT_PUBLIC_TILE_URL` (Default `/api/tiles/{z}/{x}/{y}`),
+  Default-Map-Center über `NEXT_PUBLIC_DEFAULT_MAP_CENTER`
+  (Default Berlin). Raster-Style mit Tile-Proxy als Source —
+  Vector-Style folgt mit M6/M12.
+- **`LocationPickerMap`** (`components/map/location-picker-map.tsx`):
+  Single-Marker, Tap-to-Adjust, draggable Marker, Crosshair-Cursor.
+  Controlled-Props `{lat, lon, onChange}`. Kein Clustering,
+  kein URL-Sync, kein Popup — minimal-Scope nach ADR-022. Wird in
+  `/events/new` per `next/dynamic({ ssr: false })` geladen.
+- **Hooks:** `useWakeLock(enabled)` (kapselt
+  `navigator.wakeLock`-API mit Re-Acquire bei `visibilitychange`,
+  Permission-Denied-Handling), `useGeolocation({auto, …})`
+  (klassifiziert Status, Re-Try via `request()`), `useNow(intervalMs)`
+  (Sekunden-Tick für Live-Timer).
+- **Backend additiv:** Neuer Endpoint
+  `GET /api/events/{event_id}/applications` (List, sortiert nach
+  `sequence_no`). Drei neue HTTP-Tests
+  (`test_applications_list_api.py`). Backend-Suite 74 → 77 Tests
+  grün. Bewusste Scope-Erweiterung gegenüber ADR-024 §J,
+  rein additive API-Vertragsänderung → freigabefrei (CLAUDE.md §4).
+- **/events/new** (Server-Component-Wrapper +
+  `EventCreateForm`-Client-Component): Auto-GPS-Request,
+  LocationPickerMap, Recipient-Picker mit on-the-fly-Sheet,
+  Notiz, Submit → `POST /api/events/start` → Redirect auf
+  `/events/{id}`. Auto-Participant-Hinweis (ADR-012) erscheint im
+  Recipient-Block. `viewer`-Rolle wird per Server-Component-Redirect
+  abgewiesen (Editor + Admin dürfen anlegen).
+- **`RecipientPicker` + `PersonQuickSheet`** (ADR-014): Suchfeld
+  über `/api/persons` (Filter nach Name/Alias, eigene Person
+  ausgeschlossen), „+ Neue Person hinzufügen"-Button öffnet
+  Bottom-Sheet mit `name` (Pflicht) + `alias` (optional) →
+  `POST /api/persons/quick`. Bei 403 deutsche Fehlermeldung.
+- **/events/[id]** (Server-Component): lädt Event-Detail mit
+  Cookie-Forwarding. Branching: `ended_at === null`
+  → `<LiveEventView>`; sonst → `<EndedEventView>` (Stub mit
+  Notiz, Plus-Code, M5c-Hinweis und Zurück-Link).
+- **`LiveEventView`** (`components/event/live-event-view.tsx`,
+  Client): React-Query-Polling für Event (30 s) und Applications
+  (5 s solange live), `useNow(1000)` für Sekundengenauen Timer,
+  `formatDuration`-Helper (`MM:SS` < 1 h, `H:MM:SS` darüber).
+  Drei Action-Buttons: „Neue Application" (öffnet
+  `<ApplicationStartSheet>`), „Aktuelle beenden"
+  (`POST /api/applications/{id}/end`, disabled wenn keine offen),
+  „Event beenden" (destructive,
+  `POST /api/events/{id}/end` → Redirect auf `/`).
+  `useWakeLock(isLive)` mit Hinweis-Text bei Permission-Denied.
+  Default-Recipient-Heuristik: aus letzter Application abgeleitet.
+- **`ApplicationStartSheet`** (`components/event/application-start-sheet.tsx`):
+  Bottom-Sheet mit `<RecipientPicker>` + Notiz, Submit
+  → `POST /api/events/{event_id}/applications/start`.
+  Restraints/Positionen sind bewusst nicht im Modal —
+  nachpflegbar via `PATCH /api/applications/{id}` (M5c).
+- **Dashboard-CTA aktiviert:** `Neues Event starten` ist jetzt
+  ein Link auf `/events/new` (statt disabled-Button); für
+  `viewer` ausgeblendet.
+- **Tests:** 10 neue Vitest-Tests
+  (`tests/duration.test.ts`: 6, `tests/use-wake-lock.test.tsx`: 4).
+  Frontend-Suite 27 → 37 Tests grün. `tsc --noEmit`,
+  `next lint`, `prettier --check`, `next build` alle clean.
+  LocationPickerMap-jsdom-Smoke bewusst übersprungen
+  (maplibre-gl-WebGL-Path nicht stabil in jsdom) — der
+  Browser-Smoke deckt es ab.
+- **Browser-Smoke gegen lokales Stack** bestätigt: Dashboard-CTA
+  → `/events/new`-Form rendert vollständig → `POST /api/events/start`
+  → `/events/{id}` Live-View mit laufendem Timer + Plus-Code
+  → Application start/end + Event end via API → Re-Visit
+  rendert EndedEventView mit Notiz und M5c-Hinweis.
+  Tile-Proxy liefert ohne MapTiler-Key 503; Karte rendert ohne
+  Tiles, Picker-Flow trotzdem funktional.
+- **Neue ENV-Variablen** in `.env.example`:
+  `NEXT_PUBLIC_TILE_URL`, `NEXT_PUBLIC_DEFAULT_MAP_CENTER`.
+- ADR-027 dokumentiert die zwölf Detail-Entscheidungen.
+- README-Phase-Badge auf `M5a.3-erledigt`, CHANGELOG-Eintrag,
   Projektstatus-Tabelle aktualisiert.
 
 ---

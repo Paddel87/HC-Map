@@ -60,13 +60,16 @@ export default async function DashboardPage() {
           Rolle: <span className="font-medium">{user.role}</span>
         </p>
       </header>
-      <section>
-        <Button size="lg" disabled className="w-full md:w-auto">
-          <Clock className="mr-2 h-5 w-5" />
-          Neues Event starten
-          <span className="ml-2 text-xs opacity-70">Live-Modus folgt mit M5a.3</span>
-        </Button>
-      </section>
+      {user.role !== "viewer" ? (
+        <section>
+          <Button asChild size="lg" className="w-full md:w-auto">
+            <Link href="/events/new">
+              <Clock className="mr-2 h-5 w-5" />
+              Neues Event starten
+            </Link>
+          </Button>
+        </section>
+      ) : null}
       <section className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -99,7 +102,7 @@ export default async function DashboardPage() {
               </ul>
             ) : (
               <p className="text-slate-500 dark:text-slate-400">
-                Noch keine Events sichtbar. Live-Erfassung folgt mit M5a.3.
+                Noch keine Events sichtbar. Tippe oben auf „Neues Event starten“.
               </p>
             )}
           </CardContent>

@@ -107,9 +107,7 @@ const FormControl = forwardRef<ElementRef<typeof Slot>, ComponentPropsWithoutRef
       <Slot
         ref={ref}
         id={formItemId}
-        aria-describedby={
-          error ? `${formDescriptionId} ${formMessageId}` : `${formDescriptionId}`
-        }
+        aria-describedby={error ? `${formDescriptionId} ${formMessageId}` : `${formDescriptionId}`}
         aria-invalid={!!error}
         {...props}
       />
@@ -142,10 +140,7 @@ const FormMessage = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagrap
       <p
         ref={ref}
         id={formMessageId}
-        className={cn(
-          "text-sm font-medium text-red-500 dark:text-red-400",
-          className,
-        )}
+        className={cn("text-sm font-medium text-red-500 dark:text-red-400", className)}
         {...props}
       >
         {body}

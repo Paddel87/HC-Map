@@ -45,10 +45,7 @@ function buildUrl(path: string, query?: ApiRequestInit["query"]): string {
   return qs ? `${path}?${qs}` : path;
 }
 
-export async function apiFetch<T = unknown>(
-  path: string,
-  init: ApiRequestInit = {},
-): Promise<T> {
+export async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
   if (init.body !== undefined && !headers.has("Content-Type")) {

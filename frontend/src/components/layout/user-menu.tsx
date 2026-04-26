@@ -53,10 +53,7 @@ export function UserMenu({ user, compact = false }: { user: AuthUser; compact?: 
             </Avatar>
           </Button>
         ) : (
-          <Button
-            variant="ghost"
-            className="h-auto w-full justify-start gap-3 px-2 py-2 text-left"
-          >
+          <Button variant="ghost" className="h-auto w-full justify-start gap-3 px-2 py-2 text-left">
             <Avatar className="h-8 w-8">
               <AvatarFallback>{initialsFor(user)}</AvatarFallback>
             </Avatar>

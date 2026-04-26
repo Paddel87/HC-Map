@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
 import { Crosshair, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -12,10 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useGeolocation } from "@/hooks/use-geolocation";
-import { apiFetch } from "@/lib/api";
 import type { AuthUser } from "@/lib/auth";
 import { DEFAULT_MAP_CENTER } from "@/lib/map";
-import type { EventDetail, EventStartPayload, PersonRead } from "@/lib/types";
+import { useDatabase } from "@/lib/rxdb/provider";
+import type { PersonRead } from "@/lib/types";
 
 const LocationPickerMap = dynamic(
   () => import("@/components/map/location-picker-map").then((mod) => mod.LocationPickerMap),
@@ -25,16 +24,20 @@ const LocationPickerMap = dynamic(
   },
 );
 
+const RECIPIENT_DRAFT_PREFIX = "hcmap:event-recipient:";
+
 export interface EventCreateFormProps {
   user: AuthUser;
 }
 
 export function EventCreateForm({ user }: EventCreateFormProps) {
   const router = useRouter();
+  const database = useDatabase();
   const geolocation = useGeolocation({ auto: true });
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [recipient, setRecipient] = useState<PersonRead | null>(null);
   const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (geolocation.fix && coords === null) {
@@ -42,45 +45,68 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
     }
   }, [geolocation.fix, coords]);
 
-  const startEvent = useMutation({
-    mutationFn: async (payload: EventStartPayload) =>
-      apiFetch<EventDetail>("/api/events/start", {
-        method: "POST",
-        body: payload,
-      }),
-    onSuccess: (event) => {
-      toast.success("Event gestartet", {
-        description: "Live-Erfassung läuft. Wakelock hält den Bildschirm an.",
-      });
-      router.push(`/events/${event.id}`);
-      router.refresh();
-    },
-    onError: (error) => {
-      toast.error("Event konnte nicht gestartet werden", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    },
-  });
-
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(formEvent: React.FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault();
     if (!coords) {
       toast.error("Standort fehlt", {
         description: "Bitte den Marker auf der Karte setzen oder GPS aktivieren.",
       });
       return;
     }
-    const payload: EventStartPayload = {
-      lat: coords.lat,
-      lon: coords.lon,
-    };
-    if (recipient) payload.recipient_id = recipient.id;
-    const trimmedNote = note.trim();
-    if (trimmedNote) payload.note = trimmedNote;
-    startEvent.mutate(payload);
+    if (!database) {
+      toast.error("Lokale Datenbank wird noch geladen", {
+        description: "Einen Moment, dann nochmal probieren.",
+      });
+      return;
+    }
+
+    setPending(true);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    try {
+      await database.events.insert({
+        id,
+        started_at: now,
+        ended_at: null,
+        lat: coords.lat,
+        lon: coords.lon,
+        w3w_legacy: null,
+        reveal_participants: false,
+        note: note.trim() || null,
+        // Server overrides created_by with the authenticated user (ADR-029).
+        created_by: user.id,
+        created_at: now,
+        updated_at: now,
+        deleted_at: null,
+        _deleted: false,
+      });
+      // The recipient becomes a participant only after the first application
+      // is pushed (auto-participant per ADR-012). Stash the choice so the
+      // live view can pre-fill the application sheet.
+      if (typeof window !== "undefined" && recipient) {
+        try {
+          window.sessionStorage.setItem(
+            `${RECIPIENT_DRAFT_PREFIX}${id}`,
+            recipient.id,
+          );
+        } catch {
+          /* sessionStorage disabled — non-fatal. */
+        }
+      }
+      toast.success("Event gestartet", {
+        description: "Live-Erfassung läuft. Sync läuft im Hintergrund.",
+      });
+      router.push(`/events/${id}`);
+      router.refresh();
+    } catch (error) {
+      toast.error("Event konnte nicht gestartet werden", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+      setPending(false);
+    }
   }
 
-  const submitLabel = startEvent.isPending ? "Starte…" : "Event starten";
+  const submitLabel = pending ? "Starte…" : "Event starten";
   const gpsLabel =
     geolocation.status === "requesting" ? "Standort wird ermittelt…" : "Standort erneut anfordern";
 
@@ -174,14 +200,14 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
       </Card>
 
       <div className="sticky bottom-0 flex flex-col gap-2 border-t border-slate-200 bg-slate-50/95 p-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 md:static md:border-0 md:bg-transparent md:p-0">
-        <Button type="submit" size="lg" disabled={!coords || startEvent.isPending}>
+        <Button type="submit" size="lg" disabled={!coords || pending || !database}>
           {submitLabel}
         </Button>
         <Button
           type="button"
           variant="ghost"
           onClick={() => router.back()}
-          disabled={startEvent.isPending}
+          disabled={pending}
         >
           Abbrechen
         </Button>

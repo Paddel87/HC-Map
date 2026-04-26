@@ -8,6 +8,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { SearchBox } from "@/components/layout/search-box";
 import { Sidebar } from "@/components/layout/sidebar";
 import { UserMenu } from "@/components/layout/user-menu";
+import { SyncStatusIndicator } from "@/components/sync/sync-status-indicator";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { AuthUser } from "@/lib/auth";
@@ -51,7 +52,10 @@ export function AppShell({ user, children }: { user: AuthUser; children: ReactNo
             <Link href="/" className="font-semibold tracking-tight">
               HC-Map
             </Link>
-            <UserMenu user={user} compact />
+            <div className="flex items-center gap-2">
+              <SyncStatusIndicator />
+              <UserMenu user={user} compact />
+            </div>
           </div>
           <SearchBox />
         </header>

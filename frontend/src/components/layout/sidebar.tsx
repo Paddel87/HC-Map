@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { SearchBox } from "@/components/layout/search-box";
 import { UserMenu } from "@/components/layout/user-menu";
 import { visibleNavItems } from "@/components/layout/nav";
+import { SyncStatusIndicator } from "@/components/sync/sync-status-indicator";
 import type { AuthUser } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 
@@ -43,7 +44,8 @@ export function Sidebar({ user }: { user: AuthUser }) {
           );
         })}
       </nav>
-      <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+      <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
+        <SyncStatusIndicator showLabel className="px-2" />
         <UserMenu user={user} />
       </div>
     </aside>

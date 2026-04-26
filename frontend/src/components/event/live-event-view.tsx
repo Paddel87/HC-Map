@@ -1,9 +1,8 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Flag, Pause, Play, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ApplicationStartSheet } from "@/components/event/application-start-sheet";
@@ -12,10 +11,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/hooks/use-now";
 import { useWakeLock } from "@/hooks/use-wake-lock";
-import { apiFetch } from "@/lib/api";
 import type { AuthUser } from "@/lib/auth";
-import { coerceNumber, type ApplicationRead, type EventDetail, type PersonRead } from "@/lib/types";
+import { useDatabase } from "@/lib/rxdb/provider";
+import type { ApplicationDocType, EventDocType } from "@/lib/rxdb/types";
+import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
 import { diffSeconds, formatDuration } from "@/lib/duration";
+
+const RECIPIENT_DRAFT_PREFIX = "hcmap:event-recipient:";
 
 export interface LiveEventViewProps {
   user: AuthUser;
@@ -24,60 +26,19 @@ export interface LiveEventViewProps {
 
 export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const wakeLock = useWakeLock(initialEvent.ended_at === null);
+  const database = useDatabase();
   const now = useNow(1000);
   const [startOpen, setStartOpen] = useState(false);
 
-  const eventQuery = useQuery({
-    queryKey: ["events", initialEvent.id, "detail"],
-    queryFn: () => apiFetch<EventDetail>(`/api/events/${initialEvent.id}`),
-    initialData: initialEvent,
-    refetchInterval: 30_000,
-  });
-  const event = eventQuery.data ?? initialEvent;
+  const eventDoc = useEventDoc(initialEvent.id);
+  const applications = useApplications(initialEvent.id);
+
+  const event = useMemo<MergedEvent>(() => mergeEvent(initialEvent, eventDoc), [
+    initialEvent,
+    eventDoc,
+  ]);
   const isLive = event.ended_at === null;
-
-  const applicationsQuery = useQuery({
-    queryKey: ["events", initialEvent.id, "applications"],
-    queryFn: () => apiFetch<ApplicationRead[]>(`/api/events/${initialEvent.id}/applications`),
-    refetchInterval: isLive ? 5_000 : false,
-  });
-  const applications = applicationsQuery.data ?? [];
-
-  const endApplication = useMutation({
-    mutationFn: (applicationId: string) =>
-      apiFetch<ApplicationRead>(`/api/applications/${applicationId}/end`, { method: "POST" }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["events", initialEvent.id, "applications"],
-      });
-    },
-    onError: (error) => {
-      toast.error("Application konnte nicht beendet werden", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    },
-  });
-
-  const endEvent = useMutation({
-    mutationFn: () =>
-      apiFetch<EventDetail>(`/api/events/${initialEvent.id}/end`, { method: "POST" }),
-    onSuccess: async () => {
-      toast.success("Event beendet", { description: "Wakelock freigegeben." });
-      await queryClient.invalidateQueries({ queryKey: ["events", initialEvent.id, "detail"] });
-      await queryClient.invalidateQueries({
-        queryKey: ["events", initialEvent.id, "applications"],
-      });
-      router.push("/");
-      router.refresh();
-    },
-    onError: (error) => {
-      toast.error("Event konnte nicht beendet werden", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    },
-  });
+  useWakeLock(isLive);
 
   const totalSeconds = isLive
     ? Math.max(0, Math.round((now - Date.parse(event.started_at)) / 1000))
@@ -86,7 +47,37 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
       : 0;
 
   const activeApplication = applications.find((a) => a.ended_at === null) ?? null;
-  const recipientPerson = pickRecipientPerson(applications, event.participants, user.person_id);
+  const recipientPerson = pickRecipientPerson(
+    applications,
+    event.participants,
+    user.person_id,
+    initialEvent.id,
+  );
+
+  async function handleEndApplication(applicationId: string): Promise<void> {
+    if (!database) return;
+    const doc = await database.applications.findOne(applicationId).exec();
+    if (!doc) {
+      toast.error("Application nicht im lokalen Speicher gefunden");
+      return;
+    }
+    const now = new Date().toISOString();
+    await doc.patch({ ended_at: now, updated_at: now });
+  }
+
+  async function handleEndEvent(): Promise<void> {
+    if (!database) return;
+    const doc = await database.events.findOne(initialEvent.id).exec();
+    if (!doc) {
+      toast.error("Event nicht im lokalen Speicher gefunden");
+      return;
+    }
+    const now = new Date().toISOString();
+    await doc.patch({ ended_at: now, updated_at: now });
+    toast.success("Event beendet", { description: "Wakelock freigegeben." });
+    router.push("/");
+    router.refresh();
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -99,11 +90,6 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
           <CardDescription>
             Standort: {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
             {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}
-            {wakeLock.message ? (
-              <span className="block pt-1 text-amber-700 dark:text-amber-400">
-                {wakeLock.message}
-              </span>
-            ) : null}
           </CardDescription>
         </CardHeader>
         {isLive ? (
@@ -112,7 +98,7 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
               <Button
                 size="lg"
                 onClick={() => setStartOpen(true)}
-                disabled={endApplication.isPending || endEvent.isPending}
+                disabled={!database}
               >
                 <Plus aria-hidden /> Neue Application
               </Button>
@@ -120,8 +106,8 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
                 <Button
                   size="lg"
                   variant="secondary"
-                  onClick={() => endApplication.mutate(activeApplication.id)}
-                  disabled={endApplication.isPending || endEvent.isPending}
+                  onClick={() => handleEndApplication(activeApplication.id)}
+                  disabled={!database}
                 >
                   <Pause aria-hidden /> Aktuelle beenden
                 </Button>
@@ -134,10 +120,10 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
             <Button
               size="lg"
               variant="destructive"
-              onClick={() => endEvent.mutate()}
-              disabled={endEvent.isPending}
+              onClick={handleEndEvent}
+              disabled={!database}
             >
-              <Flag aria-hidden /> {endEvent.isPending ? "Beende…" : "Event beenden"}
+              <Flag aria-hidden /> Event beenden
             </Button>
           </CardContent>
         ) : null}
@@ -153,7 +139,7 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {applicationsQuery.isPending ? (
+          {!database ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-12 w-full" />
               <Skeleton className="h-12 w-full" />
@@ -174,17 +160,75 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
         eventId={initialEvent.id}
         performerPersonId={user.person_id}
         defaultRecipient={recipientPerson}
-        onCreated={async () => {
-          await queryClient.invalidateQueries({
-            queryKey: ["events", initialEvent.id, "applications"],
-          });
+        onCreated={() => {
+          // Reactive subscription updates the list automatically.
         }}
       />
     </div>
   );
 }
 
-function ApplicationList({ applications, now }: { applications: ApplicationRead[]; now: number }) {
+interface MergedEvent {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  lat: number | string;
+  lon: number | string;
+  note: string | null;
+  plus_code: string;
+  participants: readonly PersonRead[];
+}
+
+function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent {
+  if (!doc) return server;
+  return {
+    id: doc.id,
+    started_at: doc.started_at,
+    ended_at: doc.ended_at,
+    lat: doc.lat,
+    lon: doc.lon,
+    note: doc.note,
+    plus_code: server.plus_code,
+    participants: server.participants,
+  };
+}
+
+function useEventDoc(eventId: string): EventDocType | null {
+  const database = useDatabase();
+  const [doc, setDoc] = useState<EventDocType | null>(null);
+  useEffect(() => {
+    if (!database) return;
+    const sub = database.events
+      .findOne(eventId)
+      .$.subscribe((next) => setDoc(next ? (next.toJSON() as EventDocType) : null));
+    return () => sub.unsubscribe();
+  }, [database, eventId]);
+  return doc;
+}
+
+function useApplications(eventId: string): ApplicationDocType[] {
+  const database = useDatabase();
+  const [docs, setDocs] = useState<ApplicationDocType[]>([]);
+  useEffect(() => {
+    if (!database) return;
+    const sub = database.applications
+      .find({
+        selector: { event_id: eventId, _deleted: { $eq: false } },
+        sort: [{ sequence_no: "asc" }],
+      })
+      .$.subscribe((rows) => setDocs(rows.map((r) => r.toJSON() as ApplicationDocType)));
+    return () => sub.unsubscribe();
+  }, [database, eventId]);
+  return docs;
+}
+
+function ApplicationList({
+  applications,
+  now,
+}: {
+  applications: ApplicationDocType[];
+  now: number;
+}) {
   return (
     <ul className="flex flex-col gap-2">
       {applications.map((application) => {
@@ -231,15 +275,26 @@ function ApplicationList({ applications, now }: { applications: ApplicationRead[
 }
 
 function pickRecipientPerson(
-  applications: readonly ApplicationRead[],
+  applications: readonly ApplicationDocType[],
   participants: readonly PersonRead[],
   excludePersonId: string,
+  eventId: string,
 ): PersonRead | null {
+  // Prefer the most recent application's recipient.
   for (let i = applications.length - 1; i >= 0; i -= 1) {
     const candidateId = applications[i]?.recipient_id;
     if (!candidateId || candidateId === excludePersonId) continue;
     const match = participants.find((p) => p.id === candidateId);
     if (match) return match;
   }
-  return null;
+  // Fall back to the recipient drafted in the create form (sessionStorage).
+  if (typeof window === "undefined") return null;
+  let draftId: string | null = null;
+  try {
+    draftId = window.sessionStorage.getItem(`${RECIPIENT_DRAFT_PREFIX}${eventId}`);
+  } catch {
+    return null;
+  }
+  if (!draftId) return null;
+  return participants.find((p) => p.id === draftId) ?? null;
 }

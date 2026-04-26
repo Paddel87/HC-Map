@@ -9,6 +9,62 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5b.3 — RxDB-Setup im Frontend + Live-Modus auf RxDB-Schreibpfad (ADR-034):**
+  Frontend-Sync-Schicht. Live-Modus arbeitet ab sofort lokal-zuerst,
+  Replication läuft asynchron im Hintergrund.
+  - **Library-Schicht** unter `frontend/src/lib/rxdb/`:
+    - `types.ts` — TS-Document-Types deckungsgleich mit den JSON-
+      Schemas aus M5b.2.
+    - `schemas.ts` — RxJsonSchema-Wrapper über die JSON-Files.
+    - `database.ts` — Lazy-Singleton `getDatabase()` mit
+      Dexie-Storage-Adapter; Dev-Mode-Plugin nur in Development.
+    - `replication.ts` — `replicateRxCollection` pro Collection,
+      eigene Pull-/Push-Handler gegen `/api/sync/{events,applications}/
+      {pull,push}`, CSRF-Cookie-Echo im Push, aggregierter Sync-Status
+      `idle | active | offline | error`.
+    - `provider.tsx` — `RxdbProvider` + `useDatabase()` /
+      `useDatabaseError()` / `useSyncStatus()`-Hooks; mountet im
+      `(protected)/layout.tsx` zwischen `PinLockProvider` und
+      `AppShell`.
+  - **Sync-Indikator** (`components/sync/sync-status-indicator.tsx`):
+    Kleine Pill mit Lucide-Icon (Cloud / Loader2 / CloudOff /
+    TriangleAlert) in Sidebar (Desktop, mit Label) und Mobile-Header
+    (kompakt). `data-sync-status`-Attribut für Tests.
+  - **Live-Modus-Refactor** auf RxDB-Schreibpfad:
+    - `event-create-form.tsx`: `database.events.insert(...)` mit
+      `crypto.randomUUID()`-Client-ID, server-authoritative
+      `created_by`. Recipient-Wahl in `sessionStorage` als Bridge zur
+      ersten Application.
+    - `application-start-sheet.tsx`: `database.applications.insert(...)`
+      mit lokal vergebener `sequence_no` (max+1); Server vergibt
+      endgültige Nummer beim Push.
+    - `live-event-view.tsx`: `useEventDoc` / `useApplications`-Hooks
+      subscriben auf `findOne(id).$` und `find({...}).$`. End-Aktionen
+      via `doc.patch({ended_at, updated_at})`. Reactive Updates ohne
+      `refetchInterval`.
+  - **Conflict-Handler:** RxDB-Default (Master gewinnt) — passt zur
+    ADR-029-Semantik; eigener Handler nicht nötig.
+  - **Tests:** 4 neue Tests in
+    `tests/sync-status-indicator.test.tsx` (idle / active / offline /
+    error). Frontend-Suite **60/60 grün** (zuvor 56). ESLint clean,
+    `tsc --noEmit` clean, `next build` clean.
+  - **Browser-Verifikation** (preview server): Login → Dashboard
+    rendert den Sync-Indikator im DOM
+    (`[role=status][data-sync-status=idle]`), RxDB-IndexedDB
+    initialisiert sich, Pull repliziert vorhandene Events lokal.
+  - **Bundle:** `/events/[id]` First-Load 271 kB, `/events/new` 262 kB
+    — innerhalb der in ADR-017 prognostizierten 150-200 KB für
+    RxDB+Dexie+RxJS gzipped.
+  - **Dependencies:** `rxdb@17.1.0`, `rxjs@7.8.2` (beide aus dem in
+    `project-context.md` §3 als „freigabefrei nutzbar" gelisteten
+    Stack-Set; ADR-017 hatte RxDB bereits als Sync-Schicht gewählt).
+  - **Offene Edge-Cases** (bewusst, mit M5b.4 zu adressieren): Offline-
+    Insert mit direkter Navigation auf die Server-Side-Detail-Page
+    liefert kurzzeitig 404, weil der Push noch nicht durch ist.
+    `event.participants` bleibt bis zum ersten Pull-Roundtrip leer
+    (Auto-Participant entsteht erst beim Server-Sync). Details in
+    ADR-034 §K.
+
 - **M5b.2 — Backend-Sync-Endpoints (ADR-033):**
   Vier RxDB-Replication-Endpoints und der zugehörige Service-/Test-/
   Doku-Stack. Erste Editor-INSERT-via-HTTP-Pfade im Repo.

@@ -1,6 +1,5 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -14,8 +13,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { apiFetch } from "@/lib/api";
-import type { ApplicationLiveStartPayload, ApplicationRead, PersonRead } from "@/lib/types";
+import type { HCMapDatabase } from "@/lib/rxdb/database";
+import { useDatabase } from "@/lib/rxdb/provider";
+import type { PersonRead } from "@/lib/types";
+
+async function nextLocalSequence(
+  database: HCMapDatabase,
+  eventId: string,
+): Promise<number> {
+  const docs = await database.applications
+    .find({ selector: { event_id: eventId } })
+    .exec();
+  if (docs.length === 0) return 1;
+  const max = docs.reduce((acc, doc) => Math.max(acc, doc.sequence_no), 0);
+  return max + 1;
+}
 
 export interface ApplicationStartSheetProps {
   open: boolean;
@@ -23,7 +35,7 @@ export interface ApplicationStartSheetProps {
   eventId: string;
   performerPersonId: string;
   defaultRecipient: PersonRead | null;
-  onCreated: (application: ApplicationRead) => void;
+  onCreated: () => void;
 }
 
 export function ApplicationStartSheet({
@@ -34,9 +46,10 @@ export function ApplicationStartSheet({
   defaultRecipient,
   onCreated,
 }: ApplicationStartSheetProps) {
-  const queryClient = useQueryClient();
+  const database = useDatabase();
   const [recipient, setRecipient] = useState<PersonRead | null>(defaultRecipient);
   const [note, setNote] = useState("");
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -45,33 +58,51 @@ export function ApplicationStartSheet({
     }
   }, [open, defaultRecipient]);
 
-  const start = useMutation({
-    mutationFn: async (payload: ApplicationLiveStartPayload): Promise<ApplicationRead> =>
-      apiFetch<ApplicationRead>(`/api/events/${eventId}/applications/start`, {
-        method: "POST",
-        body: payload,
-      }),
-    onSuccess: async (application) => {
-      toast.success("Application gestartet", {
-        description: `Sequenz #${application.sequence_no}.`,
+  async function submit() {
+    if (!database) {
+      toast.error("Lokale Datenbank wird noch geladen", {
+        description: "Einen Moment, dann nochmal probieren.",
       });
-      onCreated(application);
+      return;
+    }
+    setPending(true);
+    try {
+      // Server reassigns sequence_no on push (ADR-029); the local
+      // optimistic value is just a UI placeholder.
+      const localSeq = await nextLocalSequence(database, eventId);
+      const recipientId = recipient?.id ?? performerPersonId;
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await database.applications.insert({
+        id,
+        event_id: eventId,
+        performer_id: performerPersonId,
+        recipient_id: recipientId,
+        arm_position_id: null,
+        hand_position_id: null,
+        hand_orientation_id: null,
+        sequence_no: localSeq,
+        started_at: now,
+        ended_at: null,
+        note: note.trim() || null,
+        created_by: null,
+        created_at: now,
+        updated_at: now,
+        deleted_at: null,
+        _deleted: false,
+      });
+      toast.success("Application gestartet", {
+        description: `Sequenz #${localSeq} (lokal). Sync setzt die endgültige Nummer.`,
+      });
+      onCreated();
       onOpenChange(false);
-      await queryClient.invalidateQueries({ queryKey: ["events", eventId, "applications"] });
-    },
-    onError: (error) => {
+    } catch (error) {
       toast.error("Application konnte nicht gestartet werden", {
         description: error instanceof Error ? error.message : String(error),
       });
-    },
-  });
-
-  function submit() {
-    const payload: ApplicationLiveStartPayload = {};
-    if (recipient) payload.recipient_id = recipient.id;
-    const trimmed = note.trim();
-    if (trimmed) payload.note = trimmed;
-    start.mutate(payload);
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -110,12 +141,12 @@ export function ApplicationStartSheet({
               variant="outline"
               className="flex-1"
               onClick={() => onOpenChange(false)}
-              disabled={start.isPending}
+              disabled={pending}
             >
               Abbrechen
             </Button>
-            <Button type="button" className="flex-1" onClick={submit} disabled={start.isPending}>
-              {start.isPending ? "Starte…" : "Application starten"}
+            <Button type="button" className="flex-1" onClick={submit} disabled={pending || !database}>
+              {pending ? "Starte…" : "Application starten"}
             </Button>
           </div>
         </div>

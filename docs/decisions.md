@@ -59,6 +59,7 @@ Status-Legende:
 | ADR-031 | RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test         | Accepted | 2026-04-26  |
 | ADR-032 | IndexedDB-Storage-Encryption: keine Encryption in Pfad A        | Accepted | 2026-04-26  |
 | ADR-033 | Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy) | Accepted | 2026-04-26 |
+| ADR-034 | Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor) | Accepted | 2026-04-26 |
 
 ---
 
@@ -2751,6 +2752,75 @@ Siehe Punkte E (Owner-SELECT) für die kompletten Optionen.
 ### Folge-Arbeit (M5b.3+)
 - M5b.3: RxDB-Setup im Frontend nutzt die hier angelegten JSON-Schemas.
 - M5b.4: E2E-Offline-Test verifiziert die End-to-End-Replikation.
+
+---
+
+## ADR-034 — Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor)
+
+**Status:** Accepted
+**Datum:** 2026-04-26
+
+### Kontext
+M5b.1 hat das Datenmodell für die RxDB-Replication vorbereitet, M5b.2 die Backend-Endpoints geliefert. M5b.3 schließt die Sync-Schicht im Frontend: lokale RxDB-Datenbank, Replication-Worker gegen die Sync-Endpoints, Live-Modus-Refactor von REST auf RxDB-Schreibpfad, UI-Indikator für den Sync-Status.
+
+### Entscheidungen
+
+**A. RxDB-Version 17 + Dexie-Storage.**
+Aktuell stable (Apache 2.0). Free-Tier-Storage-Adapter `dexie` (IndexedDB-basiert) wie ADR-017 vorgibt. Keine Premium-Plugins, keine Encryption (ADR-032). Bundle-Größe nach Build: First-Load-JS für `/events/[id]` 271 kB, für `/events/new` 262 kB — innerhalb des in ADR-017 prognostizierten Rahmens (150-200 KB für RxDB+Dexie+RxJS gzipped).
+
+**B. Schema-Konsumtion via JSON-Import.**
+Die Frontend-JSON-Schemas aus M5b.2 (`frontend/src/lib/rxdb/schemas/{event,application}.schema.json`) werden direkt importiert, durch `unknown`-Cast als `RxJsonSchema<T>` typisiert, an `addCollections` übergeben. TypeScript-Document-Types in `lib/rxdb/types.ts` manuell deckungsgleich; Drift fängt der Backend-Drift-Test aus M5b.2 ab.
+
+**C. Lazy DB-Singleton.**
+`getDatabase()` in `lib/rxdb/database.ts` gibt eine memoisierte `Promise<RxDatabase>` zurück. Server-side Aufrufe werden mit `Error("RxDB is browser-only")` abgewiesen. `RxDBDevModePlugin` wird nur in Development geladen (dynamic import), spart Bundle-Größe in Production.
+
+**D. Replication via `replicateRxCollection` mit eigenem `pullHandler` / `pushHandler`.**
+Standardweg für Custom-REST-Backends. Zwei separate Replikationen (events, applications), jede mit eigenem `replicationIdentifier`. `waitForLeadership: true` verhindert, dass mehrere Browser-Tabs parallel pushen. `retryTime: 5_000` für graceful Reconnect-Verhalten.
+
+**E. CSRF-Cookie-Echo im Push-Handler.**
+Die Sync-Endpoints sind durch die globale CSRF-Middleware geschützt (ADR-019). Der Push-Handler liest das `hcmap_csrf`-Cookie via `document.cookie` und setzt es als `X-CSRF-Token`-Header. Fehlt das Cookie (z. B. nach Logout), wirft der Handler — RxDB schiebt den Push automatisch in die Retry-Queue.
+
+**F. Conflict-Handler: RxDB-Default (Master gewinnt).**
+ADR-029 verlangt „Server gewinnt bei Konflikt". RxDB's Default-Conflict-Handler liefert exakt diese Semantik: Der Server-`master`-Doc gewinnt gegen den lokalen `newDocumentState`, wenn beide non-equal sind. Backend gibt seine Master-Doc als Konflikt-Antwort zurück (siehe ADR-029, ADR-033 §G); RxDB übernimmt sie, schreibt sie in IndexedDB und feuert die Reactive-Subscriptions. Kein eigener `conflictHandler` nötig.
+
+**G. Globaler Sync-Status `idle | active | error | offline`.**
+`startReplication(database)` in `lib/rxdb/replication.ts` aggregiert die `active$`/`error$`-Streams beider Replikationen plus `navigator.onLine`. Lokale Snapshots (statt `getValue()`, weil RxDB `active$`/`error$` als plain Observables exponiert, nicht als BehaviorSubject) werden in `BehaviorSubject<SyncStatus>` gemappt. `online`/`offline`-Window-Events triggern Recompute.
+
+**H. React-Provider in `(protected)/layout.tsx`.**
+`RxdbProvider` mountet zwischen `PinLockProvider` (M5a.4) und `AppShell`. Provider initialisiert die DB einmalig, startet die Replication, liefert `useDatabase()`, `useDatabaseError()`, `useSyncStatus()`-Hooks. Cleanup auf Unmount cancelt die Replication, lässt aber die DB-Singleton bestehen (Modul-Level).
+
+**I. Sync-Indikator als kleine Pill in der App-Shell.**
+`SyncStatusIndicator`-Komponente mit vier Lucide-Icons (Cloud / Loader2 / CloudOff / TriangleAlert) und Tailwind-Farben (emerald / sky / amber / red). Sidebar (Desktop): mit Label, am unteren Rand neben `UserMenu`. Mobile-Header: kompakt (nur Icon), neben dem `UserMenu compact`-Avatar. `data-sync-status`-Attribut hilft Tests.
+
+**J. Live-Modus-Refactor: alle Mutations + Reads via RxDB.**
+- `event-create-form.tsx`: `database.events.insert({...})` mit `crypto.randomUUID()` als Client-ID. Server überschreibt `created_by` (ADR-029). Recipient-Wahl wird in `sessionStorage` als Hint für die erste Application gespeichert (Bridge, weil `recipient_id` kein Event-Feld mehr ist — Auto-Participant ergibt sich erst aus der Application).
+- `application-start-sheet.tsx`: `database.applications.insert({...})` mit lokal vergebener `sequence_no` (max+1 aus RxDB-Query). Server vergibt eine endgültige Nummer beim Push und liefert sie über den nächsten Pull zurück.
+- `live-event-view.tsx`: zwei Hooks `useEventDoc(id)` / `useApplications(eventId)` subscriben auf `events.findOne(id).$` und `applications.find({event_id, _deleted=false}).$`. End-Event/End-Application via `doc.patch({ ended_at, updated_at })`. Reactive Updates ohne `refetchInterval`.
+- TanStack-Query-Mutations (`useMutation` / `useQuery` / `useQueryClient`) entfernt für die Live-Modus-Pfade. Server-Reads für `plus_code` und `participants` bleiben (initial-event vom Server-Side-Render der Detail-Page).
+
+**K. Edge-Cases bewusst akzeptiert.**
+- **Offline-Insert mit direkter Navigation:** Aktuell macht `(protected)/events/[id]/page.tsx` einen Server-Side-Fetch; im Offline-Fall liefert der 404. Real auftretendes Risiko gering, weil der Push direkt nach Insert ausgelöst wird (`waitForLeadership` + `autoStart: true`). Saubere Lösung verlangt Client-only-Detail-Page — Scope für M5b.4 oder M5c.
+- **Participants-Anzeige bis erster Pull:** `event.participants` bleibt leer, bis das Event vom Backend zurückgesynct wird (Backend macht Auto-Participant beim Push). Der Live-Modus toleriert das — `pickRecipientPerson` greift auf `sessionStorage`-Draft zurück, wenn applications/participants leer sind.
+- **`crypto.randomUUID()` statt UUIDv7:** Backend nutzt UUIDv7-Defaults (`uuid_utils.uuid7()`, ADR-018), aber das ist nur intern wichtig (Sortierbarkeit beim Insert). Wenn der Client eine UUIDv4 liefert, übernimmt der Server sie. `(updated_at, id)`-Cursor sortiert nach `updated_at`, nicht nach `id` — ID-Form irrelevant.
+
+**L. Component-Test mit gemocktem `useSyncStatus`-Hook.**
+`tests/sync-status-indicator.test.tsx` mockt `@/lib/rxdb/provider` direkt und prüft alle vier Status-Varianten (idle / active / offline / error). 4/4 grün. Die echte Replication-Logik wird nicht getestet (würde Backend + IndexedDB-Mock benötigen) — der E2E-Offline-Test in M5b.4 schließt diese Lücke.
+
+### Ergebnis
+- 56 → 60 Frontend-Tests grün (+ 4 für SyncStatusIndicator).
+- ESLint, `tsc --noEmit`, `next build` clean.
+- **Browser-Verifikation:** Login → Dashboard rendert Sync-Indikator (DOM `[role=status][aria-label="Synchronisation: synchronisiert"][data-sync-status=idle]`), RxDB-IndexedDB ist initialisiert (`indexedDB.databases()` enthält `hcmap`), Pull replizierte das vorhandene Smoke-Test-Event lokal.
+- Bundle: `/events/[id]` 271 kB First-Load (RxDB ~150 KB gzipped) — innerhalb der ADR-017-Grenze.
+
+### Verworfene Alternativen
+- **Premium-Replication-Plugins (`replication-rest`):** Wären für Custom-Backends einfacher, aber kostenpflichtig. Selbst-implementierte Pull/Push-Handler reichen vollständig aus.
+- **Custom `conflictHandler`:** Würde redundante Logik zum Server-Konflikt-Resolver duplizieren. ADR-029 wird im Backend autoritativ entschieden; Frontend nimmt das Ergebnis als Master.
+- **Codegen aus JSON-Schemas:** Hätte den Drift-Test überflüssig gemacht, aber Tooling-Setup für M5b.3 nicht gerechtfertigt. Manuelle Synchronisation bleibt schmerzfrei dank des Backend-Drift-Tests aus M5b.2.
+- **Client-only Detail-Page:** Hätte den Offline-Insert-Edge-Case behoben, aber den Server-Side-Render-Vorteil (SEO, schneller Initial-Load) für eine seltene Race-Condition aufgegeben. Bleibt offen für M5b.4 oder M5c.
+
+### Folge-Arbeit (M5b.4)
+- E2E-Offline-Test: Browser → Flugmodus → 3 Applications erfassen → Reconnect → Backend hat alle Daten genau einmal, kein Duplikat, Reihenfolge korrekt.
+- Coverage-Nachweis Frontend ≥ 80 % für Sync-Pfade.
 
 ---
 

@@ -687,6 +687,8 @@ Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{e
 
 **Soft-Delete-Filter:** Bestehende CRUD-/Search-/Export-Routes filtern `is_deleted = false` im Service-Layer (`app/services/events.py`, `applications.py`, `search.py`, `exports.py`). Sync-Endpoints sind die einzigen Konsumenten, die Tombstones noch zurückliefern (ADR-033 §D).
 
+**Frontend-RxDB-Stack (M5b.3, ADR-034):** `frontend/src/lib/rxdb/` enthält Database (Lazy-Singleton mit Dexie-Storage-Adapter), Replication-Worker (`replicateRxCollection` pro Collection mit eigenem Pull-/Push-Handler), Provider (mountet im `(protected)/layout.tsx` zwischen `PinLockProvider` und `AppShell`). Live-Modus-Komponenten schreiben ausschließlich in RxDB (`events.insert`, `applications.insert`, `doc.patch({ended_at, updated_at})`); reactive Subscriptions auf `events.findOne(id).$` und `applications.find({event_id, _deleted=false}).$` ersetzen das vorherige TanStack-Query-Polling. Sync-Status (`idle | active | offline | error`) zeigt eine kleine Pill in Sidebar und Mobile-Header an.
+
 ### Admin-UI (SQLAdmin, siehe ADR-016)
 
 | Methode | Pfad            | Rolle  | Zweck                                        |

@@ -209,7 +209,11 @@ async def end_application(
 
 
 async def get_application(session: AsyncSession, application_id: uuid.UUID) -> Application | None:
-    return await session.get(Application, application_id)
+    """Fetch application by id; soft-deleted rows are absent (ADR-030)."""
+    application = await session.get(Application, application_id)
+    if application is None or application.is_deleted:
+        return None
+    return application
 
 
 async def list_applications_for_event(
@@ -220,6 +224,7 @@ async def list_applications_for_event(
             await session.execute(
                 select(Application)
                 .where(Application.event_id == event_id)
+                .where(Application.is_deleted.is_(False))
                 .order_by(Application.sequence_no)
             )
         )

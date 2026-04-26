@@ -670,14 +670,22 @@ Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Rou
 |---------|------------------|--------|------------------------|
 | GET     | `/api/health`    | öffentlich | Liveness/Readiness  |
 
-### Sync (RxDB Replication-Protokoll, siehe ADR-017, ADR-029, ADR-030, ADR-031)
+### Sync (RxDB Replication-Protokoll, siehe ADR-017, ADR-029, ADR-030, ADR-031, ADR-033)
 
-| Methode | Pfad                | Rolle | Zweck                                           |
-|---------|---------------------|-------|-------------------------------------------------|
-| GET     | `/api/sync/pull`    | alle (RLS) | Query: `updatedAt` und `id` Cursor; liefert Änderungen an Events/Applications seit Cursor inkl. Tombstones (`_deleted: true`). Cursor-Index `(updated_at, id)` (ADR-030). |
-| POST    | `/api/sync/push`    | alle (RLS) | Akzeptiert `[{assumedMasterState, newDocumentState}]` und validiert pro Feld nach ADR-029 (Live-First mit Reconciliation). Gibt Liste der Konflikte mit aktuellem Server-Stand zurück. |
+Pro Collection ein eigener Endpoint-Pfad (RxDB-Replication arbeitet pro Collection):
 
-Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{event,application}.schema.json`) und Backend-Pydantic-Schemas (`backend/app/sync/schema.py`) werden manuell parallel gepflegt; Drift-Test in `backend/tests/test_rxdb_schema_drift.py` schlägt bei Abweichungen fehl (ADR-031).
+| Methode | Pfad                              | Rolle      | Zweck                                                |
+|---------|-----------------------------------|------------|------------------------------------------------------|
+| GET     | `/api/sync/events/pull`           | alle (RLS) | Query `updated_at` + `id` als Cursor; liefert Events seit Cursor inkl. Tombstones (`_deleted: true`). Cursor-Index `(updated_at, id)` (ADR-030). |
+| POST    | `/api/sync/events/push`           | alle (RLS) | Akzeptiert `[{assumedMasterState, newDocumentState}]` und validiert pro Feld nach ADR-029. Gibt Konflikte als Server-Master-Docs zurück. |
+| GET     | `/api/sync/applications/pull`     | alle (RLS) | wie events/pull, für `application`. |
+| POST    | `/api/sync/applications/push`     | alle (RLS) | wie events/push; `sequence_no` ist server-vergeben (ADR-029); Auto-Participant für Performer/Recipient (ADR-012). |
+
+Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{event,application}.schema.json`) und Backend-Pydantic-Schemas (`backend/app/sync/schemas.py`) werden manuell parallel gepflegt; Drift-Test in `backend/tests/test_rxdb_schema_drift.py` schlägt bei Abweichungen fehl (ADR-031).
+
+**RLS-Erweiterung in M5b.2:** `event_editor_select_own` und `application_editor_select_own` (Migration `20260426_1830_m5b2_owner_select`) lassen einen Editor seine eigenen Rows sehen, unabhängig von Participant-Mitgliedschaft. Notwendig, weil `INSERT … RETURNING` die SELECT-Policy auf der frisch eingefügten Zeile auswertet, bevor der Auto-Participant-Insert stattfindet (siehe ADR-033 §E).
+
+**Soft-Delete-Filter:** Bestehende CRUD-/Search-/Export-Routes filtern `is_deleted = false` im Service-Layer (`app/services/events.py`, `applications.py`, `search.py`, `exports.py`). Sync-Endpoints sind die einzigen Konsumenten, die Tombstones noch zurückliefern (ADR-033 §D).
 
 ### Admin-UI (SQLAdmin, siehe ADR-016)
 

@@ -29,6 +29,7 @@ from app.routes.persons import router as persons_router
 from app.routes.search import router as search_router
 from app.routes.tiles import router as tiles_router
 from app.security.csrf import CSRF_COOKIE, CSRFMiddleware
+from app.sync.routes import router as sync_router
 
 
 class HealthResponse(BaseModel):
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router, prefix="/api")
     app.include_router(exports_router, prefix="/api")
     app.include_router(tiles_router, prefix="/api")
+    app.include_router(sync_router, prefix="/api")
 
     return app
 

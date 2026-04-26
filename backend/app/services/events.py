@@ -23,13 +23,22 @@ async def list_events(
     """List events visible to the current request.
 
     RLS filtering happens automatically because the session was set up
-    via ``get_rls_session`` (see ``app.deps``).
+    via ``get_rls_session`` (see ``app.deps``). Soft-deleted rows
+    (``is_deleted = true``, ADR-030) are filtered out at the
+    service layer; the sync endpoints are the only consumer that
+    must see tombstones.
     """
-    total = await session.scalar(select(func.count()).select_from(Event))
+    total = await session.scalar(
+        select(func.count()).select_from(Event).where(Event.is_deleted.is_(False))
+    )
     rows = (
         (
             await session.execute(
-                select(Event).order_by(Event.started_at.desc()).limit(limit).offset(offset)
+                select(Event)
+                .where(Event.is_deleted.is_(False))
+                .order_by(Event.started_at.desc())
+                .limit(limit)
+                .offset(offset)
             )
         )
         .scalars()
@@ -61,7 +70,11 @@ async def create_event(
 
 
 async def get_event(session: AsyncSession, event_id: uuid.UUID) -> Event | None:
-    return await session.get(Event, event_id)
+    """Fetch event by id; soft-deleted rows are treated as absent (ADR-030)."""
+    event = await session.get(Event, event_id)
+    if event is None or event.is_deleted:
+        return None
+    return event
 
 
 async def update_event(

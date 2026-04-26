@@ -9,6 +9,50 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5b.2 — Backend-Sync-Endpoints (ADR-033):**
+  Vier RxDB-Replication-Endpoints und der zugehörige Service-/Test-/
+  Doku-Stack. Erste Editor-INSERT-via-HTTP-Pfade im Repo.
+  - **Endpoints:** `GET /api/sync/{events,applications}/pull` und
+    `POST /api/sync/{events,applications}/push` mit Cursor-Pagination
+    `(updated_at, id)`, Tombstone-Replikation via `_deleted`-Wire-Flag,
+    Conflict-Resolution pro Feld nach ADR-029 (immutable-after-create,
+    first-write-wins, last-write-wins, server-authoritative). Sequence-
+    Nummern und `created_by` sind beim Application-Insert server-
+    authoritativ; Auto-Participant für Performer/Recipient (ADR-012)
+    mitgezogen.
+  - **Pydantic-Schemas** (`app/sync/schemas.py`): `EventDoc`,
+    `ApplicationDoc`, `SyncCheckpoint`, `*PullResponse`, `*PushItem`.
+    Wire-Flag `_deleted` als Pydantic-Alias zu intern `deleted`.
+  - **Frontend-JSON-Schemas** als Vertragsdatei in
+    `frontend/src/lib/rxdb/schemas/{event,application}.schema.json`
+    (RxDB-natives Format mit `primaryKey`, `version`, `indexes`).
+    RxDB-Konsumtion folgt mit M5b.3.
+  - **Drift-Test** (`tests/test_rxdb_schema_drift.py`, ADR-031): lädt
+    die Frontend-JSON-Schemas und vergleicht Properties + Typen +
+    `required`-Listen mit den Pydantic-`model_json_schema(by_alias=True,
+    mode='serialization')`. Schlägt bei jeder Drift-Änderung fehl.
+  - **Migration `20260426_1830_m5b2_owner_select`:** Neue Permissive-
+    SELECT-Policies `event_editor_select_own` und
+    `application_editor_select_own` (USING `created_by =
+    current_user_id`). Behebt einen latent-Bug aus der M2-Strict-RLS,
+    den die Sync-Endpoints aufgedeckt haben (`INSERT … RETURNING`
+    triggert die SELECT-Policy auf der frisch eingefügten Zeile vor dem
+    Auto-Participant-Insert). Freigegeben separat 2026-04-26 als
+    minimal-invasive Variante. Details in ADR-033 §E.
+  - **Soft-Delete-Filter im Service-Layer** (ADR-033 §D): `events`,
+    `applications`, `search`, `exports`-Services filtern
+    `is_deleted = false`. Sync-Endpoints sind die einzigen Konsumenten,
+    die Tombstones zurückliefern.
+  - **asyncpg `statement_cache_size = 0`** in `app/db.py` als
+    defensive Schutzschicht gegen Per-Connection-Plan-Cache-
+    Interaktionen mit Per-Request-`SET LOCAL`-GUCs (asyncpg #200).
+  - **Tests:** 41 neue Tests (6 sync_api, 8 sync_rls, 7 conflict, 9
+    applications, 5 soft-delete-filter-regression, 6 drift). Backend-
+    Suite **125/125 grün** (zuvor 84). `mypy --strict` clean,
+    `ruff check` clean. Coverage `app/sync/`: **91 %** (Soll ≥ 80 %).
+  - **Dev-Dependency:** `coverage>=7.13.5` für die Sync-Coverage-
+    Messung.
+
 - **M5b.1 — Sync-Datenmodell-Vorbereitung (ADR-029…ADR-032):**
   Datenmodell-Fundament für die RxDB-Replication aus M5b.2/M5b.3.
   Reine Backend-/DB-Änderung, kein Sync-Code.

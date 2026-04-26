@@ -20,8 +20,15 @@ from app.models.event import Event, EventParticipant
 
 
 async def build_json_export(session: AsyncSession) -> dict[str, Any]:
-    events = (await session.execute(select(Event))).scalars().all()
-    apps = (await session.execute(select(Application))).scalars().all()
+    # Soft-deleted rows are excluded from exports (ADR-030).
+    events = (
+        await session.execute(select(Event).where(Event.is_deleted.is_(False)))
+    ).scalars().all()
+    apps = (
+        await session.execute(
+            select(Application).where(Application.is_deleted.is_(False))
+        )
+    ).scalars().all()
     eps = (await session.execute(select(EventParticipant))).scalars().all()
     ars = (await session.execute(select(ApplicationRestraint))).scalars().all()
 
@@ -62,7 +69,9 @@ async def stream_events_csv(session: AsyncSession) -> AsyncIterator[str]:
         "created_at",
     ]
     yield _csv_line(headers)
-    rows = (await session.execute(select(Event))).scalars().all()
+    rows = (
+        await session.execute(select(Event).where(Event.is_deleted.is_(False)))
+    ).scalars().all()
     for e in rows:
         yield _csv_line(
             [
@@ -91,7 +100,11 @@ async def stream_applications_csv(session: AsyncSession) -> AsyncIterator[str]:
         "note",
     ]
     yield _csv_line(headers)
-    rows = (await session.execute(select(Application))).scalars().all()
+    rows = (
+        await session.execute(
+            select(Application).where(Application.is_deleted.is_(False))
+        )
+    ).scalars().all()
     for a in rows:
         yield _csv_line(
             [

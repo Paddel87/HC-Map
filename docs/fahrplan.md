@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]** — Sub-Step-Bündel laut ADR-041 freigegeben. Aktiver Sub-Step: **M6.1 (Backend Geocoding-Proxy)**. Reihenfolge: M6.1 (Geocoding-Endpoint + Rate-Limit) → M6.2 (`MapView` mit RxDB-Markern + Popup) → M6.3 (native MapLibre-Cluster) → M6.4 (Filter + URL-Viewport-Sync) → M6.5 (Geocoding-Suchbox in `MapView`). Cluster-Strategie auf MapLibre-native umgestellt; `supercluster` verworfen (ADR-041 §C, architecture.md §Karten-Komponente).
-- **Nächster Schritt:** M6.1 abschließen, dann M6.2 starten.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]** — Sub-Step-Bündel laut ADR-041 freigegeben. **M6.1 [ERLEDIGT] 2026-04-27**: Backend-Geocoding-Proxy `GET /api/geocode` mit serverseitigem MapTiler-Key, In-Memory-Token-Bucket pro User (Default 30 req/min via `HCMAP_GEOCODE_RATE_PER_MINUTE`, `0` deaktiviert), Validierung von `q`/`proximity`/`limit`, Fehler-Matrix 401/422/429/502/503, Cache-Control `private, max-age=300`. Antwort 1:1 als GeoJSON-FeatureCollection. **13 Tests grün**, Backend-Suite **150/150 grün**, ruff/mypy clean. Architektur-Anpassung: Clustering wechselt von `supercluster` auf MapLibre-native (ADR-041 §C, architecture.md §Karten-Komponente). Aktiver Sub-Step: **M6.2 (Frontend `MapView`)**.
+- **Nächster Schritt:** M6.2 — `components/map/map-view.tsx` neu, abonniert RxDB-`events` live, rendert Marker pro gültiges Event, Popup mit `started_at` + Plus-Code + ggf. Recipient-Name (ADR-038 §F), Link zur Detailseite. Coverage-Threshold `lib/map/**` ≥ 70 %.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -68,7 +68,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6          | Kartenansicht                                    | [IN ARBEIT] |
-| 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [IN ARBEIT] |
+| 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [OFFEN]   |
 | 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [OFFEN]     |
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [OFFEN]     |

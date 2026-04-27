@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Full-screen MapView for the /map route (M6.2 / M6.3, ADR-041
- * §C/§E/§F/§G).
+ * Full-screen MapView for the /map route (M6.2 / M6.3 / M6.4,
+ * ADR-041 §C/§E/§F/§G/§H/§I).
  *
  * - Subscribes to the RxDB `events` collection live, filters by
  *   `_deleted=false` server-side (selector) and by valid lat/lon
@@ -11,14 +11,27 @@
  *   MapLibre clustering (`cluster: true`). Three layers stack on it:
  *   `clusters` (filled circle), `cluster-count` (count text),
  *   `unclustered-point` (single-event circle). No `supercluster`
- *   dependency — the architecture choice is documented in ADR-041 §C.
+ *   dependency — see ADR-041 §C.
  * - Click on a cluster zooms in via `getClusterExpansionZoom` and
  *   `easeTo`. Click on an unclustered point opens the popup.
- * - Filter / geocoding land in M6.4 / M6.5.
+ * - URL is the single source of truth for viewport + filters
+ *   (ADR-041 §H). Initial state is read once from `useSearchParams`;
+ *   pan/zoom triggers a debounced URL update; filter changes are
+ *   immediate. Filters are applied client-side via `applyEventFilter`
+ *   over the RxDB `events` and `event_participants` collections.
+ * - Geocoding search box lands in M6.5.
  */
 
+import { Filter } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Map, {
   Layer,
   NavigationControl,
@@ -27,23 +40,38 @@ import Map, {
   type LayerProps,
   type MapLayerMouseEvent,
   type MapRef,
+  type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
 
+import { MapFilterPanel } from "@/components/map/map-filter-panel";
+import { Button } from "@/components/ui/button";
 import {
   DEFAULT_MAP_CENTER,
+  applyEventFilter,
+  buildParticipantsIndex,
   eventsToGeoJSON,
+  filtersAreEmpty,
+  filtersEqual,
+  parseMapUrlState,
   rasterTileStyle,
   selectMappableEvents,
+  serializeMapUrlState,
+  type MapFilters,
+  type MapViewport,
   type MappableEvent,
 } from "@/lib/map";
 import { useDatabase } from "@/lib/rxdb/provider";
-import type { EventDocType } from "@/lib/rxdb/types";
+import type {
+  EventDocType,
+  EventParticipantDocType,
+} from "@/lib/rxdb/types";
 
 const INITIAL_ZOOM = 11;
 const SOURCE_ID = "events";
 const CLUSTER_LAYER_ID = "events-clusters";
 const CLUSTER_COUNT_LAYER_ID = "events-cluster-count";
 const UNCLUSTERED_LAYER_ID = "events-unclustered";
+const URL_DEBOUNCE_MS = 300;
 
 const clusterLayer: LayerProps = {
   id: CLUSTER_LAYER_ID,
@@ -51,7 +79,6 @@ const clusterLayer: LayerProps = {
   source: SOURCE_ID,
   filter: ["has", "point_count"],
   paint: {
-    // Step expression: small (≤9), medium (10–29), large (30+).
     "circle-color": [
       "step",
       ["get", "point_count"],
@@ -106,7 +133,41 @@ const unclusteredLayer: LayerProps = {
 const interactiveLayerIds = [CLUSTER_LAYER_ID, UNCLUSTERED_LAYER_ID];
 
 export function MapView() {
-  const events = useEvents();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialState = useMemo(
+    () => parseMapUrlState(searchParams),
+    [searchParams],
+  );
+
+  const [filters, setFilters] = useState<MapFilters>(initialState.filters);
+  const filtersRef = useRef<MapFilters>(initialState.filters);
+  filtersRef.current = filters;
+
+  const viewportRef = useRef<MapViewport | null>(initialState.viewport);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const writingFromUrlSyncRef = useRef<boolean>(false);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+
+  const allEvents = useEvents();
+  const participants = useEventParticipants();
+  const participantsByEvent = useMemo(
+    () => buildParticipantsIndex(participants),
+    [participants],
+  );
+  const events = useMemo(
+    () =>
+      filtersAreEmpty(filters)
+        ? allEvents
+        : applyEventFilter(allEvents, {
+            from: filters.from,
+            to: filters.to,
+            participantIds: filters.participantIds,
+            participantsByEvent,
+          }),
+    [allEvents, filters, participantsByEvent],
+  );
+
   const mapStyle = useMemo(() => rasterTileStyle(), []);
   const geojson = useMemo(() => eventsToGeoJSON(events), [events]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -115,6 +176,85 @@ export function MapView() {
   const active = useMemo(
     () => (activeId ? events.find((e) => e.id === activeId) ?? null : null),
     [activeId, events],
+  );
+
+  const initialViewState = useMemo(
+    () =>
+      initialState.viewport
+        ? {
+            latitude: initialState.viewport.lat,
+            longitude: initialState.viewport.lon,
+            zoom: initialState.viewport.zoom,
+          }
+        : {
+            latitude: DEFAULT_MAP_CENTER.lat,
+            longitude: DEFAULT_MAP_CENTER.lon,
+            zoom: INITIAL_ZOOM,
+          },
+    [initialState.viewport],
+  );
+
+  const writeUrl = useCallback(
+    (viewport: MapViewport | null, nextFilters: MapFilters) => {
+      const fragment = serializeMapUrlState({
+        viewport,
+        filters: nextFilters,
+      });
+      writingFromUrlSyncRef.current = true;
+      const next = fragment ? `/map?${fragment}` : "/map";
+      router.replace(next, { scroll: false });
+    },
+    [router],
+  );
+
+  const scheduleUrlWrite = useCallback(
+    (viewport: MapViewport | null, nextFilters: MapFilters) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        writeUrl(viewport, nextFilters);
+      }, URL_DEBOUNCE_MS);
+    },
+    [writeUrl],
+  );
+
+  // Browser-back / forward and external param changes feed the URL
+  // back into local state. Skip when *we* just wrote it.
+  useEffect(() => {
+    if (writingFromUrlSyncRef.current) {
+      writingFromUrlSyncRef.current = false;
+      return;
+    }
+    const next = parseMapUrlState(searchParams);
+    setFilters((prev) => (filtersEqual(prev, next.filters) ? prev : next.filters));
+  }, [searchParams]);
+
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    [],
+  );
+
+  const handleMoveEnd = useCallback(
+    (event: ViewStateChangeEvent) => {
+      const { latitude, longitude, zoom } = event.viewState;
+      const viewport: MapViewport = {
+        lat: roundCoord(latitude),
+        lon: roundCoord(longitude),
+        zoom: Math.round(zoom * 100) / 100,
+      };
+      viewportRef.current = viewport;
+      scheduleUrlWrite(viewport, filtersRef.current);
+    },
+    [scheduleUrlWrite],
+  );
+
+  const handleFiltersChange = useCallback(
+    (next: MapFilters) => {
+      setFilters(next);
+      writeUrl(viewportRef.current, next);
+    },
+    [writeUrl],
   );
 
   const handleMapClick = useCallback((event: MapLayerMouseEvent) => {
@@ -161,6 +301,8 @@ export function MapView() {
     }
   }, []);
 
+  const filtersActive = !filtersAreEmpty(filters);
+
   return (
     <div
       className="relative h-full w-full"
@@ -170,13 +312,10 @@ export function MapView() {
       <Map
         ref={mapRef}
         mapStyle={mapStyle}
-        initialViewState={{
-          latitude: DEFAULT_MAP_CENTER.lat,
-          longitude: DEFAULT_MAP_CENTER.lon,
-          zoom: INITIAL_ZOOM,
-        }}
+        initialViewState={initialViewState}
         interactiveLayerIds={interactiveLayerIds}
         onClick={handleMapClick}
+        onMoveEnd={handleMoveEnd}
         cursor="auto"
       >
         <NavigationControl position="top-right" showCompass={false} />
@@ -206,8 +345,44 @@ export function MapView() {
           </Popup>
         ) : null}
       </Map>
-      <MapStatusBar count={events.length} />
+      <FilterToggleButton
+        active={filtersActive}
+        onClick={() => setFilterPanelOpen(true)}
+      />
+      <MapStatusBar
+        count={events.length}
+        totalCount={allEvents.length}
+        filtersActive={filtersActive}
+      />
+      <MapFilterPanel
+        open={filterPanelOpen}
+        onOpenChange={setFilterPanelOpen}
+        filters={filters}
+        onChange={handleFiltersChange}
+      />
     </div>
+  );
+}
+
+function FilterToggleButton({
+  active,
+  onClick,
+}: {
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "default" : "secondary"}
+      size="sm"
+      className="absolute left-2 top-2 shadow-md"
+      onClick={onClick}
+      data-testid="map-filter-toggle"
+      data-filter-active={active ? "true" : "false"}
+    >
+      <Filter aria-hidden /> {active ? "Filter aktiv" : "Filter"}
+    </Button>
   );
 }
 
@@ -249,15 +424,29 @@ function EventPopupContent({ event }: { event: MappableEvent }) {
   );
 }
 
-function MapStatusBar({ count }: { count: number }) {
+function MapStatusBar({
+  count,
+  totalCount,
+  filtersActive,
+}: {
+  count: number;
+  totalCount: number;
+  filtersActive: boolean;
+}) {
+  let label: string;
+  if (totalCount === 0) {
+    label = "Keine sichtbaren Events";
+  } else if (filtersActive) {
+    label = `${count} von ${totalCount} Event${totalCount === 1 ? "" : "s"} (gefiltert)`;
+  } else {
+    label = `${count} Event${count === 1 ? "" : "s"} sichtbar`;
+  }
   return (
     <div
       className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-white/90 px-2 py-1 text-xs text-slate-700 shadow-sm dark:bg-slate-900/90 dark:text-slate-200"
       data-testid="map-status-bar"
     >
-      {count === 0
-        ? "Keine sichtbaren Events"
-        : `${count} Event${count === 1 ? "" : "s"} sichtbar`}
+      {label}
     </div>
   );
 }
@@ -275,6 +464,25 @@ function useEvents(): MappableEvent[] {
     return () => sub.unsubscribe();
   }, [database]);
   return useMemo(() => selectMappableEvents(docs), [docs]);
+}
+
+function useEventParticipants(): EventParticipantDocType[] {
+  const database = useDatabase();
+  const [rows, setRows] = useState<EventParticipantDocType[]>([]);
+  useEffect(() => {
+    if (!database) return;
+    const sub = database.event_participants
+      .find({ selector: { _deleted: { $eq: false } } })
+      .$.subscribe((docs) =>
+        setRows(docs.map((d) => d.toJSON() as EventParticipantDocType)),
+      );
+    return () => sub.unsubscribe();
+  }, [database]);
+  return rows;
+}
+
+function roundCoord(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 function formatDate(iso: string): string {

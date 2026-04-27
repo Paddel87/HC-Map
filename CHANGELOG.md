@@ -9,6 +9,66 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.4 — Filter (Zeitraum, Beteiligte) + URL-Viewport-Sync (ADR-041 §H/§I):**
+  Karte teilbar per Link, Filter wirken sofort.
+  - **URL-State-Codec**
+    [lib/map/url-state.ts](frontend/src/lib/map/url-state.ts):
+    `parseMapUrlState` / `serializeMapUrlState` für `lat`/`lon`/`zoom`/
+    `from`/`to`/`p`-Komma-UUIDs. Out-of-Range / malformierte Inputs
+    werden silent verworfen (geteilte URLs sollen nicht crashen).
+    `filtersEqual`-Vergleich für Skip-Logik.
+  - **Filter-Logik**
+    [lib/map/event-filter.ts](frontend/src/lib/map/event-filter.ts):
+    `applyEventFilter` wendet Datumsbereich (UTC-Tagesgrenzen,
+    inklusiv) und Beteiligte (OR-Verknüpfung) auf
+    `MappableEvent[]` an. `buildParticipantsIndex` baut aus
+    RxDB-`event_participants` einen `Map<event_id, Set<person_id>>`.
+    `filtersAreEmpty`-Helper für UI-Status.
+  - **`MapFilterPanel`**
+    [components/map/map-filter-panel.tsx](frontend/src/components/map/map-filter-panel.tsx):
+    `Sheet`-Drawer rechts mit zwei `<input type="date">` und
+    Personen-Multi-Select. Personen kommen aus dem bestehenden REST
+    `/api/persons` (TanStack Query, `enabled: open`, `staleTime`
+    60 s) — RxDB synct keine Persons (ADR-037), das ist die
+    bewusste Online-Abhängigkeit der Filter-UI; Karte selbst
+    funktioniert weiter, wenn der Endpoint nicht erreichbar ist.
+  - **`MapView`-Integration**:
+    - Initial-Viewport + Filter werden aus `useSearchParams` gelesen.
+    - Pan/Zoom (`onMoveEnd`) triggert debounced
+      `router.replace({ scroll: false })` (300 ms,
+      `URL_DEBOUNCE_MS`).
+    - Filter-Änderungen aus dem Panel schreiben sofort in die URL.
+    - URL-Änderungen von außen (Browser-Back/Forward) propagieren
+      über `useSearchParams` zurück in den Filter-State.
+    - `event_participants`-RxDB-Subscription (Selector
+      `_deleted=false`) feeds the participants index für den Filter.
+    - Status-Bar zeigt „X von Y Events (gefiltert)" wenn Filter
+      aktiv, sonst „X Events sichtbar".
+    - Filter-Toggle-Button oben links färbt sich primary, wenn
+      Filter aktiv.
+  - **Tests:** +46 Cases —
+    - 18 für URL-State-Codec
+      ([map-url-state.test.ts](frontend/tests/map-url-state.test.ts)):
+      Parse / Drop von Out-of-Range-Werten, ISO-Date-Validierung,
+      UUID-Validierung + Lowercasing, Round-Trip, `filtersEqual`.
+    - 14 für Filter-Logik
+      ([map-event-filter.test.ts](frontend/tests/map-event-filter.test.ts)):
+      `from`/`to`-Inklusivität, AND-Verknüpfung Datum + Personen,
+      OR über mehrere Personen, Tombstone-Filter im Index.
+    - 9 für FilterPanel
+      ([map-filter-panel.test.tsx](frontend/tests/map-filter-panel.test.tsx)):
+      Lazy-Load (kein Fetch wenn `open=false`), Datum-Edits,
+      Toggle/Untoggle Personen, Search-Filter, Reset, Close.
+    - 5 zusätzliche in `map-view.test.tsx`: URL-Viewport-Seed,
+      Default-Center, Filter-Seed aus URL, Filter-Anwendung,
+      debounced URL-Write (Fake-Timers, kollabierte Bewegungen).
+  - **Coverage `lib/map/**`:** **99.12 % Lines / 93.1 % Branches**
+    (vorher 97.89 / 85.71). `event-filter.ts` und `url-state.ts`
+    laufen je 100 % Lines.
+  - **Frontend-Suite:** 181/181 grün (+46), Lint/Typecheck clean,
+    Production-Build grün (`/map` 12.3 kB / 242 kB First Load,
+    +0.8 kB).
+
 - **M6.3 — Native MapLibre-Cluster im `MapView` (ADR-041 §C):**
   Clustering ohne `supercluster`-Dependency.
   - **Refactor [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):**

@@ -1,21 +1,24 @@
 /**
- * Smoke coverage for `MapView` (M6.2 / M6.3, ADR-041 §C/§E).
+ * Smoke coverage for `MapView` (M6.2 / M6.3 / M6.4, ADR-041
+ * §C/§E/§H/§I).
  *
  * `react-map-gl/maplibre` needs WebGL, which jsdom does not provide
  * (see ADR-027 §J2 for the same rationale on `LocationPickerMap`).
- * The map shell, `Source`, `Layer` and `Popup` are mocked so we can
- * verify:
+ * The map shell, `Source`, `Layer` and `Popup` are mocked alongside
+ * the `MapFilterPanel` and Next's navigation hooks so we can verify:
  *   - the GeoJSON `Source` is configured for clustering and gets
  *     exactly one feature per mappable event,
- *   - clicking an unclustered point opens a popup with a link to the
- *     detail page,
+ *   - clicking an unclustered point opens a popup,
  *   - clicking a cluster zooms in via `getClusterExpansionZoom` +
  *     `easeTo`,
- *   - the empty-state copy appears when no events are mappable.
+ *   - the empty-state copy appears when no events are mappable,
+ *   - URL-driven viewport + filters seed the initial render and the
+ *     filter status is reflected in the bottom-status bar.
  *
- * The data filter (`selectMappableEvents`) and the GeoJSON builder
- * (`eventsToGeoJSON`) are covered separately in
- * `tests/event-marker-data.test.ts`.
+ * Pure helpers (`selectMappableEvents`, `eventsToGeoJSON`, URL state
+ * codec, event-filter logic) are exercised in their own suites under
+ * `tests/event-marker-data.test.ts`, `tests/map-url-state.test.ts`
+ * and `tests/map-event-filter.test.ts`.
  */
 
 import "fake-indexeddb/auto";
@@ -26,12 +29,19 @@ import type { ReactNode } from "react";
 import { BehaviorSubject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MappableEventCollection } from "@/lib/map";
-import type { EventDocType } from "@/lib/rxdb/types";
+import type { MapFilters, MappableEventCollection } from "@/lib/map";
+import type {
+  EventDocType,
+  EventParticipantDocType,
+} from "@/lib/rxdb/types";
 
 interface MapMockProps {
   children: ReactNode;
+  initialViewState?: { latitude: number; longitude: number; zoom: number };
   onClick?: (event: FakeMapMouseEvent) => void;
+  onMoveEnd?: (event: {
+    viewState: { latitude: number; longitude: number; zoom: number };
+  }) => void;
   interactiveLayerIds?: string[];
 }
 
@@ -71,9 +81,17 @@ interface PopupMockProps {
   children: ReactNode;
 }
 
+interface FilterPanelMockProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  filters: MapFilters;
+  onChange: (next: MapFilters) => void;
+}
+
 let mapProps: MapMockProps | null = null;
 let sourceProps: SourceMockProps | null = null;
 let layerProps: LayerMockProps[] = [];
+let filterPanelProps: FilterPanelMockProps | null = null;
 
 vi.mock("react-map-gl/maplibre", () => ({
   default: (props: MapMockProps) => {
@@ -113,10 +131,33 @@ vi.mock("react-map-gl/maplibre", () => ({
   NavigationControl: () => <div data-testid="mock-nav" />,
 }));
 
+vi.mock("@/components/map/map-filter-panel", () => ({
+  MapFilterPanel: (props: FilterPanelMockProps) => {
+    filterPanelProps = props;
+    return (
+      <div
+        data-testid="mock-filter-panel"
+        data-open={props.open ? "true" : "false"}
+      />
+    );
+  },
+}));
+
 const useDatabaseMock = vi.fn();
+const routerReplaceMock = vi.fn();
+const useSearchParamsMock = vi.fn(() => new URLSearchParams(""));
 
 vi.mock("@/lib/rxdb/provider", () => ({
   useDatabase: () => useDatabaseMock(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: routerReplaceMock,
+    refresh: vi.fn(),
+  }),
+  useSearchParams: () => useSearchParamsMock(),
 }));
 
 vi.mock("next/link", () => ({
@@ -148,33 +189,65 @@ function makeDoc(overrides: Partial<EventDocType>): EventDocType {
   };
 }
 
+function makeParticipant(
+  event_id: string,
+  person_id: string,
+  overrides: Partial<EventParticipantDocType> = {},
+): EventParticipantDocType {
+  return {
+    id: `${event_id}-${person_id}`,
+    event_id,
+    person_id,
+    created_at: "2026-04-27T12:00:00Z",
+    updated_at: "2026-04-27T12:00:00Z",
+    deleted_at: null,
+    _deleted: false,
+    ...overrides,
+  };
+}
+
 interface FakeDatabase {
   events: {
     find: () => { $: BehaviorSubject<{ toJSON: () => EventDocType }[]> };
   };
+  event_participants: {
+    find: () => {
+      $: BehaviorSubject<{ toJSON: () => EventParticipantDocType }[]>;
+    };
+  };
 }
 
-function makeDatabase(docs: EventDocType[]): FakeDatabase {
-  const subject = new BehaviorSubject<{ toJSON: () => EventDocType }[]>(
+function makeDatabase(
+  docs: EventDocType[],
+  participants: EventParticipantDocType[] = [],
+): FakeDatabase {
+  const eventsSubject = new BehaviorSubject<{ toJSON: () => EventDocType }[]>(
     docs.map((d) => ({ toJSON: () => d })),
   );
+  const partsSubject = new BehaviorSubject<
+    { toJSON: () => EventParticipantDocType }[]
+  >(participants.map((p) => ({ toJSON: () => p })));
   return {
-    events: { find: () => ({ $: subject }) },
+    events: { find: () => ({ $: eventsSubject }) },
+    event_participants: { find: () => ({ $: partsSubject }) },
   };
 }
 
 beforeEach(() => {
   useDatabaseMock.mockReset();
+  routerReplaceMock.mockReset();
+  useSearchParamsMock.mockReturnValue(new URLSearchParams(""));
   mapProps = null;
   sourceProps = null;
   layerProps = [];
+  filterPanelProps = null;
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("MapView (M6.2 / M6.3)", () => {
+describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   it("registers cluster, count and unclustered layers on the events source", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "a" })]));
     render(<MapView />);
@@ -333,7 +406,6 @@ describe("MapView (M6.2 / M6.3)", () => {
         ],
         target,
       });
-      // Allow the awaited promise to resolve.
       await Promise.resolve();
     });
 
@@ -342,7 +414,6 @@ describe("MapView (M6.2 / M6.3)", () => {
       center: [13.405, 52.505],
       zoom: 16,
     });
-    // Cluster click must NOT open a popup.
     expect(screen.queryByTestId("map-event-popup")).toBeNull();
   });
 
@@ -380,5 +451,159 @@ describe("MapView (M6.2 / M6.3)", () => {
     expect(screen.getByTestId("map-event-popup")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("mock-popup-close"));
     expect(screen.queryByTestId("map-event-popup")).toBeNull();
+  });
+
+  it("seeds the viewport from URL params", () => {
+    useSearchParamsMock.mockReturnValue(
+      new URLSearchParams("lat=48.1&lon=11.5&zoom=13"),
+    );
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(mapProps?.initialViewState).toEqual({
+      latitude: 48.1,
+      longitude: 11.5,
+      zoom: 13,
+    });
+  });
+
+  it("falls back to the default centre when no viewport is in the URL", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(mapProps?.initialViewState?.latitude).toBeCloseTo(52.52, 2);
+    expect(mapProps?.initialViewState?.longitude).toBeCloseTo(13.405, 2);
+  });
+
+  it("seeds the filter panel from URL filter params", () => {
+    useSearchParamsMock.mockReturnValue(
+      new URLSearchParams(
+        "from=2026-04-01&to=2026-04-30&p=11111111-1111-1111-1111-111111111111",
+      ),
+    );
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(filterPanelProps?.filters).toEqual({
+      from: "2026-04-01",
+      to: "2026-04-30",
+      participantIds: ["11111111-1111-1111-1111-111111111111"],
+    });
+  });
+
+  it("applies the date filter to the rendered features", () => {
+    useSearchParamsMock.mockReturnValue(
+      new URLSearchParams("from=2026-04-15"),
+    );
+    useDatabaseMock.mockReturnValue(
+      makeDatabase([
+        makeDoc({ id: "before", started_at: "2026-04-01T08:00:00Z" }),
+        makeDoc({ id: "after", started_at: "2026-04-20T08:00:00Z" }),
+      ]),
+    );
+    render(<MapView />);
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
+      "after",
+    ]);
+    expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
+      "1 von 2 Events (gefiltert)",
+    );
+  });
+
+  it("applies the participant filter using event_participants", () => {
+    const personId = "aaaaaaaa-bbbb-cccc-dddd-000000000001";
+    useSearchParamsMock.mockReturnValue(new URLSearchParams(`p=${personId}`));
+    useDatabaseMock.mockReturnValue(
+      makeDatabase(
+        [
+          makeDoc({ id: "with-person" }),
+          makeDoc({ id: "without-person", lat: 48.1, lon: 11.5 }),
+        ],
+        [makeParticipant("with-person", personId)],
+      ),
+    );
+    render(<MapView />);
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
+      "with-person",
+    ]);
+  });
+
+  it("writes filter changes immediately to the URL", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    act(() => {
+      filterPanelProps?.onChange({
+        from: "2026-04-01",
+        to: null,
+        participantIds: [],
+      });
+    });
+    expect(routerReplaceMock).toHaveBeenCalledWith(
+      "/map?from=2026-04-01",
+      { scroll: false },
+    );
+  });
+
+  it("debounces viewport URL writes by 300 ms", () => {
+    vi.useFakeTimers();
+    try {
+      useDatabaseMock.mockReturnValue(makeDatabase([]));
+      render(<MapView />);
+
+      act(() => {
+        mapProps?.onMoveEnd?.({
+          viewState: { latitude: 50.1, longitude: 8.7, zoom: 12 },
+        });
+      });
+
+      expect(routerReplaceMock).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(routerReplaceMock).toHaveBeenCalledTimes(1);
+      expect(routerReplaceMock.mock.calls[0]?.[0]).toContain("lat=50.1");
+      expect(routerReplaceMock.mock.calls[0]?.[0]).toContain("lon=8.7");
+      expect(routerReplaceMock.mock.calls[0]?.[0]).toContain("zoom=12");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("collapses successive moves into a single URL write", () => {
+    vi.useFakeTimers();
+    try {
+      useDatabaseMock.mockReturnValue(makeDatabase([]));
+      render(<MapView />);
+      act(() => {
+        mapProps?.onMoveEnd?.({
+          viewState: { latitude: 50.1, longitude: 8.7, zoom: 12 },
+        });
+        mapProps?.onMoveEnd?.({
+          viewState: { latitude: 50.2, longitude: 8.8, zoom: 12.5 },
+        });
+        mapProps?.onMoveEnd?.({
+          viewState: { latitude: 50.3, longitude: 8.9, zoom: 13 },
+        });
+      });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(routerReplaceMock).toHaveBeenCalledTimes(1);
+      expect(routerReplaceMock.mock.calls[0]?.[0]).toContain("lat=50.3");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the active-filter badge when filters are applied", () => {
+    useSearchParamsMock.mockReturnValue(
+      new URLSearchParams("from=2026-04-01"),
+    );
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(screen.getByTestId("map-filter-toggle")).toHaveAttribute(
+      "data-filter-active",
+      "true",
+    );
+    expect(screen.getByTestId("map-filter-toggle")).toHaveTextContent(
+      "Filter aktiv",
+    );
   });
 });

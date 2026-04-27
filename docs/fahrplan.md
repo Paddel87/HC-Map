@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 / M6.2 [ERLEDIGT] 2026-04-27**. **M6.3 [ERLEDIGT] 2026-04-27**: `MapView` refactored auf native MapLibre-Cluster — eine GeoJSON-`Source` (`cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`) mit drei Layern (`events-clusters`, `events-cluster-count`, `events-unclustered`) ersetzt die Per-Event-Marker-Schleife. Click-Handler (`interactiveLayerIds = ['events-clusters', 'events-unclustered']`) unterscheidet Cluster (zoom via `getClusterExpansionZoom` + `easeTo`) von Einzelpunkten (öffnet Popup). Neuer Pure-Helper `eventsToGeoJSON` in `lib/map/event-marker-data.ts`. Frontend-Suite **135/135 grün** (+8 Tests: 5 eventsToGeoJSON + 3 zusätzliche Cluster-Tests in map-view), Coverage `lib/map/**` **97.89 % Lines / 85.71 % Branches**, Production-Build grün (`/map` 11.5 kB / 209 kB First Load). Aktiver Sub-Step: **M6.4 (Filter + URL-Viewport)**.
-- **Nächster Schritt:** M6.4 — URL-State-Helper `lib/map/url-state.ts`, Filter-Panel mit Zeitraum (Datepicker) und Beteiligten-Multi-Select (RxDB `event_participants`), URL-Sync via `useSearchParams` + debounced `router.replace`.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 / M6.2 / M6.3 [ERLEDIGT] 2026-04-27**. **M6.4 [ERLEDIGT] 2026-04-27**: URL-State-Codec (`lib/map/url-state.ts`) parst `lat`/`lon`/`zoom`/`from`/`to`/`p`-Komma-UUIDs mit Range-Validierung; `serializeMapUrlState` baut den Query-String. Filter-Logik (`lib/map/event-filter.ts`) `applyEventFilter` wendet Datum (UTC-Tagesgrenzen, inklusiv) und Beteiligte (OR über `participantsByEvent`-Index aus RxDB) clientseitig an. `MapFilterPanel`-Drawer (Sheet, rechts) mit zwei Datepicker und Personen-Multi-Select; Personen via `apiFetch<Page<PersonRead>>("/api/persons")` (REST, lazy, `enabled: open`). `MapView` liest Initial-Viewport+Filter aus `useSearchParams`, schreibt Pan/Zoom debounced (300 ms) in die URL via `router.replace({ scroll: false })`, wendet die Filter über RxDB-`event_participants` an. Status-Bar zeigt „X von Y Events (gefiltert)", Filter-Toggle färbt sich primary wenn aktiv. Frontend-Suite **181/181 grün** (+46 Tests: 18 url-state, 14 event-filter, 9 FilterPanel, 5 MapView-Integration), Coverage `lib/map/**` **99.12 % Lines / 93.1 % Branches**, Production-Build grün (`/map` 12.3 kB / 242 kB). Aktiver Sub-Step: **M6.5 (Geocoding-Suchbox in `MapView`)**.
+- **Nächster Schritt:** M6.5 — `components/map/geocode-search-box.tsx`: Debounced Eingabefeld oben links, ruft `/api/geocode` an, Treffer-Auswahl `flyTo` zur Adresse; 429/503/502 → Toast.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -71,7 +71,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [OFFEN]     |
+| 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
@@ -1106,17 +1106,18 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 **Ziel:** Karte respektiert URL-State (`lat`/`lon`/`zoom`/`from`/`to`/`p`) und zeigt nur passende Events.
 
 **Deliverables:**
-- URL-Param-Helper `lib/map/url-state.ts`: parse/serialize `lat`, `lon`, `zoom`, `from`, `to`, `p` (Komma-UUIDs).
-- `MapView` liest Initial-State aus `useSearchParams`; Pan/Zoom-Events triggern debounced `router.replace` (300 ms).
-- Filter-Panel-Komponente `components/map/filter-panel.tsx`: Zeitraum (zwei `<input type="date">`), Beteiligte (shadcn/ui-`Popover` mit Checkbox-Liste aus `event_participant`-Collection, gruppiert nach Person).
-- Filter-State wird aus URL abgeleitet (Single Source of Truth = URL).
-- Filter wirken clientseitig auf RxDB-Subscription (via `useMemo` über Filter-Inputs).
-- Tests: URL-State-Helper als pure-function-Test; Filter-Reducer-Test; Snapshot-Test FilterPanel.
+- URL-Param-Helper `lib/map/url-state.ts`: parse/serialize `lat`, `lon`, `zoom`, `from`, `to`, `p` (Komma-UUIDs). ✓
+- `MapView` liest Initial-State aus `useSearchParams`; Pan/Zoom-Events (`onMoveEnd`) triggern debounced `router.replace` (300 ms, `{ scroll: false }`). ✓
+- Filter-Panel-Komponente `components/map/map-filter-panel.tsx`: Zeitraum (zwei `<input type="date">`), Beteiligte als shadcn/ui-`Sheet` (Drawer rechts) mit Checkbox-Liste; Personen via `/api/persons` REST (TanStack Query, `enabled: open`). ✓
+- Filter-State wird aus URL abgeleitet (Single Source of Truth = URL). ✓
+- Filter-Logik (`lib/map/event-filter.ts`): `applyEventFilter` wendet Datum (UTC-Tagesgrenzen, inklusiv) und Beteiligte (OR-Verknüpfung) über `buildParticipantsIndex` aus `event_participants`-RxDB an. ✓
+- Tests: URL-State-Codec (parse/serialize/Round-trip/`filtersEqual`) als pure-function-Test; `applyEventFilter`/`buildParticipantsIndex`/`filtersAreEmpty`-Test; FilterPanel-Component-Test mit gemocktem `/api/persons`; MapView-Integration-Test (Initial-Viewport, Filter aus URL, debounced URL-Write). ✓
 
 **Akzeptanzkriterien:**
-- Setzen eines Datums-Filters reduziert sichtbare Marker entsprechend.
-- Pan/Zoom landet in URL, Reload zeigt gleichen Viewport.
-- URL-Sharing reproduziert Filter+Viewport.
+- Setzen eines Datums-Filters reduziert sichtbare Marker entsprechend. ✓
+- Pan/Zoom landet in URL, Reload zeigt gleichen Viewport. ✓
+- URL-Sharing reproduziert Filter+Viewport. ✓
+- Frontend-Suite grün (181/181). ✓
 
 **Abhängigkeiten:** M6.3.
 

@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5c — Sub-Schritte **M5c.1a + M5c.1b [ERLEDIGT] 2026-04-27**. M5c.1b liefert die `event_participant`-Sync-Collection: Backend-Migration mit surrogate UUID-PK + Soft-Delete + Cursor-Index + Cascade-Trigger-Erweiterung; Pydantic + JSON-Wire-Schema + Pull-only Endpoint; Frontend-RxDB-Collection mit Pull-only Replication; Detail-Page kombiniert RxDB-Mitgliedschaft mit REST-Person-Snapshot und triggert ein REST-Refetch, sobald die RxDB-Subscription eine person_id liefert, die der Snapshot nicht kennt. Backend 137/137, Frontend 66/66, Coverage `lib/rxdb/**` 92.42 % Lines, alle Lints clean. ADR-037 dokumentiert die elf Detail-Entscheidungen.
-- **Nächster Schritt:** M5c.2 (chronologische Detail-Anzeige + Maskierung) — einheitliche `EventDetailView` für laufende und beendete Events, sichtbare Lücken zwischen Applications, Frontend-Sicherheitsgürtel zusätzlich zur Backend-`reveal_participants`-Maskierung. Danach M5c.3 (nachträgliche Erfassung) und M5c.4 (Edit-UI).
+- **Aktiver Schritt:** M5c — Sub-Schritte **M5c.1a + M5c.1b + M5c.2 [ERLEDIGT] 2026-04-27**. M5c.2 ersetzt `LiveEventView` + `EndedEventView`-Stub durch eine einheitliche `EventDetailView` (Status-Card mit konditionalen Quick-Actions, chronologische Applications-Timeline mit „Pause"-Markern für Lücken ≥ 1 s, Beteiligten-Liste mit Frontend-Maskierung). `lib/masking.ts` spiegelt die Backend-`project_participant`-Logik als Sicherheitsgürtel. Frontend 78/78 grün (+12 Tests: 6 Masking, 6 EventDetailView), Coverage `lib/rxdb/**` 92.42 % Lines stabil. Backend unverändert (137/137). ADR-038 dokumentiert die sieben Detail-Entscheidungen.
+- **Nächster Schritt:** M5c.3 (nachträgliche Erfassung) — Schalter „Nachträglich erfassen" auf der Startseite, Form mit editierbaren Zeitstempeln für Event und Applications, monotone Zeit-/Sequenz-Validierung. Danach M5c.4 (Edit-UI).
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -64,7 +64,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [IN ARBEIT] |
 | 1 MVP   | M5c.1a      | └─ Detail-Page Client-only + REST-Once-Read Participants | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.1b      | └─ Participants als RxDB-Collection (Sync-Endpoint) | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [OFFEN]     |
+| 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [OFFEN]     |
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
@@ -877,9 +877,41 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5c.2 — Chronologische Detail-Anzeige + reveal_participants-Maskierung
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-27
 
-**Scope:** Einheitliche `EventDetailView` für laufende und beendete Events; sichtbare Lücken zwischen Applications; Frontend-Sicherheitsgürtel zusätzlich zur Backend-Maskierung in `app/services/masking.py`.
+**Status `[ERLEDIGT]` 2026-04-27 (M5c.2, EventDetailView + Maskierung):**
+
+- **`EventDetailView` ersetzt `LiveEventView` + `EndedEventView`** in `frontend/src/components/event/event-detail-view.tsx`:
+  - Status-Card mit Live-Timer, Standort + Plus-Code, Quick-Actions („Neue Application", „Aktuelle beenden", „Event beenden") nur wenn `isLive`.
+  - `ApplicationsTimeline`-Subkomponente rendert die chronologische Application-Liste **plus** explizite „Pause"-Marker zwischen zwei beendeten Applications mit Lücke ≥ 1 s. Laufende oder noch-nicht-gestartete Applications produzieren keine Lücke (vermeidet falsche Pausen-Anzeige im Live-Modus).
+  - `ParticipantsList`-Subkomponente: pro Person Name + optional Alias + „Du"-Badge für den eigenen Eintrag. Maskierte Einträge werden italics/muted gerendert, die Anzahl der Beteiligten bleibt aber sichtbar (ADR-038 §D: „Anzahl bleibt, Inhalt nicht").
+  - `LiveEventView`-Datei gelöscht, `EndedEventView`-Inline-Stub aus `page.tsx` entfernt.
+- **Frontend-Maskierungs-Helper** `frontend/src/lib/masking.ts`:
+  - `MASK_PLACEHOLDER = "[verborgen]"` deckungsgleich zum Backend.
+  - `maskParticipants(participants, event, currentPersonId)` ist eine reine Funktion, die exakt die Backend-Regel aus `app/services/masking.py` spiegelt — `reveal_participants=true` → unverändert; `reveal_participants=false` → eigener Eintrag unverändert, alle anderen mit Placeholder + `alias = null`, `note = null`.
+  - `isMasked(person)` als Convenience-Predicate für die Render-Klasse.
+  - Greift als Sicherheitsgürtel bei stale TanStack-Query-Caches (z. B. nach `reveal_participants`-Toggle ohne Refetch) und bei zukünftigen Code-Pfaden, die Person-Daten ohne Backend-Maskierung liefern (vorbereitend für eine spätere Person-RxDB-Collection).
+- **Page-Anpassung** `(protected)/events/[id]/page.tsx`: Ein einziger `<EventDetailView>`-Render, kein `ended_at`-Branching mehr auf Page-Ebene.
+- **Tests** (12 neu, alle grün):
+  - `tests/masking.test.ts` (6): reveal=true, reveal=false-Self, reveal=false-Other (Placeholder + null-Alias/Note), Reihenfolge stabil, leere Liste, `isMasked`-Predicate.
+  - `tests/event-detail-view.test.tsx` (6): Live-Action-Card-Sichtbarkeit (laufend), Live-Action-Card-Wegfall (beendet), Lücken-Marker zwischen zwei beendeten Apps, kein Marker bei laufender Vorgänger-App, Maskierung (`reveal=false`), keine Maskierung (`reveal=true`).
+  - `tests/event-detail-page.test.tsx` Mock von `LiveEventView` auf `EventDetailView` umgestellt; alle 5 Page-Tests weiter grün.
+- **Frontend-Suite**: **78/78 grün** (zuvor 66; +6 masking + 6 event-detail-view).
+- **Coverage `lib/rxdb/**`** stabil bei 92.42 % Lines / 81.66 % Branches / 100 % Functions (CI-Threshold 80/70/80).
+- **Bundle**: `/events/[id]` First-Load 272 kB (unverändert).
+- **Keine Backend-Änderung, keine Migrations, keine neuen Dependencies, keine RLS-Anpassung.**
+- ADR-038 dokumentiert die sieben Detail-Entscheidungen, `architecture.md` § Frontend um die neue Komponentenstruktur erweitert.
+
+**Deliverables (Soll, alle erfüllt):**
+- Einheitliche `EventDetailView` für laufende und beendete Events.
+- Sichtbare Lücken zwischen Applications (ADR-011 §6 „Materialwechsel").
+- Frontend-Sicherheitsgürtel zusätzlich zur Backend-Maskierung.
+
+**Akzeptanzkriterien (alle erfüllt):**
+- Detail-Page rendert laufende und beendete Events ohne Branching auf Page-Ebene.
+- Lücken zwischen Applications sind in der Detailansicht ablesbar.
+- `reveal_participants=false` versteckt Namen jenseits des eigenen Eintrags; Anzahl der Beteiligten bleibt sichtbar.
+- Frontend-Suite + Coverage-Threshold `lib/rxdb/**` ≥ 80 % grün.
 
 **Abhängigkeiten:** M5c.1b.
 

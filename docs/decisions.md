@@ -63,6 +63,7 @@ Status-Legende:
 | ADR-035 | Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)   | Accepted | 2026-04-27 |
 | ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
 | ADR-037 | Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection) | Accepted | 2026-04-27 |
+| ADR-038 | Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung) | Accepted | 2026-04-27 |
 
 ---
 
@@ -3040,6 +3041,65 @@ Die neue Collection ist klein (drei Feld-Properties + Sync-Standard); Bundle-Aus
 - M5c.2: Detail-Page-Refresh als unified `EventDetailView` (laufend + beendet), `reveal_participants`-Maskierung im Frontend.
 - M5c.4: bei Bedarf Push-Endpoint für `event_participant` (ADR-036 §E2-Variante), wenn Editor/Admin die Teilnehmer-Liste manuell editieren sollen.
 - Mittelfristig (kein eigener Sub-Schritt geplant): Person als RxDB-Collection, sobald die Maskierungs-Logik vom Backend-Service in einen Wire-Format-äquivalenten Pfad übersetzt ist.
+
+---
+
+## ADR-038 — Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1a/1b haben die Detail-Page client-only und reactive gemacht; die eigentliche Detail-Anzeige hängt aber noch an der M5a.3-Aufteilung in `LiveEventView` (laufend) und `EndedEventView` (Stub). M5c.2 liefert das Fahrplan-Akzeptanzkriterium „Event-Detailseite mit chronologischer Anzeige aller Applications inkl. Lücken zwischen ihnen" und „Respektiert `reveal_participants`: zeigt ‚+N weitere‘ statt Namen, wenn Flag false".
+
+### Entscheidungen
+
+**A. Eine einheitliche `EventDetailView` ersetzt `LiveEventView` + `EndedEventView`.**
+Datei `frontend/src/components/event/event-detail-view.tsx` (neu); `live-event-view.tsx` wird gelöscht. Die neue Komponente orchestriert dieselben drei Abschnitte für laufende **und** beendete Events:
+1. Status-Card (Standort, Plus-Code, Live-Timer wenn laufend, Quick-Actions nur wenn `isLive`).
+2. Applications-Timeline (chronologische Liste, Lücken-Visualisierung).
+3. Beteiligte (Participants-Liste mit Frontend-Maskierung).
+
+**B. Lücken-Anzeige zwischen Applications.**
+Zwischen `app[i].ended_at` und `app[i+1].started_at` wird ein dünnes „Lücke" -Element gerendert, wenn die Lücke ≥ 1 Sekunde beträgt. Die Lücke trägt die Dauer (gleicher `formatDuration`-Helper wie sonst) und einen leichten visuellen Trenner, sodass „Materialwechsel"-Phasen erkennbar werden. Lücken erscheinen nur zwischen vollständig beendeten Applications — laufende oder noch nicht-gestartete Applications produzieren keine Lücke.
+
+**C. Frontend-Maskierungs-Helper als Sicherheitsgürtel.**
+Neue Datei `lib/masking.ts` mit `maskParticipants(participants, event, currentPersonId)`. Die Logik spiegelt `backend/app/services/masking.py`:
+- `event.reveal_participants === true` → unverändert.
+- Person mit `id === currentPersonId` → unverändert.
+- Sonst → `name = "[verborgen]"`, `alias = null`, `note = null`.
+Der Backend-Pfad maskiert weiterhin als primäre Schicht; der Frontend-Helper läuft beim Render und greift auch dann, wenn:
+- Eine veraltete REST-Snapshot-Antwort im TanStack-Query-Cache liegt, die noch nicht das aktualisierte `reveal_participants=false` reflektiert.
+- Künftige Code-Pfade (z. B. Person-RxDB-Collection in einem späteren Sub-Schritt) Person-Daten ohne Backend-Maskierung liefern.
+Konstante `PLACEHOLDER = "[verborgen]"` deckungsgleich zum Backend.
+
+**D. Maskierte Anzeige in der ParticipantsList.**
+Die Teilnehmer-Liste rendert pro Person: Name (oder Placeholder), Alias-Zeile (nur wenn vorhanden), und ein „Du"-Badge für den eigenen Eintrag. Maskierte Einträge werden visuell zurückgenommen (italics + muted color) und nicht klickbar. Die Frage „+N weitere statt Namen" aus dem Fahrplan ist damit implizit erfüllt: Wenn drei Beteiligte alle bis auf den Anwender maskiert sind, sieht man drei Einträge mit `[verborgen]` als Label — die Anzahl bleibt sichtbar, die Namen nicht.
+
+**E. Keine Backend-Änderungen, keine neuen Endpoints.**
+Backend-Maskierung in `app/services/masking.py` bleibt unverändert; sie ist die primäre Sicherheitsschicht. Auch der `mask_event_view`-Helper im REST-Detail-Endpoint bleibt wie er ist.
+
+**F. Tests.**
+- `tests/masking.test.ts` für die neue Pure-Funktion (vier Fälle: reveal=true, reveal=false-Self, reveal=false-Other, leere Liste).
+- `tests/event-detail-view.test.tsx` für die neue Komponente: Status-Card-Rendering, Live-Action-Card-Sichtbarkeit (laufend vs. beendet), Lücken-Visualisierung, Participants-Maskierung.
+- `tests/event-detail-page.test.tsx` Mock-Update auf den neuen Komponenten-Namen.
+- `replication.e2e.test.ts` und `tests/sync-status-indicator.test.tsx` bleiben unverändert.
+- Coverage `lib/rxdb/**` bleibt aktiv; neuer Coverage-Block für `lib/masking.ts` wird nicht eingeführt — der Threshold-Block deckt Sync-Pfade, nicht alle Lib-Dateien.
+
+**G. Migration der Hooks.**
+`useEventDoc`, `useApplications` und `pickRecipientPerson` ziehen mit in `event-detail-view.tsx`. `LiveEventViewProps` wird zu `EventDetailViewProps`. `page.tsx` ändert nur den Import + die JSX-Verwendung; der bisherige `EndedEventView`-Inline-Stub wird entfernt.
+
+### Verworfene Alternativen
+
+- **`LiveEventView` parallel behalten und nur `EndedEventView` auf die neue Detail-View umlenken:** Doppelte Quelle der Wahrheit für die Application-Liste — bei späterem Drift unweigerlich Inkonsistenz.
+- **„+N weitere"-Aggregat statt einzelner Maskierungen:** Spart einen Listeneintrag pro Verborgenem, verschleiert aber die tatsächliche Beteiligten-Anzahl. Die per-Eintrag-Maskierung ist transparenter und passt zum Backend-Verhalten („Anzahl bleibt, Inhalt nicht").
+- **Frontend-Maskierung in der Komponente statt in `lib/masking.ts`:** Erschwert Tests und macht das Wiederverwenden in M5c.4 (Edit-UI) und M6 (Map-Popup) später aufwändiger.
+
+### Folge-Arbeit
+
+- M5c.3 (Nachträgliche Erfassung) nutzt dieselbe `EventDetailView` als Read-Pfad nach dem Speichern.
+- M5c.4 (Edit-UI) ergänzt einen separaten Edit-Pfad `/events/[id]/edit`; `EventDetailView` bleibt Read-only.
+- M6 (Karte) kann den `maskParticipants`-Helper im Popup-Renderer wiederverwenden.
 
 ---
 

@@ -9,6 +9,57 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5c.2 — Unified EventDetailView + Lücken-Anzeige + Frontend-Maskierung (ADR-038):**
+  Dritter Sub-Schritt von M5c. Erfüllt zwei Fahrplan-Akzeptanz-
+  kriterien auf einen Schlag: chronologische Application-Liste mit
+  Lücken zwischen ihnen, plus `reveal_participants`-Verhalten als
+  Sicherheitsgürtel auf der Frontend-Seite.
+  - **`EventDetailView` ersetzt `LiveEventView` + `EndedEventView`:**
+    Eine einzige Komponente in
+    `frontend/src/components/event/event-detail-view.tsx` rendert
+    laufende und beendete Events. Page-Code branched nicht mehr auf
+    `ended_at === null`.
+  - **`ApplicationsTimeline`-Subkomponente:** chronologische Liste
+    mit explizitem „Pause · MM:SS"-Marker zwischen zwei beendeten
+    Applications, deren Lücke ≥ 1 s ist (ADR-011 §6
+    „Materialwechsel"). Laufende oder noch-nicht-gestartete
+    Applications produzieren keine Lücke.
+  - **`ParticipantsList`-Subkomponente:** rendert pro Person Name,
+    optional Alias, „Du"-Badge für den eigenen Eintrag. Maskierte
+    Einträge sind italics/muted; die Beteiligten-Anzahl bleibt
+    sichtbar, der Inhalt nicht.
+  - **`lib/masking.ts` als Frontend-Sicherheitsgürtel:**
+    `maskParticipants(participants, event, currentPersonId)`-Pure-
+    Funktion spiegelt `app/services/masking.py` exakt
+    (`reveal_participants=true` → unverändert; sonst eigener Eintrag
+    unverändert, alle anderen mit Placeholder `[verborgen]` +
+    `alias = null`, `note = null`). Greift bei stale
+    TanStack-Query-Caches und zukünftigen Code-Pfaden ohne
+    Backend-Roundtrip.
+  - **Tests:** 12 neue (alle grün):
+    - `tests/masking.test.ts` (6): reveal=true, reveal=false-Self,
+      reveal=false-Other (Placeholder + null-Alias/Note),
+      Reihenfolge stabil, leere Liste, `isMasked`-Predicate.
+    - `tests/event-detail-view.test.tsx` (6): Live-Action-Card-
+      Sichtbarkeit (laufend), Wegfall (beendet), Lücken-Marker,
+      kein Marker bei laufender Vorgänger-App, Maskierung
+      (`reveal=false`), keine Maskierung (`reveal=true`).
+    - `tests/event-detail-page.test.tsx` Mock von `LiveEventView`
+      auf `EventDetailView` umgestellt.
+  - **Frontend-Suite 78/78 grün** (zuvor 66, +12). Coverage
+    `lib/rxdb/**` stabil bei 92.42 % Lines / 81.66 % Branches /
+    100 % Functions. ESLint, `tsc --noEmit`, `next build` clean.
+  - **Bundle:** `/events/[id]` First-Load 272 kB (unverändert).
+  - **Keine Backend-Änderung in M5c.2:** keine Migrations, keine
+    neuen Endpoints, keine neuen Dependencies, keine RLS-Anpassung.
+  - **Code-Aufräumarbeit:** `frontend/src/components/event/live-event-
+    view.tsx` gelöscht; `EndedEventView`-Inline-Stub aus `page.tsx`
+    entfernt; `coerceNumber`-Import aus `page.tsx` entfernt
+    (Nutzung ist jetzt in `EventDetailView`).
+  - ADR-038 dokumentiert die sieben Detail-Entscheidungen,
+    `architecture.md` § Frontend um die neue Komponentenstruktur
+    erweitert.
+
 - **M5c.1b — Participants als RxDB-Sync-Collection (ADR-037):**
   Zweiter Sub-Schritt von M5c. Schließt den von ADR-035 §C / ADR-034 §K
   benannten Akzeptanz-Pfad „event.participants reactive nach Offline-

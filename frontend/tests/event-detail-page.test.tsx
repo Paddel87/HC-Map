@@ -5,13 +5,14 @@
  * this suite pins the four user-visible outcomes named in ADR-036 §H:
  *
  *   1. loading skeleton while either signal is unresolved
- *   2. REST OK → LiveEventView with the server-supplied EventDetail
+ *   2. REST OK → EventDetailView with the server-supplied EventDetail
  *   3. REST 404 + RxDB has the doc → synthesized EventDetail (offline-
  *      insert-then-direct-nav), participants/plus_code empty
  *   4. REST 404 + RxDB resolved-empty → next/navigation `notFound()`
  *
- * The downstream `LiveEventView` is replaced by a minimal stub — its
- * own integration with RxDB lives in the M5b.4 e2e suite.
+ * The downstream `EventDetailView` (M5c.2, ADR-038) is replaced by a
+ * minimal stub — its own integration with RxDB and masking lives in
+ * `tests/event-detail-view.test.tsx`.
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -61,10 +62,10 @@ vi.mock("next/navigation", () => ({
   useParams: () => useParamsMock(),
 }));
 
-vi.mock("@/components/event/live-event-view", () => ({
-  LiveEventView: ({ initialEvent }: { user: AuthUser; initialEvent: EventDetail }) => (
+vi.mock("@/components/event/event-detail-view", () => ({
+  EventDetailView: ({ initialEvent }: { user: AuthUser; initialEvent: EventDetail }) => (
     <div
-      data-testid="live-event-view"
+      data-testid="event-detail-view"
       data-event-id={initialEvent.id}
       data-plus-code={initialEvent.plus_code}
       data-participants={initialEvent.participants.length}
@@ -214,7 +215,7 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
 
     render(renderWith({ id: EVENT_ID }));
     expect(await screen.findByTestId("event-detail-skeleton")).toBeInTheDocument();
-    expect(screen.queryByTestId("live-event-view")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("event-detail-view")).not.toBeInTheDocument();
   });
 
   it("renders LiveEventView with the REST detail when the server returns 200", async () => {
@@ -224,7 +225,7 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
 
     render(renderWith({ id: EVENT_ID }));
 
-    const view = await screen.findByTestId("live-event-view");
+    const view = await screen.findByTestId("event-detail-view");
     expect(view.dataset.eventId).toBe(EVENT_ID);
     expect(view.dataset.plusCode).toBe("9F4MGCC8+VC");
     expect(view.dataset.participants).toBe("1");
@@ -239,7 +240,7 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
 
     render(renderWith({ id: EVENT_ID }));
 
-    const view = await screen.findByTestId("live-event-view");
+    const view = await screen.findByTestId("event-detail-view");
     expect(view.dataset.eventId).toBe(EVENT_ID);
     // Synthesized payload has empty plus_code and zero participants until
     // M5c.1b promotes participants to a sync collection.
@@ -256,7 +257,7 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
 
     render(renderWith({ id: EVENT_ID }));
     await waitFor(() => expect(notFoundMock).toHaveBeenCalled());
-    expect(screen.queryByTestId("live-event-view")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("event-detail-view")).not.toBeInTheDocument();
   });
 
   it("redirects anonymous users to /login with a next param", async () => {

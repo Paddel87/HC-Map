@@ -22,14 +22,16 @@
  *       `EventDetail` from the doc so the offline-insert-direct-nav case
  *       renders the event instead of 404.
  *
- * The downstream `LiveEventView` / `EndedEventView` are unchanged.
+ * The downstream `EventDetailView` (M5c.2, ADR-038) renders both
+ * running and ended events in the same component tree, so the page
+ * itself does not branch on `ended_at`.
  */
 
 import { notFound, useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { LiveEventView } from "@/components/event/live-event-view";
+import { EventDetailView } from "@/components/event/event-detail-view";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,7 +39,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { EventDocType, EventParticipantDocType } from "@/lib/rxdb/types";
-import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
+import { type EventDetail, type PersonRead } from "@/lib/types";
 
 type RxdbState =
   | { resolved: false; doc: null }
@@ -190,11 +192,7 @@ export default function EventDetailPage() {
             : ""}
         </p>
       </header>
-      {initial.ended_at === null ? (
-        <LiveEventView user={user} initialEvent={initial} />
-      ) : (
-        <EndedEventView event={initial} />
-      )}
+      <EventDetailView user={user} initialEvent={initial} />
     </div>
   );
 }
@@ -317,30 +315,3 @@ function UnavailableCard() {
   );
 }
 
-function EndedEventView({ event }: { event: EventDetail }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Event beendet</CardTitle>
-        <CardDescription>
-          Standort {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
-          {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 text-sm">
-        <p>
-          Die vollständige Detailansicht mit chronologischer Application-Liste und Lücken-Anzeige
-          folgt mit M5c.2.
-        </p>
-        {event.note ? (
-          <p className="italic text-slate-600 dark:text-slate-400">{event.note}</p>
-        ) : null}
-        <div>
-          <Button asChild variant="secondary">
-            <Link href="/">Zurück zum Dashboard</Link>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}

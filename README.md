@@ -67,7 +67,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 | Phase | Stand |
 |---|---|
-| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, **M5b komplett** (Sync-Datenmodell + Backend-Sync-Endpoints + Frontend-RxDB-Schicht + E2E-Offline-Beweis: lokal-zuerst-Schreibpfad, reaktive UI-Subscriptions, Sync-Status-Pill, Vitest+fake-indexeddb-Replication-E2E, Backend-Idempotenz-Tests, Coverage `lib/rxdb/**` 92.43 % Lines, Backend 128/128 grün); M5c (Nachträgliche Erfassung & Bearbeitung, inkl. SSR→Client-only-Refactor der Detail-Page) als nächstes |
+| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, **M5c.1a erledigt** (Detail-Page Client-only, Render-Entscheidungsbaum mit RxDB-Fallback bei REST-404, 65/65 Frontend-Tests, Coverage `lib/rxdb/**` stabil); M5c.1b (Participants als RxDB-Sync-Collection) als nächstes |
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 

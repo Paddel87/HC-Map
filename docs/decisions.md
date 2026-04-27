@@ -61,6 +61,8 @@ Status-Legende:
 | ADR-033 | Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy) | Accepted | 2026-04-26 |
 | ADR-034 | Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor) | Accepted | 2026-04-26 |
 | ADR-035 | Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)   | Accepted | 2026-04-27 |
+| ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
+| ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
 
 ---
 
@@ -2887,6 +2889,93 @@ Der Test wartet auf `replication.events.awaitInSync()` (RxDB-Standard) statt fes
 ### Folge-Arbeit (M5c)
 - `(protected)/events/[id]/page.tsx` von Server-Side-Render auf Client-only umstellen, damit Offline-Inserts ohne 404-Race direkt navigierbar sind.
 - `event.participants` als reaktive RxDB-Subscription statt Server-Side-Snapshot, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden.
+
+---
+
+## ADR-036 — M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c (Nachträgliche Erfassung & Bearbeitung) ist als Gesamtmilestone zu groß für einen Sub-Schritt: sieben Deliverables aus dem Fahrplan plus die zwei aus M5b.4 übernommenen Edge-Cases (ADR-035 §C / ADR-034 §K) berühren Architektur, API-Vertrag und Sicherheit zugleich. Diese ADR legt den **Framework-Rahmen für M5c** fest (Sub-Schritt-Aufteilung, Datenpfad-Architektur, Edit-UX) und konkretisiert die **Implementierungsstrategie M5c.1a** als ersten Sub-Schritt — den reinen SSR-Refactor der Detail-Page ohne neue Sync-Collection.
+
+### Framework-Entscheidungen (gelten für M5c.1a–4)
+
+**A. Sub-Schritt-Aufteilung (analog M5a/M5b).**
+M5c zerfällt in fünf Sub-Schritte (M5c.1 wurde nach Risikoanalyse in 1a/1b geteilt):
+
+- **M5c.1a — Detail-Page Client-only + REST-Once-Read Participants** (dieser Sub-Schritt). Beendet die SSR-Detail-Page; Participants und `plus_code` kommen weiter über REST `/api/events/{id}`, aber nur als One-Shot-Fetch beim Mount, nicht via SSR. Behebt den 404-Race aus ADR-035 §C im häufigen Fall (Online-Reload nach Offline-Insert), nicht im seltenen Fall (echte Offline-Navigation auf direkt eingefügte Events).
+- **M5c.1b — Participants als RxDB-Collection (eigener Sync-Endpoint).** Beendet den 404-Race vollständig: `event_participant` wird sync-fähig (Migration mit `updated_at`/`is_deleted`/Cursor-Index/Cascade), eigene Pull/Push-Endpoints, Frontend-RxDB-Collection, Drift-Test-Erweiterung. M5c.1a setzt damit die Vorbereitung in einem reviewbaren Schritt ohne Migration.
+- **M5c.2 — Chronologische Detail-Anzeige + reveal_participants-Maskierung.** Einheitliche `EventDetailView` für laufende und beendete Events, Lücken-Anzeige zwischen Applications, Frontend-Sicherheitsgürtel zusätzlich zur Backend-Maskierung in `app/services/masking.py`.
+- **M5c.3 — Nachträgliche Erfassung (Schalter + manuelle Zeitstempel).** Startseiten-Schalter, editierbare `started_at`/`ended_at`-Felder, monotone Zeitvalidierung ohne Sequenz-Überlappung.
+- **M5c.4 — Event-/Application-Bearbeitung (Edit-UI).** `/events/[id]/edit`-Pfad, Inline-Application-Edit via Sheet, Soft-Delete via RxDB-Push (gemäß ADR-029 LWW).
+
+**B. Datenpfad: RxDB als Single Source of Truth (Variante B1 aus dem M5c-Vorschlag).**
+Detail-Page liest ausschließlich aus RxDB für die in `EventDocType` und `ApplicationDocType` enthaltenen Felder. `plus_code` und `participants` (M5c.1a) werden über einen einmaligen REST-Fetch geholt und nicht reactive — bis M5c.1b die Participants-Sync-Collection einführt. Hybrid-Lesepfade (B2) und REST-Only (B3) verworfen; sie würden die Single-Source-Eigenschaft der M5b-Sync-Architektur aufbrechen.
+
+**C. Mutations-Datenpfad: RxDB-Push (Variante C1).**
+Edits gehen ausschließlich über RxDB-Push, mit den ADR-029-LWW-Regeln. Die in M3 erstellten REST-PATCH-Endpoints (`PATCH /api/events/{id}`, `PATCH /api/applications/{id}`) bleiben für SQLAdmin/Admin-UI erhalten, werden aber vom Frontend nicht mehr genutzt. Dadurch ist Offline-Bearbeitung „kostenlos" und der Schreibpfad bleibt einheitlich.
+
+**D. Edit-UX: dedizierte Route `/events/[id]/edit` (Variante D1).**
+`architecture.md` § Routing sieht den Pfad bereits vor. Detail-Page bleibt read-only-View, Edit-Variante ist eine eigene Route mit eigenem Form-State. Vermeidet doppelte Komponentenlogik und macht den State testbarer als ein Inline-Toggle.
+
+**E. Backend-Anpassungen: Participants als RxDB-Collection (Variante E3, nur in M5c.1b).**
+Die saubere Lösung für reactive Participants ist eine eigene Sync-Collection — identisches Muster wie `events`/`applications` aus M5b.2. M5c.1b adressiert die Migration (`event_participant` bekommt `id` (surrogate UUID), `updated_at`, `is_deleted`, `deleted_at`, Cursor-Index, Cascade-Trigger Event→Participants), das Pydantic/JSON-Schema-Paar, Pull/Push-Routen, RLS-Policy, Drift-Test. Das ist freigegeben, aber nicht Teil von M5c.1a.
+
+### M5c.1a — Konkrete Implementierungsstrategie
+
+**F. Page als Client Component.**
+`(protected)/events/[id]/page.tsx` wird `"use client"`. Kein `getServerMe()` mehr — stattdessen `useMe()` aus `lib/auth.ts` (TanStack-Query-Hook, der `/api/users/me` befragt). Loading-State bis User aufgelöst ist, dann je nach Auth-Zustand entweder Skeleton, Login-Redirect oder echter Render.
+
+**G. Drei Datenquellen, ein Render-Baum.**
+- `useEventDoc(id)` — RxDB-Subscription auf `database.events.findOne(id).$`. Gibt `EventDocType | null` plus `resolved`-Flag zurück (so können wir „RxDB hat ja noch nicht angetwortet" von „RxDB hat nichts gefunden" unterscheiden).
+- `useEventDetailFetch(id)` — One-Shot REST-Fetch via `apiFetch<EventDetail>` mit Status `"loading" | "ok" | "not-found" | "error"`.
+- `useMe()` — bestehender Auth-Hook.
+
+**H. Render-Entscheidungsbaum.**
+1. `me.isPending` → Skeleton.
+2. `me.data === null` → Login-Redirect via `window.location.replace`.
+3. RxDB nicht resolved UND REST loading → Skeleton.
+4. RxDB null UND REST 404 → `notFound()`.
+5. REST ok → übergibt `EventDetail` an `LiveEventView` / `EndedEventView` (existierende Komponenten, unverändert).
+6. REST not-found ODER REST error UND RxDB hat doc → synthetisiert `EventDetail` aus dem RxDB-Doc mit `plus_code = ""` und `participants = []`. Damit ist der Offline-Insert-Fall gerendert; Participants und Plus-Code holt M5c.1b nach.
+
+**I. Keine Architektur- oder Datenmodell-Änderung in M5c.1a.**
+- Keine neuen Routen.
+- Keine Schema-Migrationen.
+- Keine neuen Dependencies.
+- Keine neuen Sync-Collections.
+- Bestehender Backend-Code bleibt unberührt.
+- Live-Modus-Verhalten unverändert (LiveEventView und EndedEventView werden weiter benutzt).
+
+**J. Tests.**
+- Frontend-Component-Test (`tests/event-detail-page.test.tsx`): vier Szenarien — Loading, REST-OK, RxDB-Fallback nach REST-404, Hard-404.
+- Bestehende Test-Suite bleibt grün; Coverage `lib/rxdb/**` aus M5b.4 bleibt aktiv (≥ 80 % CI-Threshold).
+- E2E-Erweiterung in `replication.e2e.test.ts` ist bewusst nicht Teil von M5c.1a — sie macht erst mit M5c.1b (Participants in RxDB) wirklich Sinn.
+
+**K. Edge-Cases bewusst akzeptiert (für M5c.1b):**
+- Bei Offline-Insert + direkter Navigation **ohne** Server-Roundtrip dauerhaft: Participants bleiben leer (keine reaktive Update-Quelle bis M5c.1b), Plus-Code bleibt leer (Backend-generiert). Acceptable, weil der Offline-Insert-Pfad bisher 404 lieferte; jetzt rendert er das Event.
+- Reactive Participants-Update bei Backend-Auto-Participant-Trigger ist bis M5c.1b nicht möglich — dafür braucht es die Sync-Collection.
+
+### Begründung der Aufteilung 1a/1b
+Die Risiko-Note in der M5c-Empfehlung („Nicht-trivialer Refactor in M5c.1: Server→Client + neue Sync-Collection in einem Sub-Schritt") wurde durch die Codebase-Inspektion bestätigt: Die SSR-Entfernung allein hat zwölf bis fünfzehn Render-Pfad-Konsequenzen (Skeleton, Auth-Loading, REST-Failure-Handling, Hard-404). Eine Sync-Collection mit eigener Migration und neuer RLS dazu zu legen, würde die PR-Größe verdoppeln und den Review erschweren. M5c.1a liefert den Architektur-Refactor isoliert; M5c.1b folgt mit der Migration als zweiter Schritt.
+
+### Verworfene Alternativen
+- **B2 / B3:** würden den Live-Modus-Reactive-Pfad aus M5b.3 brechen oder eine zweite Datenquelle in einer Komponente einführen.
+- **C2:** würde Offline-Bearbeitung verbieten und zwei Mutation-Quellen schaffen.
+- **D2 (Inline-Edit):** verdoppelt die Komponentenlogik der Detail-Page.
+- **E1 (gar keine Backend-Änderung):** Participants blieben dauerhaft nicht reactive, der Auto-Participant-Trigger würde nie sichtbar.
+- **E2 (Soft-Delete-REST-Endpoint statt Sync-Push):** zweigleisige Mutation-Quelle, widerspricht ADR-029.
+- **Denormalisierte `participant_ids: list[uuid]` auf `EventDoc`:** kürzere Migration, aber mischt Concerns und macht künftige Participant-Properties (z. B. Beitrittszeit, geladen_durch) zu Event-Schema-Änderungen. Bleibt als „letzte Reserve", falls E3 in M5c.1b zu sperrig wird.
+
+### Folge-Arbeit (M5c.1b)
+- Migration `event_participant`: surrogate `id uuid` PK, `updated_at`, `is_deleted`, `deleted_at`, `(updated_at, id)`-Cursor-Index, Cascade-Trigger Event→Participants beim Soft-Delete.
+- Pydantic `EventParticipantDoc` + JSON-Schema, Pull/Push-Routen `/api/sync/event-participants/{pull,push}`.
+- RLS-Policy für `event_participant`-Sync (Member sieht eigene Participants des Events).
+- Frontend-RxDB-Collection `event_participants`, Replication-Eintrag in `lib/rxdb/replication.ts`.
+- Detail-Page von REST-One-Shot auf RxDB-Subscription für Participants umstellen.
+- Drift-Test um die neue Collection erweitern.
 
 ---
 

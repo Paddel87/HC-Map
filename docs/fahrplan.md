@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M5b vollständig [ERLEDIGT] 2026-04-27** — alle vier Sub-Schritte abgeschlossen. M5b.4 liefert den E2E-Offline-Beweis (Vitest + fake-indexeddb + In-Process-Mock-Server), Coverage `lib/rxdb/**` 92.43 % Lines / 80 % Branches / 100 % Functions, Backend 128/128 Tests grün (drei neue Idempotenz-Tests). ADR-035 dokumentiert die zehn Detail-Entscheidungen.
-- **Nächster Schritt:** M5c (Nachträgliche Erfassung & Bearbeitung) — Detail-Page von SSR auf Client-only umstellen (übernommen aus ADR-035 §C / ADR-034 §K), Bearbeitungs-UI für Editor/Admin-Rollen, `reveal_participants`-Maskierung.
+- **Aktiver Schritt:** M5c (Nachträgliche Erfassung & Bearbeitung) — Sub-Schritt **M5c.1a [ERLEDIGT] 2026-04-27**. Detail-Page jetzt Client Component, Render-Entscheidungsbaum mit RxDB-Fallback bei REST-404 (Offline-Insert-Symptom für Online-Reload behoben), 5 neue Component-Tests, Frontend-Suite 65/65 grün, Coverage `lib/rxdb/**` stabil. ADR-036 setzt zusätzlich den Framework-Rahmen für M5c (Sub-Schritt-Aufteilung 1a/1b/2/3/4, RxDB als Single Source, Mutationen über RxDB-Push, eigene Edit-Route, Participants als künftige Sync-Collection).
+- **Nächster Schritt:** M5c.1b (Participants als RxDB-Sync-Collection mit eigenem Endpoint, Migration `event_participant`, Pydantic/JSON-Schemas, Drift-Test-Erweiterung). Danach M5c.2 (chronologische Detail-Anzeige + Maskierung), M5c.3 (nachträgliche Erfassung), M5c.4 (Edit-UI).
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -61,7 +61,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [OFFEN]     |
+| 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [IN ARBEIT] |
+| 1 MVP   | M5c.1a      | └─ Detail-Page Client-only + REST-Once-Read Participants | [ERLEDIGT] 2026-04-27 |
+| 1 MVP   | M5c.1b      | └─ Participants als RxDB-Collection (Sync-Endpoint) | [OFFEN]     |
+| 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [OFFEN]     |
+| 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [OFFEN]     |
+| 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [OFFEN]     |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
@@ -777,21 +782,98 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Ziel:** Sekundärer Modus für Events, die nicht live erfasst wurden, plus Bearbeitung bestehender Events.
 
-**Deliverables:**
-- Schalter „Nachträglich erfassen" auf der Startseite.
-- Identisches Formular wie Live-Modus, aber alle Zeitstempel manuell editierbar.
-- Bearbeitung bestehender Events: alle Felder editierbar entsprechend der Rolle (Admin alles, Editor nur eigene).
-- Event-Detailseite mit chronologischer Anzeige aller Applications inkl. Lücken zwischen ihnen.
-- Respektiert `reveal_participants`: zeigt „+N weitere" statt Namen, wenn Flag false.
-- **Übernommen aus M5b.4 (ADR-035 §C, ADR-034 §K):** `(protected)/events/[id]/page.tsx` von Server-Side-Render auf Client-only umstellen, damit Offline-Inserts mit direkter Navigation keinen 404-Race mehr produzieren. `event.participants` als reaktive RxDB-Subscription statt Server-Side-Snapshot, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden.
+**Sub-Schritt-Aufteilung (freigegeben 2026-04-27, ADR-036 §A):** Fünf Sub-Schritte (1a/1b/2/3/4); 1a/1b spalten den ursprünglich einzeln geplanten Detail-Page-Refactor in „SSR-Entfernung ohne Migration" und „Participants als RxDB-Collection", damit jede PR fokussiert bleibt.
 
-**Akzeptanzkriterien:**
+**Deliverables (Gesamt-M5c):**
+- Schalter „Nachträglich erfassen" auf der Startseite (M5c.3).
+- Identisches Formular wie Live-Modus, aber alle Zeitstempel manuell editierbar (M5c.3).
+- Bearbeitung bestehender Events: alle Felder editierbar entsprechend der Rolle (Admin alles, Editor nur eigene) (M5c.4).
+- Event-Detailseite mit chronologischer Anzeige aller Applications inkl. Lücken zwischen ihnen (M5c.2).
+- Respektiert `reveal_participants`: zeigt „+N weitere" statt Namen, wenn Flag false (M5c.2).
+- **Übernommen aus M5b.4 (ADR-035 §C, ADR-034 §K):** `(protected)/events/[id]/page.tsx` von SSR auf Client-only umstellen (M5c.1a) und `event.participants` als reaktive RxDB-Subscription führen (M5c.1b).
+
+**Akzeptanzkriterien (Gesamt-M5c):**
 - Erfassen, bearbeiten, löschen funktioniert entsprechend der Rolle.
 - `reveal_participants`-Verhalten korrekt umgesetzt.
 - Lücken zwischen Applications sind in der Detailansicht ablesbar.
 - Detail-Page rendert Offline-Inserts ohne Server-Round-Trip (kein 404 mehr direkt nach Insert).
 
 **Abhängigkeiten:** M5a, M5b.
+
+#### M5c.1a — Detail-Page Client-only + REST-Once-Read Participants
+
+**Status:** [ERLEDIGT] 2026-04-27
+
+**Status `[ERLEDIGT]` 2026-04-27 (M5c.1a, Detail-Page Client-only):**
+
+- **Page-Refactor** in `frontend/src/app/(protected)/events/[id]/page.tsx`: `"use client"`, `useParams<{id}>()` für die Route, `useMe()` für Auth (TanStack Query gegen `/api/users/me`), `useRouter().replace()` für den Login-Redirect.
+- **Drei async Datenquellen, ein Render-Baum:**
+  - RxDB-Subscription auf `database.events.findOne(id).$` mit Resolved-Flag (unterscheidet „RxDB hat noch nicht geantwortet" von „RxDB hat es nicht").
+  - One-Shot REST-Fetch via `apiFetch<EventDetail>` für `plus_code` und `participants`.
+  - `useMe()` für Auth-Status.
+- **Render-Entscheidungsbaum** (ADR-036 §H): Skeleton bei Loading; `notFound()` bei Hard-404 (RxDB null UND REST 404); REST-Detail bei Online-Reload (`LiveEventView` / `EndedEventView` mit Server-Daten); synthetisierter `EventDetail` aus RxDB-Doc bei REST-Fehler/404 mit RxDB-Treffer (Offline-Insert-Fall, `plus_code` und `participants` leer bis M5c.1b).
+- **Bestehende Komponenten unverändert:** `LiveEventView` (M5b.3) und `EndedEventView` (M5a.3-Stub) werden weiter benutzt; der Refactor liegt ausschließlich auf der Page-Ebene.
+- **5 neue Component-Tests** in `tests/event-detail-page.test.tsx`: Loading-Skeleton, REST-OK, RxDB-Fallback bei REST-404, Hard-404, Anonymous-Redirect. Frontend-Suite **65/65 grün** (zuvor 60). ESLint, `tsc --noEmit`, `next build` clean.
+- **Coverage** `lib/rxdb/**` stabil bei 92.43 % Lines / 80 % Branches / 100 % Functions (CI-Threshold 80/70/80 weiterhin erfüllt).
+- **Bundle:** `/events/[id]` First-Load 272 kB (zuvor 271 kB) — Client-Component-Logik kostet ~5 kB pro Page; im Rahmen.
+- **Keine Backend-Änderung, keine Migrations, keine neuen Endpoints, keine neuen Dependencies, keine RLS-Anpassung.**
+- **Bewusst akzeptiert (für M5c.1b):** Bei reinem Offline-Insert mit direkter Navigation bleiben `participants` und `plus_code` leer; reactive Auto-Participant-Updates kommen erst mit der `event_participant`-Sync-Collection.
+- ADR-036 dokumentiert das M5c-Framework (Sub-Schritt-Aufteilung 1a/1b/2/3/4, RxDB als Single Source, Mutationen über RxDB-Push, eigene Edit-Route, Participants als künftige Sync-Collection) plus die elf Detail-Entscheidungen für M5c.1a.
+
+**Deliverables (Soll, alle erfüllt):**
+- `(protected)/events/[id]/page.tsx` als Client Component (`"use client"`).
+- RxDB-Subscription + One-Shot REST-Fetch via `apiFetch<EventDetail>` als Datenquellen.
+- `useMe()` ersetzt `getServerMe()`; Login-Redirect via `useRouter().replace()`.
+- Render-Entscheidungsbaum für die vier Zustände.
+- Frontend-Component-Test mit den fünf Szenarien.
+
+**Akzeptanzkriterien (alle erfüllt):**
+- Online-Reload funktioniert wie bisher.
+- Offline-Insert-mit-direkter-Navigation rendert das Event aus RxDB (statt 404).
+- Hard-404 zeigt Next.js-NotFound.
+- Frontend-Suite + Coverage-Threshold `lib/rxdb/**` ≥ 80 % grün.
+- ESLint, `tsc --noEmit`, `next build` clean.
+
+**Abhängigkeiten:** M5b.
+
+#### M5c.1b — Participants als RxDB-Collection (Sync-Endpoint)
+
+**Status:** [OFFEN]
+
+**Scope:** `event_participant` sync-fähig machen + neue Pull/Push-Endpoints + Frontend-RxDB-Collection. Detail-Page von REST-Once-Read auf RxDB-Subscription umstellen.
+
+**Deliverables:**
+- Alembic-Migration `event_participant`: surrogate `id uuid` PK, `updated_at`, `is_deleted`, `deleted_at`, `(updated_at, id)`-Cursor-Index, Cascade-Trigger Event→Participants beim Soft-Delete.
+- Backend Pydantic `EventParticipantDoc` + JSON-Schema-Datei, Pull/Push-Routen `/api/sync/event-participants/{pull,push}`, RLS-Policy.
+- Frontend-RxDB-Collection `event_participants` + Replication-Eintrag in `lib/rxdb/replication.ts`.
+- Detail-Page liest Participants reactive aus RxDB.
+- Drift-Test um neue Collection erweitert.
+
+**Abhängigkeiten:** M5c.1a.
+
+#### M5c.2 — Chronologische Detail-Anzeige + reveal_participants-Maskierung
+
+**Status:** [OFFEN]
+
+**Scope:** Einheitliche `EventDetailView` für laufende und beendete Events; sichtbare Lücken zwischen Applications; Frontend-Sicherheitsgürtel zusätzlich zur Backend-Maskierung in `app/services/masking.py`.
+
+**Abhängigkeiten:** M5c.1b.
+
+#### M5c.3 — Nachträgliche Erfassung (Schalter + manuelle Zeitstempel)
+
+**Status:** [OFFEN]
+
+**Scope:** Startseite-Schalter „Nachträglich erfassen", Form mit editierbaren `started_at` / `ended_at`-Feldern für Event und Applications, monotone Zeit-/Sequenz-Validierung.
+
+**Abhängigkeiten:** M5c.2.
+
+#### M5c.4 — Event-/Application-Bearbeitung (Edit-UI)
+
+**Status:** [OFFEN]
+
+**Scope:** `/events/[id]/edit`-Pfad für Editor/Admin-Rollen; Inline-Application-Edit via Sheet; Soft-Delete via RxDB-Push.
+
+**Abhängigkeiten:** M5c.3.
 
 ---
 

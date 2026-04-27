@@ -9,6 +9,43 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5c.1a — Detail-Page Client-only + REST-Once-Read Participants (ADR-036):**
+  Erster Sub-Schritt von M5c. Beendet die SSR-Detail-Page; das M5b.4-
+  Offline-Insert-mit-direkter-Navigation-Symptom (404 auf der
+  Server-Side-Detail-Page, ADR-035 §C / ADR-034 §K) ist damit für den
+  häufigen Fall (Online-Reload nach Offline-Insert) behoben.
+  - **Page als Client Component:** `(protected)/events/[id]/page.tsx`
+    nutzt jetzt `"use client"`, `useParams<{id}>()` für die Route,
+    `useMe()` für Auth (statt `getServerMe()`), `useRouter().replace()`
+    für den Login-Redirect.
+  - **Drei Datenquellen, ein Render-Baum:** RxDB-Subscription auf
+    `events.findOne(id).$` mit Resolved-Flag, One-Shot-REST-Fetch auf
+    `/api/events/{id}` für `plus_code` und `participants`, Auth-Hook.
+    Der Entscheidungsbaum (ADR-036 §H) deckt vier Zustände ab:
+    Skeleton bei Loading, `notFound()` bei Hard-404 (beide Quellen
+    leer), REST-Daten bei Online-Reload, oder synthetisierter
+    `EventDetail` aus dem RxDB-Doc bei REST-Fehler/404 mit RxDB-
+    Treffer (Offline-Insert-Fall).
+  - **Bestehende Komponenten unverändert:** `LiveEventView` und
+    `EndedEventView` werden weiter benutzt — der Refactor liegt
+    ausschließlich auf der Page-Ebene.
+  - **5 neue Component-Tests** in `tests/event-detail-page.test.tsx`
+    pinnen den Entscheidungsbaum: Loading-Skeleton, REST-OK,
+    RxDB-Fallback bei REST-404, Hard-404, Anonymous-Redirect.
+    Frontend-Suite **65/65 grün** (zuvor 60), Coverage `lib/rxdb/**`
+    stabil bei 92.43 % Lines / 80 % Branches / 100 % Functions.
+    ESLint, `tsc --noEmit`, `next build` clean.
+  - **Bewusst noch offen (für M5c.1b):** `participants` und `plus_code`
+    bleiben bei reinem Offline-Insert leer, bis die `event_participant`-
+    Sync-Collection nachgezogen wird. Backend-Auto-Participant-Trigger
+    erscheint erst nach erstem Event-Pull-Roundtrip.
+  - **Keine Backend-Änderung in M5c.1a:** keine Migrations, keine neuen
+    Endpoints, keine neuen Dependencies, keine RLS-Policies. ADR-036
+    legt den Framework-Rahmen für M5c (Sub-Schritt-Aufteilung 1a/1b/2/
+    3/4, RxDB als Single Source of Truth, Mutationen via RxDB-Push,
+    eigene Edit-Route, Participants als künftige Sync-Collection) als
+    Dach für die folgenden Sub-Schritte fest.
+
 - **M5b.4 — E2E-Offline-Test + Coverage-Tooling (ADR-035):**
   Schließt die M5b-Sub-Schritt-Reihe. Damit ist die Offline-Resilienz
   von Live-Modus → RxDB → Backend End-to-End nachgewiesen.

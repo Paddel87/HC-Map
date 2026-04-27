@@ -64,6 +64,7 @@ Status-Legende:
 | ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
 | ADR-037 | Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection) | Accepted | 2026-04-27 |
 | ADR-038 | Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung) | Accepted | 2026-04-27 |
+| ADR-039 | Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)                | Accepted | 2026-04-27 |
 
 ---
 
@@ -3100,6 +3101,71 @@ Backend-Maskierung in `app/services/masking.py` bleibt unverändert; sie ist die
 - M5c.3 (Nachträgliche Erfassung) nutzt dieselbe `EventDetailView` als Read-Pfad nach dem Speichern.
 - M5c.4 (Edit-UI) ergänzt einen separaten Edit-Pfad `/events/[id]/edit`; `EventDetailView` bleibt Read-only.
 - M6 (Karte) kann den `maskParticipants`-Helper im Popup-Renderer wiederverwenden.
+
+---
+
+## ADR-039 — Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+Der Live-Modus (M5a.3) ist die primäre Erfassungsansicht; nachträgliche Erfassung wurde von Anfang an als sekundärer Modus gescoped (ADR-011, Fahrplan §M5c). M5c.3 schließt diese Lücke: Events ohne GPS-now-Workflow erfassen können, mit selbst gesetzten Zeitstempeln für Event und Applications.
+
+### Entscheidungen
+
+**A. Eigene Route `/events/new/backfill` statt Query-Param.**
+Der Live-Pfad bleibt unverändert auf `/events/new`. Die nachträgliche Erfassung bekommt einen eigenen Pfad, weil das Form-Verhalten (editierbare Zeitstempel, mehrere Applications direkt im Submit) deutlich abweicht. Sauberer Test-Anker (`event-backfill-form.test.tsx`), klare Navigation, kein konditionaler Render-Pfad in einer Datei.
+
+**B. Eigene Komponente `EventBackfillForm`.**
+Datei `frontend/src/components/event/event-backfill-form.tsx` (neu); `EventCreateForm` bleibt als Live-Form unangetastet. Doppelter Code für die Cards (Standort, Recipient) ist akzeptabel — beide Formulare könnten in M5c.4 oder später zu einem gemeinsamen Form-Skelett zusammengeführt werden, falls die Pflege der zwei Formulare lästig wird. Aktuell überwiegt die Klarheit pro Form.
+
+**C. Zeitstempel-Inputs als HTML5 `datetime-local`.**
+Standard-Browser-Widget, keine zusätzliche Dependency. Kommt mit Mobile-Datepickern auf iOS/Android gratis. Konvertierung zu/von ISO-8601 in der Form-Logik. Edge-Case: Browsern, die `datetime-local` nicht unterstützen, fällt das Widget auf ein Text-Feld zurück — akzeptabel für die kleine Pfad-A-Gruppe.
+
+**D. Application-Erfassung als wachsende Liste.**
+Innerhalb des Backfill-Forms ist eine Liste von Applications, jede mit `started_at`, `ended_at`, `recipient`, `note`. Ein „+ Application hinzufügen"-Button hängt eine leere Zeile an; ein „Entfernen"-Button (Trash-Icon) löscht eine Zeile. Mindestens null Applications erlaubt (manche Events sind nur Marker ohne Sequenz).
+
+**E. Submit-seitige Validierung mit inline-Fehlermeldungen + Toast-Zusammenfassung.**
+Zwei Ebenen:
+1. **Pflichtfelder:** Standort gesetzt, Event-`started_at` gesetzt; pro Application: `started_at` + Recipient.
+2. **Konsistenz:**
+   - Event: `ended_at >= started_at`, falls beide gesetzt.
+   - Applications: `ended_at >= started_at`, falls beide gesetzt.
+   - Applications: `started_at >= event.started_at` und `ended_at <= event.ended_at`, falls beide Event-Grenzen gesetzt.
+   - Applications: nicht-überlappend in Reihenfolge ihrer `started_at`. `app[i].ended_at <= app[i+1].started_at`. Bei Verletzung: präzise Zeile + Lücke benannt.
+Validierung läuft synchron im Submit-Handler, nicht reactive — ergibt klare Toast-Sammelmeldung („3 Probleme: …") plus per-Zeile-Markierung.
+
+**F. Server-vergebene `sequence_no`.**
+Der Client sortiert die Applications beim Submit nach `started_at` und sendet sie mit lokaler `sequence_no = index+1`. Backend überschreibt die Nummer wie immer (ADR-029 §sequence_no). Heißt: die UI zeigt ein „Nr."-Label nicht — die Reihenfolge ergibt sich beim Speichern aus der `started_at`-Sortierung.
+
+**G. Schreibpfad: dieselbe RxDB-Insertion wie Live.**
+`database.events.insert(...)` mit den editierten Zeitstempeln, dann sequenziell `database.applications.insert(...)` pro Anwendung. Auto-Participant-Trigger und Sync-Replication funktionieren unverändert. Offline-Fähigkeit kommt damit kostenlos: Backfill-Inserts landen erst in IndexedDB, dann beim nächsten Push auf dem Server.
+
+**H. Dashboard-Schalter.**
+Auf der Startseite (`(protected)/page.tsx`) wird der bestehende „Neues Event starten"-Button als primärer Call-to-Action belassen; daneben kommt ein sekundärer Button „Nachträglich erfassen" mit ghost/secondary-Variante. Roll-out-Sichtbarkeit für Editor und Admin (analog Live-Form); Viewer sehen den Schalter nicht.
+
+**I. Bestehende Routen unverändert.**
+Keine Backend-Änderung, keine API-Vertragsänderung. Backend RLS und Sync-Push akzeptieren Events mit beliebigen Zeitstempeln (ADR-029 §immutable-after-create — der erste Push fixiert; spätere Edits sind M5c.4-Territorium).
+
+**J. Tests.**
+- `tests/event-backfill-form.test.tsx`: Pflichtfeld-Validierung (Standort fehlt, started_at fehlt), Konsistenz-Validierung (`ended_at < started_at`, App-Überlappung), erfolgreicher Submit-Flow mit zwei Applications (verifiziert RxDB-Insertion und sortierte sequence_no), Recipient-Default (Self-Bondage wenn Recipient leer).
+- Dashboard-Test (`tests/dashboard-buttons.test.tsx` — neu): die zwei Buttons existieren für Editor/Admin, fehlen für Viewer. Falls die Snapshot-Pflege zu sperrig wird, kann dieser Test auch entfallen — der Live-Button-Pfad ist bereits implizit getestet.
+
+**K. Validierungs-Helper als reine Funktion.**
+`lib/event-backfill-validation.ts`: `validateBackfill(input): { valid: true } | { valid: false; errors: BackfillError[] }`. Trennt Validierung von der Komponente — testbarer und in M5c.4 (Edit-UI) wiederverwendbar.
+
+### Verworfene Alternativen
+
+- **Mode-Prop auf `EventCreateForm`:** Hätte einen Toggle in einer Komponente erfordert, mit konditionalen Inputs und Submit-Pfaden. Schnell unübersichtlich. Eigene Komponente bleibt schlanker.
+- **react-hook-form + zod:** Beide Bibliotheken sind bereits Deps, würden aber das bestehende `EventCreateForm`-Pattern (raw `useState` + Submit-Validierung) brechen. Konsistenz schlägt Eleganz hier.
+- **Custom Calendar-Picker-Lib:** Neuer Dev-Dep nicht gerechtfertigt für eine niedrigfrequente Erfassung. Browser-natives `datetime-local` reicht.
+- **Sequenz-Editor mit Drag-and-Drop:** Über-engineered. Beim Submit nach `started_at` sortieren ist deterministisch und scheidet Anwender-Fehlbedienung aus.
+
+### Folge-Arbeit
+
+- M5c.4 (Bearbeitung) kann den `validateBackfill`-Helper für die Edit-UI wiederverwenden.
+- Spätere UI-Iteration kann `EventCreateForm` und `EventBackfillForm` zu einem gemeinsamen Skelett zusammenfassen, sobald die Anforderungen stabilisiert sind.
 
 ---
 

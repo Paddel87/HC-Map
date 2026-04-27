@@ -9,6 +9,64 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5c.3 — Nachträgliche Erfassung (ADR-039):**
+  Vierter Sub-Schritt von M5c. Schließt das Fahrplan-Akzeptanz-
+  kriterium „Schalter ‚Nachträglich erfassen' auf der Startseite +
+  Form mit manuellen Zeitstempeln + monotone Zeit-/Sequenz-
+  Validierung". Live-Pfad bleibt unverändert.
+  - **Neue Route** `/events/new/backfill`
+    (`(protected)/events/new/backfill/page.tsx`); Editor/Admin-Sicht
+    analog Live-Form, Viewer per Server-Redirect ausgeblendet.
+  - **`EventBackfillForm`-Komponente:** Standort + Recipient-Cards
+    wie im Live-Form, plus neue „Zeitraum"-Card mit zwei
+    `datetime-local`-Inputs für Event-`started_at` (Pflicht) und
+    `ended_at` (optional), plus wachsende Application-Liste — pro
+    Zeile `started_at`, `ended_at`, Recipient, Notiz; Add-Button
+    hängt eine Zeile an (Start mit Event-Start vorbelegt für UX),
+    Trash-Button entfernt sie.
+  - **Submit-Pfad:** `validateBackfill` synchron, dann
+    `database.events.insert(...)` + Applications chronologisch
+    sortiert mit `sequence_no = i+1` (Server überschreibt beim Push,
+    ADR-029). Keine Backend-Änderung — Auto-Participant-Trigger und
+    Sync-Replication funktionieren wie gehabt; Offline-Fähigkeit
+    kommt automatisch aus dem RxDB-Schreibpfad.
+  - **`lib/event-backfill-validation.ts` als pure Funktion**
+    (ADR-039 §K, M5c.4-wiederverwendbar):
+    - Pflichtfelder: Standort, Event-`started_at`, pro App
+      `started_at` + Recipient.
+    - Konsistenz: Event `ended_at >= started_at`; App
+      `ended_at >= started_at`; App-Grenzen liegen innerhalb des
+      Event-Zeitraums; Applications nicht-überlappend nach
+      `started_at`-Sortierung. Berührende Enden
+      (`a.ended_at === b.started_at`) sind keine Überlappung.
+    - Convenience-Funktionen `errorsForApplication(uiId)` und
+      `errorsForEvent()` für die UI-Render-Hooks.
+  - **Dashboard-Schalter:** zweiter Button „Nachträglich erfassen"
+    mit `secondary`-Variante neben dem primären „Neues Event
+    starten"-CTA in `(protected)/page.tsx`. `data-testid`-Anker für
+    künftige Dashboard-Tests.
+  - **Tests** (16 neu, alle grün):
+    - `tests/event-backfill-validation.test.ts` (11): Event-
+      Pflichtfelder, Event-Konsistenz, App-Pflichtfelder, App-
+      Konsistenz, App-Grenzen (vor/nach Event), App-Überlappung,
+      sortierter Happy Path, berührende Enden = kein Konflikt.
+    - `tests/event-backfill-form.test.tsx` (5): Submit-Block ohne
+      Standort, Submit-Block ohne Event-`started_at`, Inline-Fehler
+      bei fehlendem Recipient, Add/Remove-Application-Rows, Happy
+      Path mit zwei Applications + chronologisch sortierter Insert-
+      Reihenfolge + `sequence_no = 1..N`.
+  - **Frontend-Suite 94/94 grün** (zuvor 78; +16). Coverage
+    `lib/rxdb/**` stabil bei 92.42 % Lines / 81.66 % Branches /
+    100 % Functions. ESLint, `tsc --noEmit`, `next build` clean.
+  - **Bundle:** neue Route `/events/new/backfill` First-Load
+    263 kB (`/events/new` Live: 261 kB) — minimaler Mehraufwand, da
+    fast alle Dependencies geteilt werden.
+  - **Keine Backend-Änderung in M5c.3:** keine Migrations, keine
+    neuen Endpoints, keine neuen Dependencies, keine RLS-Anpassung.
+  - ADR-039 dokumentiert die elf Detail-Entscheidungen,
+    `architecture.md` § Frontend um die neue Route + Komponente
+    erweitert.
+
 - **M5c.2 — Unified EventDetailView + Lücken-Anzeige + Frontend-Maskierung (ADR-038):**
   Dritter Sub-Schritt von M5c. Erfüllt zwei Fahrplan-Akzeptanz-
   kriterien auf einen Schlag: chronologische Application-Liste mit

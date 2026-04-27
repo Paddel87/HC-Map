@@ -648,7 +648,7 @@ Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Rou
 
 | Methode | Pfad                       | Rolle | Zweck                                |
 |---------|----------------------------|-------|--------------------------------------|
-| GET     | `/api/geocode?q=...`       | alle  | Proxy zu MapTiler-Geocoding (Key serverseitig, Rate-Limit pro User) |
+| GET     | `/api/geocode?q=...`       | alle  | Proxy zu MapTiler-Geocoding (Key serverseitig, In-Memory-Token-Bucket pro User: 30 req/min, ADR-041 §B/§D). Optionale Parameter: `proximity=lat,lon`, `limit=<1..10>`. Antwort = MapTiler-GeoJSON-FeatureCollection 1:1. |
 
 ### Tile-Proxy (optional)
 
@@ -751,7 +751,7 @@ Schutz via Middleware (Next.js `middleware.ts`): prüft Session-Cookie + Rolle p
 - `components/map/MapView.tsx` als Wrapper um `react-map-gl`.
 - Tile-URL aus ENV (`NEXT_PUBLIC_TILE_URL`), in Phase 1 `/api/tiles/{z}/{x}/{y}` (Backend-Proxy), in Phase 2 lokaler Tileserver.
 - Marker als React-Komponenten via `react-map-gl/Marker`.
-- Clustering via `supercluster`.
+- Clustering nativ über MapLibre-`cluster: true`-Source (siehe ADR-041 §C). `supercluster` wurde verworfen — bei Pfad-A-Datenmenge < 5.000 Events bringt es keinen Mehrwert gegenüber MapLibre-nativem Cluster.
 - State (Viewport) mit URL-Sync (next/navigation `useSearchParams`).
 
 ### Plus-Code-Handling

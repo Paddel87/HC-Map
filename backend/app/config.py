@@ -61,6 +61,16 @@ class Settings(BaseSettings):
         description="MapTiler map style identifier used for tile URLs.",
     )
 
+    # --- Geocoding (M6.1, ADR-041 §B/§D) -------------------------------
+    geocode_rate_per_minute: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Per-user token-bucket limit for /api/geocode requests "
+            "(rolling 60 s window). 0 disables rate limiting."
+        ),
+    )
+
 
 def get_settings() -> Settings:
     """Return a fresh Settings instance.

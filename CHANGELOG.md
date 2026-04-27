@@ -9,6 +9,229 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.5 — Geocoding-Suchbox in `MapView` (ADR-041 §J):**
+  Letzter M6-Sub-Step. Adress-Eingabe oben links, fliegt die Karte
+  an. **M6 vollständig abgeschlossen.**
+  - Neue Komponente
+    [components/map/geocode-search-box.tsx](frontend/src/components/map/geocode-search-box.tsx):
+    - Debounce 300 ms, Mindestlänge 2 Zeichen.
+    - `GET /api/geocode?q=…&proximity=<lat>,<lon>&limit=5` über
+      `apiFetch` (M6.1-Endpoint).
+    - Optionaler `getProximity`-Callback liefert die aktuelle
+      Viewport-Mitte als Bias; Stale-Response-Filter via
+      `requestSeq`-Ref (späte Antworten werden verworfen).
+    - Treffer-Dropdown mit `place_name`; Auswahl ruft
+      `onSelect(lat, lon)` und schließt das Dropdown.
+    - Fehler-Toast-Mapping über `ApiError.status`:
+      - 429 → „Geocoding-Limit erreicht"
+      - 503 → „Adress-Suche nicht konfiguriert"
+      - 502 → „Adress-Suche nicht erreichbar"
+      - sonst → generische Fehlermeldung
+      In jedem Fall funktioniert die Karte weiter.
+    - X-Button leert die Eingabe.
+  - **`MapView`-Integration**:
+    - `mapRef.current.flyTo({ center: [lon, lat], zoom: 14 })` bei
+      Treffer-Auswahl; Viewport-Update wird zusätzlich in den
+      debounced URL-Write geschoben, damit die geflogene Position
+      teilbar bleibt.
+    - SearchBox + Filter-Toggle teilen sich einen
+      Top-Left-Container (`flex flex-col gap-2 sm:flex-row`).
+    - `getProximity` liefert den aktuellen `viewportRef`-Stand
+      (oder `null`, wenn weder URL noch Pan/Zoom je etwas gesetzt
+      haben).
+  - **Tests:** +13 Cases —
+    - 10 in
+      [geocode-search-box.test.tsx](frontend/tests/geocode-search-box.test.tsx):
+      Mindestlänge, Debounce auf finalen Wert (echte Timer +
+      `waitFor`), Proximity-Forwarding mit `lat,lon`-Encoding,
+      Treffer-Auswahl, Empty-Hint, je ein Toast-Test für 429 / 503
+      / 502, X-Clear, Stale-Response-Drop.
+    - 3 zusätzliche in `map-view.test.tsx`: flyTo bei Treffer-Klick
+      (Map-Mock mit `forwardRef` + `useImperativeHandle` für
+      `flyTo`), Proximity-Forwarding aus URL-Viewport, `null`-
+      Proximity ohne URL-Viewport.
+  - **Frontend-Suite:** 194/194 grün (+13), Lint/Typecheck clean.
+  - Production-Build grün, `/map` 13.7 kB / 252 kB First Load
+    (+1.4 kB).
+  - **M6 Gesamtbilanz:** 5 Sub-Steps, 1 Backend-Endpoint, 8 neue
+    Frontend-Module, **77 neue Tests** seit M5c (Backend-Suite
+    150/150, Frontend-Suite 194/194), Coverage `lib/map/**`
+    99.12 % Lines / 93.1 % Branches.
+
+- **M6.4 — Filter (Zeitraum, Beteiligte) + URL-Viewport-Sync (ADR-041 §H/§I):**
+  Karte teilbar per Link, Filter wirken sofort.
+  - **URL-State-Codec**
+    [lib/map/url-state.ts](frontend/src/lib/map/url-state.ts):
+    `parseMapUrlState` / `serializeMapUrlState` für `lat`/`lon`/`zoom`/
+    `from`/`to`/`p`-Komma-UUIDs. Out-of-Range / malformierte Inputs
+    werden silent verworfen (geteilte URLs sollen nicht crashen).
+    `filtersEqual`-Vergleich für Skip-Logik.
+  - **Filter-Logik**
+    [lib/map/event-filter.ts](frontend/src/lib/map/event-filter.ts):
+    `applyEventFilter` wendet Datumsbereich (UTC-Tagesgrenzen,
+    inklusiv) und Beteiligte (OR-Verknüpfung) auf
+    `MappableEvent[]` an. `buildParticipantsIndex` baut aus
+    RxDB-`event_participants` einen `Map<event_id, Set<person_id>>`.
+    `filtersAreEmpty`-Helper für UI-Status.
+  - **`MapFilterPanel`**
+    [components/map/map-filter-panel.tsx](frontend/src/components/map/map-filter-panel.tsx):
+    `Sheet`-Drawer rechts mit zwei `<input type="date">` und
+    Personen-Multi-Select. Personen kommen aus dem bestehenden REST
+    `/api/persons` (TanStack Query, `enabled: open`, `staleTime`
+    60 s) — RxDB synct keine Persons (ADR-037), das ist die
+    bewusste Online-Abhängigkeit der Filter-UI; Karte selbst
+    funktioniert weiter, wenn der Endpoint nicht erreichbar ist.
+  - **`MapView`-Integration**:
+    - Initial-Viewport + Filter werden aus `useSearchParams` gelesen.
+    - Pan/Zoom (`onMoveEnd`) triggert debounced
+      `router.replace({ scroll: false })` (300 ms,
+      `URL_DEBOUNCE_MS`).
+    - Filter-Änderungen aus dem Panel schreiben sofort in die URL.
+    - URL-Änderungen von außen (Browser-Back/Forward) propagieren
+      über `useSearchParams` zurück in den Filter-State.
+    - `event_participants`-RxDB-Subscription (Selector
+      `_deleted=false`) feeds the participants index für den Filter.
+    - Status-Bar zeigt „X von Y Events (gefiltert)" wenn Filter
+      aktiv, sonst „X Events sichtbar".
+    - Filter-Toggle-Button oben links färbt sich primary, wenn
+      Filter aktiv.
+  - **Tests:** +46 Cases —
+    - 18 für URL-State-Codec
+      ([map-url-state.test.ts](frontend/tests/map-url-state.test.ts)):
+      Parse / Drop von Out-of-Range-Werten, ISO-Date-Validierung,
+      UUID-Validierung + Lowercasing, Round-Trip, `filtersEqual`.
+    - 14 für Filter-Logik
+      ([map-event-filter.test.ts](frontend/tests/map-event-filter.test.ts)):
+      `from`/`to`-Inklusivität, AND-Verknüpfung Datum + Personen,
+      OR über mehrere Personen, Tombstone-Filter im Index.
+    - 9 für FilterPanel
+      ([map-filter-panel.test.tsx](frontend/tests/map-filter-panel.test.tsx)):
+      Lazy-Load (kein Fetch wenn `open=false`), Datum-Edits,
+      Toggle/Untoggle Personen, Search-Filter, Reset, Close.
+    - 5 zusätzliche in `map-view.test.tsx`: URL-Viewport-Seed,
+      Default-Center, Filter-Seed aus URL, Filter-Anwendung,
+      debounced URL-Write (Fake-Timers, kollabierte Bewegungen).
+  - **Coverage `lib/map/**`:** **99.12 % Lines / 93.1 % Branches**
+    (vorher 97.89 / 85.71). `event-filter.ts` und `url-state.ts`
+    laufen je 100 % Lines.
+  - **Frontend-Suite:** 181/181 grün (+46), Lint/Typecheck clean,
+    Production-Build grün (`/map` 12.3 kB / 242 kB First Load,
+    +0.8 kB).
+
+- **M6.3 — Native MapLibre-Cluster im `MapView` (ADR-041 §C):**
+  Clustering ohne `supercluster`-Dependency.
+  - **Refactor [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):**
+    Per-Event-Marker-Schleife wird durch eine GeoJSON-`Source`
+    (`cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`) mit
+    drei Layern ersetzt:
+    - `events-clusters` — Kreis-Layer mit Step-Expression auf
+      `point_count` (Farbe + Radius staffeln nach 10 / 30 Punkten).
+    - `events-cluster-count` — Symbol-Layer mit
+      `point_count_abbreviated` (weiße Zahl auf Kreis).
+    - `events-unclustered` — Kreis-Layer für einzelne Events.
+  - **Click-Handler:** `interactiveLayerIds = ['events-clusters',
+    'events-unclustered']`. Cluster-Klick ruft
+    `getClusterExpansionZoom(cluster_id)` und `easeTo({ center, zoom })`.
+    Unclustered-Klick liest `properties.id` und öffnet das Popup wie
+    in M6.2.
+  - **Neuer Pure-Helper `eventsToGeoJSON`** in
+    [lib/map/event-marker-data.ts](frontend/src/lib/map/event-marker-data.ts):
+    konvertiert `MappableEvent[]` in eine `FeatureCollection`.
+    Verantwortlich für die Lat/Lon → `[lon, lat]` Konvention nach
+    GeoJSON-Spec — der Flip findet hier und nur hier statt.
+  - **Tests:** +8 Cases —
+    - 5 für `eventsToGeoJSON` (leere Liste, Koordinaten-Flip,
+      Property-Projektion, `null`-`ended_at`, Reihenfolge).
+    - 3 zusätzliche in `map-view.test.tsx` (Source-Konfiguration mit
+      Cluster-Flags + 3 Layer registriert; Cluster-Klick ruft
+      `getClusterExpansionZoom` + `easeTo`; nicht-interaktive
+      Features werden ignoriert).
+    `react-map-gl/maplibre` wird komplett gestubbt
+    (Map/Source/Layer/Popup/NavigationControl) — der `onClick` des
+    Map-Mocks wird ausgelesen und im Test direkt mit synthetischen
+    Features aufgerufen (jsdom hat kein WebGL, ADR-027 §J2-Pattern).
+  - **Coverage `lib/map/**`:** **97.89 % Lines / 85.71 % Branches**
+    (vorher 97.33 / 84.61).
+  - **Frontend-Suite:** 135/135 grün (+8), Lint/Typecheck clean.
+    Production-Build grün (`/map` 11.5 kB / 209 kB First Load,
+    +1.4 kB für Cluster-Logic).
+
+- **M6.2 — Frontend `MapView` (ADR-041 §E/§F/§G):**
+  Vollbild-Karte unter `/map` zeigt alle sichtbaren Events als Marker.
+  - Neue Komponente [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):
+    abonniert RxDB-`events` live (Selector `_deleted=false`), filtert
+    clientseitig auf gültige lat/lon-Range via `selectMappableEvents`,
+    rendert pro Event einen `react-map-gl/Marker`. Marker-Klick öffnet
+    `react-map-gl/Popup` mit `started_at` (lokal formatiert),
+    Koordinaten, Live-/Beendet-Status und „Detailseite öffnen →"-Link.
+    Status-Bar unten links zeigt die Marker-Anzahl.
+  - **`lib/map/` Verzeichnis** statt `lib/map.ts`: `style.ts`
+    (rasterTileStyle, DEFAULT_MAP_CENTER — unverändert),
+    `event-marker-data.ts` (neue pure-Function-Helfer
+    `selectMappableEvents` / `isMappableEvent`), `index.ts`
+    re-exportiert; bestehende Importe `@/lib/map` bleiben kompatibel.
+  - **Bewusste Scope-Reduktion gegenüber ADR-041 §G:**
+    - Recipient-Name **nicht** im Popup. Persons werden per ADR-037
+      nicht in RxDB synchronisiert, eine ADR-038-§F-konforme
+      Maskierung wäre offline daher nicht zuverlässig — die Detail-
+      seite enforced die Maskierung weiterhin.
+    - Plus-Code-Anzeige verschoben — braucht
+      `open-location-code`-Dependency, die als eigener
+      freigabepflichtiger Schritt nachgezogen wird.
+    - Beide Punkte sind im Fahrplan und im CHANGELOG explizit
+      gekennzeichnet, keine stille Auslassung.
+  - **Map-Page** [(protected)/map/page.tsx](frontend/src/app/(protected)/map/page.tsx):
+    Card-Platzhalter durch `MapView` Vollbreite ersetzt.
+  - **Tests:** 18 neue Cases —
+    [event-marker-data.test.ts](frontend/tests/event-marker-data.test.ts)
+    (10 Tests: Boundary-Validierung, Soft-Delete-Filter,
+    Out-of-Range, Projektion, Reihenfolge) und
+    [map-view.test.tsx](frontend/tests/map-view.test.tsx)
+    (8 Tests: Marker-Count, Empty-State, Loading-State,
+    Singular/Plural-Status, Popup-Open-Click, Live/Beendet-Anzeige,
+    Popup-Close). `react-map-gl/maplibre` wird via `vi.mock`
+    gestubbt (ADR-027 §J2-Pattern, jsdom hat kein WebGL).
+  - **Coverage:** Threshold `lib/map/**` ≥ 70 % aktiv in
+    `vitest.config.ts`; aktuell **97.33 % Lines / 84.61 % Branches**.
+  - **Frontend-Suite:** 127/127 grün (+18), Lint/Typecheck clean.
+
+- **M6.1 — Backend Geocoding-Proxy `GET /api/geocode` (ADR-041 §B/§D):**
+  Erste Iteration für M6 (Kartenansicht). Frontend wird in M6.5
+  konsumieren.
+  - Neuer Endpoint `GET /api/geocode?q=…&proximity=lat,lon&limit=N`.
+    Auth via `current_active_user` (Anonymous → 401), MapTiler-API-Key
+    bleibt serverseitig. Antwort = MapTiler-GeoJSON-FeatureCollection
+    1:1 durchgereicht.
+  - **Validierung:** `q` 1–200 Zeichen, `limit` 1–10 (Default 5),
+    `proximity` als `lat,lon` mit Range-Check (-90/90, -180/180);
+    Verstöße → 422.
+  - **Koordinaten-Übersetzung:** API erwartet projektkonform
+    `proximity=<lat>,<lon>`, beim Upstream-Aufruf wird auf MapTilers
+    `lon,lat`-Konvention umgedreht.
+  - **Rate-Limit:** in-memory Token-Bucket pro `user.id`, rolling
+    60 s, Default 30 req/min via `HCMAP_GEOCODE_RATE_PER_MINUTE`
+    (`0` deaktiviert). Überschreitung → 429 mit `Retry-After`.
+    Bewusst kein Redis (Single-Worker, <20 User, ADR-041 §D).
+  - **Fehler-Modi (analog Tile-Proxy):** fehlender API-Key → 503,
+    Upstream-Netzwerkfehler / 4xx / invalid JSON → 502.
+  - **Cache-Control:** `private, max-age=300` (5 min) — Adressen sind
+    nicht so flüchtig, Frontend debounced ohnehin.
+  - **HTTPX-`AsyncClient` als Process-Singleton** via `lru_cache`,
+    identisches Pattern wie Tile-Proxy; Tests injizieren einen Fake.
+  - **Tests:** 13 Cases in `tests/test_geocode_proxy.py` —
+    anonym/missing-key/Erfolg + Cache-Header/Proximity-Übersetzung/
+    Proximity-422/Limit-422/leeres `q`-422/Upstream-Netzwerkfehler/
+    Upstream-403/Upstream-Invalid-JSON/Rate-Limit-Block/
+    Rate-Limit-deaktiviert/Rate-Limit-Window-Rollover. Backend-Suite
+    gesamt **150/150 grün** (137 + 13), ruff/mypy clean.
+  - **Architektur-Update:** `architecture.md` §Karten-Komponente:
+    Clustering wechselt von `supercluster` auf native MapLibre-Cluster
+    (ADR-041 §C). Pfad-A-Datenmenge < 5.000 Events; eine Dependency
+    weniger.
+  - **`.env.example`:** neue Variable `HCMAP_GEOCODE_RATE_PER_MINUTE=30`
+    dokumentiert; Platzhalter-Eintrag `HCMAP_MAPTILER_GEOCODING_KEY`
+    entfernt (Geocoding nutzt denselben `HCMAP_MAPTILER_API_KEY`).
+
 - **M5c.4 — Edit-UI mit RxDB-Push, Soft-Delete und RBAC (ADR-040):**
   Schließt M5c. Mutationen laufen jetzt vollständig über RxDB-Push
   (ADR-036 §C); REST-PATCH-Endpoints aus M3 bleiben für SQLAdmin,

@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M5c vollständig [ERLEDIGT] 2026-04-27** — alle fünf Sub-Schritte abgeschlossen. M5c.4 schließt M5c mit dem Edit-Pfad: eigene Route `/events/[id]/edit` mit RBAC-Server-Redirect (Editor only own, Admin all, Viewer redirect), `EventEditForm` lädt Event + Applications einmal aus RxDB und patcht nur die geänderten Docs beim Submit. Editierbare Felder folgen ADR-029 (note, recipient, ended_at-FWW); immutable Felder (lat/lon/started_at/sequence_no/performer/positions) sind read-only oder bewusst aus dem Scope (ADR-040 §K). Soft-Delete via `doc.patch({_deleted: true})` mit `window.confirm`-Bestätigung; Event-Delete navigiert zum Dashboard. Edit-Button in `EventDetailView` mit `canEditEvent`-RBAC-Helper. Frontend **109/109 grün** (+15 Tests: 4 RBAC, 7 EditForm, 4 EventDetailView-RBAC-Visibility), Coverage `lib/rxdb/**` 92.42 % Lines stabil. Backend unverändert (137/137). ADR-040 dokumentiert die elf Detail-Entscheidungen.
-- **Nächster Schritt:** M6 (Kartenansicht) — Marker-Darstellung aller sichtbaren Events, Popup mit Kurzinfo, Clustering, Filter, URL-persistierter Viewport. Geocoding-Proxy ergänzen.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [ERLEDIGT] 2026-04-28** — alle fünf Sub-Schritte abgeschlossen. **M6.5 [ERLEDIGT] 2026-04-28**: `GeocodeSearchBox` (`components/map/geocode-search-box.tsx`) mit Debounce (300 ms), Mindestlänge 2, optionalem `getProximity`-Callback, Stale-Response-Filter via `requestSeq`-Ref, Treffer-Dropdown mit `place_name`, Auswahl ruft `onSelect(lat, lon)`. Fehler-Mapping: 429 → „Geocoding-Limit erreicht", 503 → „Adress-Suche nicht konfiguriert", 502 → „Adress-Suche nicht erreichbar", sonst generisch. `MapView` integriert: `mapRef`-`flyTo({ center: [lon, lat], zoom: 14 })` bei Treffer-Auswahl, Viewport+URL-Sync werden mitgepflegt. SearchBox + Filter-Toggle teilen sich einen Top-Left-Container (`flex flex-col gap-2 sm:flex-row`). Frontend-Suite **194/194 grün** (+13 Tests: 10 GeocodeSearchBox + 3 MapView-Integration: flyTo, proximity, null-proximity), Lint/Typecheck clean, Production-Build grün (`/map` 13.7 kB / 252 kB). **M6 vollständig abgeschlossen.**
+- **Nächster Schritt:** M7 (Katalog-Verwaltung & Vorschlags-Workflow) — Admin-CRUD-UI für RestraintType / ArmPosition / HandPosition / HandOrientation; Editor-Vorschlags-Workflow mit `status=pending`; rollenbasierte Sichtbarkeit.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -67,7 +67,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
+| 1 MVP   | M6          | Kartenansicht                                    | [ERLEDIGT] 2026-04-28 |
+| 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
+| 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [ERLEDIGT] 2026-04-27 |
+| 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [ERLEDIGT] 2026-04-27 |
+| 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
+| 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
@@ -994,30 +999,151 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 ---
 
-### M6 — Kartenansicht
+### M6 — Kartenansicht — [ERLEDIGT] 2026-04-28
 
 **Ziel:** Events werden auf einer Karte visualisiert.
 
 **Scope-Anpassung (2026-04-26):** MapLibre/`react-map-gl`-Integration, Tile-Proxy und Karten-Klick→Lat/Lon-Picker sind mit M5a vorgezogen (siehe ADR-022). M6 baut darauf auf und liefert die volle Listen-/Filter-/Popup-UX.
 
-**Deliverables:**
+**Implementierungs-Strategie (2026-04-27, ADR-041):** Sub-Step-Bündel M6.1–M6.5, Cluster-Strategie auf MapLibre-native umgestellt (`supercluster` verworfen, siehe ADR-041 §C), `LocationPickerMap` bleibt eigenständig (kein Refactor in M6).
+
+**Deliverables (Gesamt-Meilenstein):**
 - ~~MapLibre GL JS via `react-map-gl` integriert.~~ (in M5a erledigt)
 - ~~MapTiler-API-Key serverseitig verwaltet, ggf. über Backend-Proxy ausgeliefert.~~ (in M5a erledigt)
 - Marker-Darstellung aller für den Nutzer sichtbaren Events.
 - Popup mit Kurzinfo + Link zur Event-Detailseite.
-- Clustering bei hoher Dichte (z. B. via `supercluster`).
+- Clustering bei hoher Dichte (native MapLibre-Cluster, siehe ADR-041 §C).
 - Filter: Zeitraum, Beteiligte (gemäß RLS).
 - Kartenzustand (Viewport) URL-persistiert.
-- **Geocoding-Proxy** `GET /api/geocode?q=...` als MapTiler-Wrapper, eingeloggt erforderlich.
+- **Geocoding-Proxy** `GET /api/geocode?q=...` als MapTiler-Wrapper, eingeloggt erforderlich (ADR-041 §B/§D).
 - ~~Grundlage für Eingabe-Use-Case aus M5: Karten-Klick liefert Lat/Lon zurück.~~ (in M5a als `LocationPickerMap` erledigt)
-- Optional: Refactor von `LocationPickerMap` zur Basis der `MapView` oder beide eigenständig — Entscheidung in M6, freigabefrei.
+- ~~Optional: Refactor von `LocationPickerMap` zur Basis der `MapView`~~ → verworfen (ADR-041 §E): beide bleiben eigenständig.
 
 **Akzeptanzkriterien:**
 - Events erscheinen als Marker.
 - Klick auf Marker öffnet Popup, Link funktioniert.
 - Karte ist auf Mobile nutzbar (Touch-Gesten).
+- Filter (Zeitraum, Beteiligte) wirken; URL spiegelt Viewport + Filter.
+- Geocoding-Suchbox findet Adressen via `/api/geocode` und fliegt die Karte an.
 
 **Abhängigkeiten:** M3, M4, M5a.
+
+---
+
+#### M6.1 — Backend Geocoding-Proxy `GET /api/geocode`
+
+**Ziel:** MapTiler-Geocoding-Wrapper mit serverseitigem Key, Auth-Pflicht und in-memory Rate-Limit.
+
+**Deliverables:**
+- Settings-Variable `geocode_rate_per_minute` (Default 30, `0` = aus) in `app/config.py`.
+- Route `app/routes/geocode.py` mit `GET /geocode?q=<text>&proximity=<lat,lon>&limit=<n>`.
+- Auth via `current_active_user`; anonym → 401.
+- Fehlende `maptiler_api_key` → 503 (analog Tile-Proxy).
+- HTTPX-`AsyncClient` als Process-Singleton (`lru_cache`, identisches Pattern wie Tile-Proxy).
+- Rate-Limit: in-memory Token-Bucket pro `user.id`, Test-injizierbar.
+- Validierung: `proximity` zwei Floats Komma-getrennt, sonst 422; `limit` 1–10, sonst 422.
+- Antwort: Upstream-GeoJSON 1:1 durchgereicht (`FeatureCollection`).
+- Cache-Control: `private, max-age=300`.
+- Router-Registrierung in `app/main.py` unter `/api`-Prefix.
+- `.env.example` ergänzen: `HCMAP_GEOCODE_RATE_PER_MINUTE`.
+- Tests `backend/tests/test_geocode_proxy.py`: anonym/missing-key/success/upstream-fail/rate-limit/proximity-422/limit-422.
+
+**Akzeptanzkriterien:**
+- ruff, mypy --strict, pytest grün.
+- OpenAPI-Doku zeigt `/api/geocode` mit Parametern und Auth-Anforderung.
+- Rate-Limit ist deterministisch testbar (Test injiziert Bucket).
+
+**Abhängigkeiten:** M2 (Auth), M5a.1 (Tile-Proxy-Pattern).
+
+---
+
+#### M6.2 — Frontend `MapView` (Marker, Popup, Detail-Link)
+
+**Ziel:** Vollbild-Karte zeigt alle sichtbaren Events als Marker; Klick öffnet Popup mit Detail-Link.
+
+**Deliverables:**
+- `frontend/src/components/map/map-view.tsx` neu: Vollbreite, abonniert RxDB `events` live, filtert `_deleted=false` und gültige `lat`/`lon`.
+- Marker als `react-map-gl/Marker`-Liste (eine Marker-Komponente pro Event).
+- Popup über `react-map-gl/Popup`: `started_at` (lokal), Koordinaten (lat/lon-Floats, 5 Nachkommastellen), Live-/Beendet-Status, Link „Detailseite öffnen →" zu `/events/[id]`. **Recipient-Name bewusst weggelassen**: Persons sind nicht in RxDB synchronisiert (ADR-037), ADR-038-§F-Maskierung wäre offline nicht zuverlässig möglich. Detailseite enforced die Maskierung weiterhin. **Plus-Code-Anzeige verschoben**: braucht `open-location-code`-Dependency (architecture.md §Plus-Code-Handling) — separater freigabepflichtiger Schritt.
+- `(protected)/map/page.tsx` rendert `MapView` Vollbreite (Card-Wrapper raus).
+- Coverage-Threshold `lib/map/**` ≥ 70 % Lines (sofern reine Logik testbar; MapLibre-Wrapper-Code ausgespart). **Erreicht: 97.33 % Lines / 84.61 % Branches.**
+- Smoke-Test `tests/map-view.test.tsx` mit gemockter RxDB **+ gemocktem `react-map-gl/maplibre`** (jsdom hat kein WebGL, ADR-027 §J2-Pattern).
+- Pure-Function-Test `tests/event-marker-data.test.ts` für `selectMappableEvents` und `isMappableEvent`.
+
+**Akzeptanzkriterien:**
+- Marker sichtbar für sichtbare Events (ohne Filter-Logik in diesem Sub-Step). ✓
+- Klick auf Marker → Popup mit Link → Navigation funktioniert. ✓
+- Frontend-Suite grün. ✓ (127/127, +18 neue Tests)
+
+**Abhängigkeiten:** M6.1 (nicht hart, aber Reihenfolge).
+
+---
+
+#### M6.3 — Clustering (native MapLibre-Cluster)
+
+**Ziel:** Bei hoher Marker-Dichte werden Events geclustert.
+
+**Deliverables:**
+- Refactor `MapView`: Marker werden über GeoJSON-`Source` mit `cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14` ausgespielt. ✓
+- Drei `Layer`: `events-clusters` (Kreis, Step-Expression `point_count`), `events-cluster-count` (Symbol-Layer mit `point_count_abbreviated`), `events-unclustered` (Einzelmarker). ✓
+- Klick auf Cluster zoomt rein via `getClusterExpansionZoom` + `easeTo`. ✓
+- Klick auf unclustered Punkt öffnet Popup wie M6.2. ✓
+- Pure-Helper `eventsToGeoJSON` in `lib/map/event-marker-data.ts` für die Source-Daten (Lat/Lon → `[lon, lat]` Convention). ✓
+- Tests: Cluster-Render und Cluster-Click via gemocktem `react-map-gl/maplibre` (Map/Source/Layer/Popup gestubbt). ✓
+
+**Akzeptanzkriterien:**
+- Cluster-Source mit `cluster=true`, `clusterRadius=50`, `clusterMaxZoom=14`. ✓
+- Cluster-Klick ruft `getClusterExpansionZoom` und `easeTo`. ✓
+- Unclustered-Klick öffnet Popup mit Detail-Link. ✓
+- Frontend-Suite grün (135/135). ✓
+
+**Abhängigkeiten:** M6.2.
+
+---
+
+#### M6.4 — Filter (Zeitraum, Beteiligte) + URL-Viewport-Sync
+
+**Ziel:** Karte respektiert URL-State (`lat`/`lon`/`zoom`/`from`/`to`/`p`) und zeigt nur passende Events.
+
+**Deliverables:**
+- URL-Param-Helper `lib/map/url-state.ts`: parse/serialize `lat`, `lon`, `zoom`, `from`, `to`, `p` (Komma-UUIDs). ✓
+- `MapView` liest Initial-State aus `useSearchParams`; Pan/Zoom-Events (`onMoveEnd`) triggern debounced `router.replace` (300 ms, `{ scroll: false }`). ✓
+- Filter-Panel-Komponente `components/map/map-filter-panel.tsx`: Zeitraum (zwei `<input type="date">`), Beteiligte als shadcn/ui-`Sheet` (Drawer rechts) mit Checkbox-Liste; Personen via `/api/persons` REST (TanStack Query, `enabled: open`). ✓
+- Filter-State wird aus URL abgeleitet (Single Source of Truth = URL). ✓
+- Filter-Logik (`lib/map/event-filter.ts`): `applyEventFilter` wendet Datum (UTC-Tagesgrenzen, inklusiv) und Beteiligte (OR-Verknüpfung) über `buildParticipantsIndex` aus `event_participants`-RxDB an. ✓
+- Tests: URL-State-Codec (parse/serialize/Round-trip/`filtersEqual`) als pure-function-Test; `applyEventFilter`/`buildParticipantsIndex`/`filtersAreEmpty`-Test; FilterPanel-Component-Test mit gemocktem `/api/persons`; MapView-Integration-Test (Initial-Viewport, Filter aus URL, debounced URL-Write). ✓
+
+**Akzeptanzkriterien:**
+- Setzen eines Datums-Filters reduziert sichtbare Marker entsprechend. ✓
+- Pan/Zoom landet in URL, Reload zeigt gleichen Viewport. ✓
+- URL-Sharing reproduziert Filter+Viewport. ✓
+- Frontend-Suite grün (181/181). ✓
+
+**Abhängigkeiten:** M6.3.
+
+---
+
+#### M6.5 — Geocoding-Suchbox in `MapView`
+
+**Ziel:** Nutzer kann Adresse eingeben und die Karte fliegt dorthin.
+
+**Deliverables:**
+- `components/map/geocode-search-box.tsx`: Input oben links, 300 ms Debounce, `GET /api/geocode?q=…&proximity=<center>&limit=5`. ✓
+- Mindestlänge 2 Zeichen, sonst kein Request. ✓
+- Treffer-Dropdown mit `place_name`; Auswahl → `onSelect(lat, lon)` → `mapRef.current.flyTo({ center: [lon, lat], zoom: 14 })`. ✓
+- Fehler 429 / 503 / 502 → `sonner`-Toast mit klartextlicher Begründung („Geocoding-Limit erreicht", „Adress-Suche nicht konfiguriert", „Adress-Suche nicht erreichbar"); Karte funktioniert weiter. ✓
+- Leere Eingabe oder Auswahl → Treffer-Liste schließen, Input via X-Button leerbar. ✓
+- Stale-Response-Filter via `requestSeq`-Ref (späte Antworten verworfen). ✓
+- Kein persistierter Marker für Treffer. ✓
+- Tests: Mindestlänge, Debounce auf finalen Wert, Proximity-Forwarding, Treffer-Auswahl, Empty-Hint, je ein Toast-Test pro Fehler-Status, X-Clear, Stale-Response-Drop, MapView-flyTo + Proximity-Lookup. ✓
+
+**Akzeptanzkriterien:**
+- Eingabe einer Adresse zeigt Treffer-Liste. ✓
+- Auswahl fliegt die Karte an, URL-State (`lat`/`lon`/`zoom`) wird über den `MapView`-Viewport-Sync aktualisiert. ✓
+- Kein Treffer / Rate-Limit → klare User-Rückmeldung via Toast. ✓
+- Frontend-Suite grün (194/194). ✓
+
+**Abhängigkeiten:** M6.1 (Endpoint), M6.4 (URL-Sync).
 
 ---
 

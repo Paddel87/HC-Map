@@ -16,9 +16,15 @@ import { BehaviorSubject } from "rxjs";
 import type {
   ApplicationCollection,
   EventCollection,
+  EventParticipantCollection,
   HCMapDatabase,
 } from "./database";
-import type { ApplicationDocType, EventDocType, SyncCheckpoint } from "./types";
+import type {
+  ApplicationDocType,
+  EventDocType,
+  EventParticipantDocType,
+  SyncCheckpoint,
+} from "./types";
 
 const DEFAULT_PULL_BATCH = 100;
 const DEFAULT_PUSH_BATCH = 50;
@@ -61,13 +67,24 @@ function buildPullParams(checkpoint: SyncCheckpoint | null, batchSize: number): 
   return params.toString();
 }
 
+type ReadOnlyCollectionPath = "event-participants";
+type WritableCollectionPath = "events" | "applications";
+type CollectionPath = WritableCollectionPath | ReadOnlyCollectionPath;
+
 interface MakeReplicationOptions {
-  collectionPath: "events" | "applications";
+  collectionPath: CollectionPath;
+  /** Pull-only collections (M5c.1b, ADR-037 §D) skip the push handler. */
+  pullOnly?: boolean;
 }
 
-function makeReplication<T extends EventDocType | ApplicationDocType>(
-  collection: EventCollection | ApplicationCollection,
-  { collectionPath }: MakeReplicationOptions,
+function makeReplication<
+  T extends EventDocType | ApplicationDocType | EventParticipantDocType,
+>(
+  collection:
+    | EventCollection
+    | ApplicationCollection
+    | EventParticipantCollection,
+  { collectionPath, pullOnly = false }: MakeReplicationOptions,
 ): RxReplicationState<T, SyncCheckpoint> {
   return replicateRxCollection<T, SyncCheckpoint>({
     replicationIdentifier: `${REPLICATION_IDENTIFIER}-${collectionPath}`,
@@ -93,29 +110,33 @@ function makeReplication<T extends EventDocType | ApplicationDocType>(
         return { documents, checkpoint };
       },
     },
-    push: {
-      batchSize: DEFAULT_PUSH_BATCH,
-      async handler(
-        rows: { assumedMasterState?: T; newDocumentState: T }[],
-      ): Promise<T[]> {
-        const csrf = readCsrfCookie();
-        if (!csrf) {
-          // Without a CSRF token the backend rejects the push; surfacing as
-          // a thrown error lets RxDB schedule a retry once the cookie is
-          // re-issued (e.g. after re-login).
-          throw new Error("CSRF token missing — push aborted, will retry");
-        }
-        const conflicts = await fetchJson<T[]>(
-          `/api/sync/${collectionPath}/push`,
-          {
-            method: "POST",
-            headers: { "X-CSRF-Token": csrf },
-            body: JSON.stringify(rows),
+    ...(pullOnly
+      ? {}
+      : {
+          push: {
+            batchSize: DEFAULT_PUSH_BATCH,
+            async handler(
+              rows: { assumedMasterState?: T; newDocumentState: T }[],
+            ): Promise<T[]> {
+              const csrf = readCsrfCookie();
+              if (!csrf) {
+                // Without a CSRF token the backend rejects the push; surfacing
+                // as a thrown error lets RxDB schedule a retry once the cookie
+                // is re-issued (e.g. after re-login).
+                throw new Error("CSRF token missing — push aborted, will retry");
+              }
+              const conflicts = await fetchJson<T[]>(
+                `/api/sync/${collectionPath}/push`,
+                {
+                  method: "POST",
+                  headers: { "X-CSRF-Token": csrf },
+                  body: JSON.stringify(rows),
+                },
+              );
+              return conflicts;
+            },
           },
-        );
-        return conflicts;
-      },
-    },
+        }),
   });
 }
 
@@ -125,6 +146,8 @@ export type SyncStatus = "idle" | "active" | "error" | "offline";
 export interface ReplicationHandles {
   events: RxReplicationState<EventDocType, SyncCheckpoint>;
   applications: RxReplicationState<ApplicationDocType, SyncCheckpoint>;
+  /** Pull-only — see ADR-037 §D. */
+  eventParticipants: RxReplicationState<EventParticipantDocType, SyncCheckpoint>;
   status$: BehaviorSubject<SyncStatus>;
   stop: () => Promise<void>;
 }
@@ -137,6 +160,10 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
     database.applications,
     { collectionPath: "applications" },
   );
+  const eventParticipantsRep = makeReplication<EventParticipantDocType>(
+    database.event_participants,
+    { collectionPath: "event-participants", pullOnly: true },
+  );
 
   const status$ = new BehaviorSubject<SyncStatus>(
     typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "idle",
@@ -146,19 +173,21 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
   // local snapshots and recompute the aggregate status on every emission.
   let eventsActive = false;
   let applicationsActive = false;
+  let participantsActive = false;
   let eventsErrored = false;
   let applicationsErrored = false;
+  let participantsErrored = false;
 
   function recompute(): void {
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       status$.next("offline");
       return;
     }
-    if (eventsErrored || applicationsErrored) {
+    if (eventsErrored || applicationsErrored || participantsErrored) {
       status$.next("error");
       return;
     }
-    if (eventsActive || applicationsActive) {
+    if (eventsActive || applicationsActive || participantsActive) {
       status$.next("active");
       return;
     }
@@ -174,12 +203,20 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
       applicationsActive = active;
       recompute();
     }),
+    eventParticipantsRep.active$.subscribe((active) => {
+      participantsActive = active;
+      recompute();
+    }),
     eventsRep.error$.subscribe(() => {
       eventsErrored = true;
       recompute();
     }),
     applicationsRep.error$.subscribe(() => {
       applicationsErrored = true;
+      recompute();
+    }),
+    eventParticipantsRep.error$.subscribe(() => {
+      participantsErrored = true;
       recompute();
     }),
   ];
@@ -194,6 +231,7 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
   return {
     events: eventsRep,
     applications: applicationsRep,
+    eventParticipants: eventParticipantsRep,
     status$,
     async stop(): Promise<void> {
       if (typeof window !== "undefined") {
@@ -201,7 +239,11 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
         window.removeEventListener("offline", offlineHandler);
       }
       subs.forEach((s) => s.unsubscribe());
-      await Promise.all([eventsRep.cancel(), applicationsRep.cancel()]);
+      await Promise.all([
+        eventsRep.cancel(),
+        applicationsRep.cancel(),
+        eventParticipantsRep.cancel(),
+      ]);
     },
   };
 }

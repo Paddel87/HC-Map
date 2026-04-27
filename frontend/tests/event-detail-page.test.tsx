@@ -142,6 +142,15 @@ interface FakeDatabase {
       $: { subscribe: (next: (doc: { toJSON: () => EventDocType } | null) => void) => Subscription };
     };
   };
+  event_participants: {
+    find: (query?: unknown) => {
+      $: {
+        subscribe: (
+          next: (rows: { toJSON: () => unknown }[]) => void,
+        ) => Subscription;
+      };
+    };
+  };
 }
 
 function makeFakeDatabase(initial: EventDocType | null): {
@@ -151,10 +160,18 @@ function makeFakeDatabase(initial: EventDocType | null): {
   const subject = new BehaviorSubject<{ toJSON: () => EventDocType } | null>(
     initial ? { toJSON: () => initial } : null,
   );
+  // M5c.1b: the page also subscribes to `database.event_participants`.
+  // Tests don't exercise auto-participant flows here (that's the
+  // replication.e2e.test.ts territory) — just hand the page an empty
+  // rows stream so the subscription completes its first emission.
+  const participants$ = new BehaviorSubject<{ toJSON: () => unknown }[]>([]);
   return {
     database: {
       events: {
         findOne: () => ({ $: subject }),
+      },
+      event_participants: {
+        find: () => ({ $: participants$ }),
       },
     },
     emit: (next: EventDocType | null) =>
@@ -187,6 +204,9 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
     useDatabaseMock.mockReturnValue({
       events: {
         findOne: () => ({ $: { subscribe: () => ({ unsubscribe: () => {} }) } }),
+      },
+      event_participants: {
+        find: () => ({ $: { subscribe: () => ({ unsubscribe: () => {} }) } }),
       },
     });
     // REST hangs.
@@ -244,6 +264,9 @@ describe("EventDetailPage — render decision tree (M5c.1a, ADR-036 §H)", () =>
     useDatabaseMock.mockReturnValue({
       events: {
         findOne: () => ({ $: { subscribe: () => ({ unsubscribe: () => {} }) } }),
+      },
+      event_participants: {
+        find: () => ({ $: { subscribe: () => ({ unsubscribe: () => {} }) } }),
       },
     });
     apiFetchMock.mockReturnValue(new Promise(() => {}));

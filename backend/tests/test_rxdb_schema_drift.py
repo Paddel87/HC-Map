@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app.sync.schemas import ApplicationDoc, EventDoc
+from app.sync.schemas import ApplicationDoc, EventDoc, EventParticipantDoc
 
 # Repository root resolved from this file's location.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +63,7 @@ def _normalised_types(prop: dict[str, Any]) -> set[str]:
     [
         ("event.schema.json", EventDoc),
         ("application.schema.json", ApplicationDoc),
+        ("event_participant.schema.json", EventParticipantDoc),
     ],
 )
 def test_property_names_match(schema_file: str, model: type) -> None:
@@ -82,6 +83,7 @@ def test_property_names_match(schema_file: str, model: type) -> None:
     [
         ("event.schema.json", EventDoc),
         ("application.schema.json", ApplicationDoc),
+        ("event_participant.schema.json", EventParticipantDoc),
     ],
 )
 def test_property_types_match(schema_file: str, model: type) -> None:
@@ -116,6 +118,7 @@ def test_property_types_match(schema_file: str, model: type) -> None:
     [
         ("event.schema.json", EventDoc),
         ("application.schema.json", ApplicationDoc),
+        ("event_participant.schema.json", EventParticipantDoc),
     ],
 )
 def test_required_lists_match(schema_file: str, model: type) -> None:

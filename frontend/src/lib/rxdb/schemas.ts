@@ -10,8 +10,13 @@
 import type { RxJsonSchema } from "rxdb";
 
 import applicationSchemaJson from "./schemas/application.schema.json";
+import eventParticipantSchemaJson from "./schemas/event_participant.schema.json";
 import eventSchemaJson from "./schemas/event.schema.json";
-import type { ApplicationDocType, EventDocType } from "./types";
+import type {
+  ApplicationDocType,
+  EventDocType,
+  EventParticipantDocType,
+} from "./types";
 
 /**
  * Cast through `unknown` because RxDB's `RxJsonSchema<T>` is a tighter
@@ -21,3 +26,5 @@ import type { ApplicationDocType, EventDocType } from "./types";
 export const eventSchema = eventSchemaJson as unknown as RxJsonSchema<EventDocType>;
 export const applicationSchema =
   applicationSchemaJson as unknown as RxJsonSchema<ApplicationDocType>;
+export const eventParticipantSchema =
+  eventParticipantSchemaJson as unknown as RxJsonSchema<EventParticipantDocType>;

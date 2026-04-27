@@ -9,6 +9,76 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5c.1b — Participants als RxDB-Sync-Collection (ADR-037):**
+  Zweiter Sub-Schritt von M5c. Schließt den von ADR-035 §C / ADR-034 §K
+  benannten Akzeptanz-Pfad „event.participants reactive nach Offline-
+  Application + Reconnect" ohne `Person` selbst in eine Sync-Collection
+  zu promoten.
+  - **Backend-Migration**
+    `backend/migrations/versions/20260427_1900_m5c1b_ep_sync.py`:
+    - Neue Surrogate-Spalte `id uuid` (mit `gen_random_uuid()`-Server-
+      Default), Composite-PK aufgelöst, `(event_id, person_id)` als
+      UNIQUE behalten — RxDB verlangt einen einzelnen String-PK.
+    - `updated_at NOT NULL DEFAULT clock_timestamp()` (Backfill mit
+      `created_at`), `is_deleted` / `deleted_at`, Cursor-Index
+      `(updated_at, id)`, `set_updated_at_event_participant`-Trigger.
+    - `cascade_event_soft_delete()` bringt jetzt neben `application`
+      auch `event_participant` mit (ADR-037 §C).
+  - **Backend-Sync** — Pydantic `EventParticipantDoc` +
+    `EventParticipantPullResponse` in `app/sync/schemas.py`,
+    `pull_event_participants(...)` in `app/sync/services.py`, neue
+    Route `GET /api/sync/event-participants/pull`. **Pull-only**
+    (ADR-037 §D); Mutationen laufen weiter über die REST-Endpoints
+    `POST/DELETE /api/events/{id}/participants/...` und den
+    serverseitigen Auto-Participant-Trigger (ADR-012).
+  - **Backend-Refactor:** drei `session.get(EventParticipant,
+    (event_id, person_id))`-Aufrufstellen (`app/sync/services.py`,
+    `app/services/events.py`, `app/services/applications.py`) auf
+    `select().where()`-Queries umgestellt. Soft-Delete-Filter im
+    Export-Service ergänzt.
+  - **Backend-Tests** in `tests/test_sync_event_participants.py`
+    (6 neue): Initial-Pull leer, Auto-Participant nach Event-Push,
+    Cursor-Pagination, RLS (Editor sieht nur eigene), Admin-Vollsicht,
+    Cascade-Trigger-Test (Soft-Delete bringt Participant-Tombstones im
+    Pull). Drift-Test um die dritte Collection erweitert (3 × 3 = 9
+    parametrisierte Cases). Backend-Suite **137/137 grün** (zuvor 128;
+    Composite-PK-Code-Pfade sind aufgelöst). `mypy --strict` und
+    `ruff check` clean.
+  - **Frontend-RxDB:** dritte Collection `event_participants` in
+    `lib/rxdb/database.ts` (Schema-Wrapper in `schemas.ts`,
+    Document-Type in `types.ts`). Replication-Worker ergänzt mit
+    neuem `pullOnly`-Flag — kein Push-Handler-Code-Pfad. Aggregierte
+    `idle | active | offline | error`-Status-Streams nehmen den neuen
+    Replicator mit auf.
+  - **Detail-Page-Hybrid** (ADR-037 §E + §I): zweite RxDB-Subscription
+    auf `event_participants.find({event_id, _deleted=false}).$` liefert
+    die `person_ids` reactive. Page kombiniert die Live-IDs mit dem
+    REST-`EventDetail`-Snapshot zu einer `participants:
+    PersonRead[]`-Ableitung; fehlt eine ID im Snapshot
+    (Auto-Participant nach Reconnect), bumpt ein useEffect den
+    `serverFetchVersion`-State und triggert ein einmaliges
+    REST-Refetch. Kein Polling.
+  - **Tests:** `replication.e2e.test.ts` von 3 auf 4 Tests gewachsen
+    („surfaces server-side auto-participants in RxDB after offline
+    application reconnect"). Mock-Server `tests/helpers/sync-mock-
+    server.ts` ergänzt um die idempotente `addParticipantRow`-Logik
+    und das `event-participants/pull`-Routing. Component-Test in
+    `tests/event-detail-page.test.tsx` um die zweite Subscription
+    erweitert. Frontend-Suite **66/66 grün** (zuvor 65). Coverage
+    `lib/rxdb/**` **92.42 % Lines / 81.66 % Branches / 100 %
+    Functions** (zuvor 92.43 / 80 / 100); CI-Threshold 80/70/80
+    weiterhin erfüllt. ESLint, `tsc --noEmit`, `next build` clean.
+  - **Bundle:** `/events/[id]` First-Load 272 kB (unverändert). Die
+    zweite Subscription kostet keine messbaren Bytes auf der
+    Page-Ebene.
+  - **Architektur-Hinweis** (ADR-037 §E): `Person`-Objekte werden
+    bewusst noch **nicht** als RxDB-Collection geführt — die
+    Maskierungs-Logik aus `app/services/masking.py` müsste sonst
+    wire-format-äquivalent abgebildet werden. M5c.2 oder später kann
+    das nachziehen, falls die Hybrid-Lösung im Betrieb auffällig wird.
+  - ADR-037 dokumentiert die elf Detail-Entscheidungen,
+    `architecture.md` § Sync um die dritte Collection erweitert.
+
 - **M5c.1a — Detail-Page Client-only + REST-Once-Read Participants (ADR-036):**
   Erster Sub-Schritt von M5c. Beendet die SSR-Detail-Page; das M5b.4-
   Offline-Insert-mit-direkter-Navigation-Symptom (404 auf der

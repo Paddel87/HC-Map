@@ -83,7 +83,15 @@ async def _ensure_participant(
     event_id: uuid.UUID,
     person_id: uuid.UUID,
 ) -> None:
-    existing = await session.get(EventParticipant, (event_id, person_id))
+    """Auto-Participant insert (ADR-012). Looked up via the UNIQUE
+    ``(event_id, person_id)`` constraint introduced in M5c.1b
+    (ADR-037 §A) instead of the previous composite PK."""
+    existing = await session.scalar(
+        select(EventParticipant).where(
+            EventParticipant.event_id == event_id,
+            EventParticipant.person_id == person_id,
+        )
+    )
     if existing is None:
         session.add(EventParticipant(event_id=event_id, person_id=person_id))
         await session.flush()

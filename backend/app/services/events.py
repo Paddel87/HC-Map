@@ -154,9 +154,19 @@ async def list_participants(session: AsyncSession, event_id: uuid.UUID) -> Seque
 async def add_participant(
     session: AsyncSession, event_id: uuid.UUID, person_id: uuid.UUID
 ) -> EventParticipant | None:
-    """Insert participant link if not already present. Returns the row
-    or ``None`` if it already existed."""
-    existing = await session.get(EventParticipant, (event_id, person_id))
+    """Insert participant link if not already present.
+
+    ``EventParticipant`` got a surrogate UUID PK in M5c.1b (ADR-037
+    §A); the ``(event_id, person_id)`` uniqueness now lives in the
+    UNIQUE constraint, so we look the row up by query rather than
+    composite-key ``session.get``.
+    """
+    existing = await session.scalar(
+        select(EventParticipant).where(
+            EventParticipant.event_id == event_id,
+            EventParticipant.person_id == person_id,
+        )
+    )
     if existing is not None:
         return None
     link = EventParticipant(event_id=event_id, person_id=person_id)
@@ -168,7 +178,12 @@ async def add_participant(
 async def remove_participant(
     session: AsyncSession, event_id: uuid.UUID, person_id: uuid.UUID
 ) -> bool:
-    link = await session.get(EventParticipant, (event_id, person_id))
+    link = await session.scalar(
+        select(EventParticipant).where(
+            EventParticipant.event_id == event_id,
+            EventParticipant.person_id == person_id,
+        )
+    )
     if link is None:
         return False
     await session.delete(link)

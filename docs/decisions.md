@@ -62,7 +62,7 @@ Status-Legende:
 | ADR-034 | Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor) | Accepted | 2026-04-26 |
 | ADR-035 | Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)   | Accepted | 2026-04-27 |
 | ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
-| ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
+| ADR-037 | Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection) | Accepted | 2026-04-27 |
 
 ---
 
@@ -2976,6 +2976,70 @@ Die Risiko-Note in der M5c-Empfehlung („Nicht-trivialer Refactor in M5c.1: Ser
 - Frontend-RxDB-Collection `event_participants`, Replication-Eintrag in `lib/rxdb/replication.ts`.
 - Detail-Page von REST-One-Shot auf RxDB-Subscription für Participants umstellen.
 - Drift-Test um die neue Collection erweitern.
+
+---
+
+## ADR-037 — Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1a hat die Detail-Page client-only gemacht; `participants` und `plus_code` werden weiter über einen REST-One-Shot geholt, sind also nicht reactive. Das ADR-035-§C-Akzeptanzkriterium („`event.participants` als reaktive RxDB-Subscription, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden") wird in M5c.1b erfüllt: Die Junction-Tabelle `event_participant` wird sync-fähig.
+
+### Entscheidungen
+
+**A. Surrogate UUID-PK auf `event_participant`.**
+RxDB-Collections brauchen einen einzigen String-PK. Die bestehende Composite-PK `(event_id, person_id)` wird durch eine neue Spalte `id uuid` ersetzt; die Eindeutigkeit bleibt über einen UNIQUE-Constraint auf `(event_id, person_id)`. ORM-Code, der bisher `session.get(EventParticipant, (event_id, person_id))` nutzt, wird auf `select(EventParticipant).where(event_id=…, person_id=…)` umgestellt (drei Aufrufstellen: `app/sync/services.py`, `app/services/events.py`, `app/services/applications.py`).
+
+**B. Soft-Delete + Cursor-Felder analog ADR-030.**
+`updated_at timestamptz NOT NULL DEFAULT clock_timestamp()`, `is_deleted boolean NOT NULL DEFAULT false`, `deleted_at timestamptz NULL`. Cursor-Index `(updated_at, id)` für `GET /api/sync/event-participants/pull`. Backfill `updated_at = COALESCE(updated_at, created_at)` für bestehende Rows. Der bestehende `set_updated_at()`-Trigger (M1) wird auf `event_participant` ausgedehnt, damit jede Modifikation den Cursor bumpt.
+
+**C. Cascade-Trigger erweitert.**
+`cascade_event_soft_delete()` aus M5b.1 hat bisher nur `application` mitgenommen. Die Funktion wird so erweitert, dass beim Soft-Delete eines Events auch die nicht-gelöschten `event_participant`-Rows desselben Events auf `is_deleted = true` gesetzt werden. Restore (true→false) propagiert weiterhin nicht.
+
+**D. Pull-only Replication.**
+`event_participant` ist eine derived Junction-Tabelle: Inserts entstehen serverseitig durch den Auto-Participant-Trigger (ADR-012, beim Application-Push), Deletes laufen entweder über das bestehende REST-Endpoint `DELETE /api/events/{id}/participants/{person_id}` oder den Cascade beim Event-Soft-Delete. Es gibt keinen sinnvollen Frontend-Push-Pfad in M5c.1b. Daher: **Pull-only**, kein `/push`-Endpoint. RxDB-`replicateRxCollection` lässt das `push`-Feld weg. Falls M5c.4 (Bearbeitung) Frontend-getriebenes Hinzufügen/Entfernen will, wird Push dort nachgezogen — die Server-RLS lässt das zu, wir würden nur Wire-Schema und Service ergänzen.
+
+**E. Hybrid-Name-Resolution: RxDB für Mitgliedschaft, REST für Person-Details.**
+Die `EventParticipantDoc`-Wire-Form trägt nur `id`, `event_id`, `person_id`, plus die Sync-Standardfelder (`created_at`, `updated_at`, `deleted_at`, `_deleted`). Person-Details (`name`, `alias`) werden weiter über den bestehenden `EventDetail`-REST-Aufruf geholt, weil `Person` in M5c.1b **nicht** in eine RxDB-Collection promotet wird (das wäre eigener Sub-Schritt mit eigener RLS-Diskussion).
+
+Konsequenz: Die Detail-Page subscribet auf `event_participants.find({event_id, _deleted=false}).$` als Quelle der Wahrheit für die **Mitgliedschaft** und nutzt den REST-Snapshot als Lookup-Tabelle für **Namen**. Sobald die RxDB-Subscription eine person_id liefert, die der REST-Snapshot nicht kennt (Auto-Participant nach Reconnect), triggert ein useEffect ein einmaliges REST-Refetch von `EventDetail`.
+
+Damit ist der Akzeptanz-Pfad „Offline-Application-Insert → Reconnect → Auto-Participant erscheint reactive in der Detail-Page" geschlossen, ohne `Person` in die Sync-Schicht zu ziehen.
+
+**F. RLS-Policies bleiben unverändert.**
+Die in M2 (Migration `20260425_1730_strict_rls`) angelegten Policies — `event_participant_admin_all`, `event_participant_member_select` (über `app_user_can_see_event`), `event_participant_editor_modify` — passen unverändert. Der Pull-Endpoint nutzt `get_rls_session`, sodass Member nur ihre sichtbaren Participants bekommen.
+
+**G. JSON-Schema + Pydantic parallel zu ADR-031.**
+`backend/app/sync/schemas.py` bekommt `EventParticipantDoc` und `EventParticipantPullResponse`. Die Wire-Form-Datei liegt unter `frontend/src/lib/rxdb/schemas/event_participant.schema.json`. Der bestehende Drift-Test (`backend/tests/test_rxdb_schema_drift.py`) wird um die dritte Collection erweitert.
+
+**H. Frontend-RxDB-Collection ohne Push-Handler.**
+`lib/rxdb/types.ts` bekommt `EventParticipantDocType`, `lib/rxdb/schemas.ts` den neuen Schema-Wrapper, `lib/rxdb/database.ts` die Collection. `lib/rxdb/replication.ts` ergänzt einen dritten Replication-Eintrag mit nur `pull`-Konfiguration; die aggregierten `idle | active | offline | error`-Status-Streams nehmen den neuen Replicator mit auf.
+
+**I. Detail-Page-Anpassung.**
+`useEventParticipantIds(eventId)` (RxDB-Subscription) ersetzt die statische `participants`-Liste auf der Page. Aus dem RxDB-Result wird ein `Set<string>` von person_ids gebaut. Die Page kombiniert die Live-IDs mit dem REST-Snapshot zu einer `participants: PersonRead[]`-Ableitung; fehlt eine ID im Snapshot, wird ein REST-Refetch angestoßen.
+
+**J. Bundle- und Performance-Annahmen.**
+Die neue Collection ist klein (drei Feld-Properties + Sync-Standard); Bundle-Auswirkung erwartet < 1 KB. Cursor-Pull ist O(log N) durch den neuen Index.
+
+**K. Tests.**
+- Backend: Migration-Test für die neuen Trigger (Cascade-Trigger-Erweiterung, set_updated_at), Pull-Endpoint-Tests (Cursor, Tombstones), RLS-Test (Member sieht nur eigene Events), Drift-Test-Erweiterung.
+- Frontend: Component-Test der RxDB-Subscription, Erweiterung der `replication.e2e.test.ts` um den Auto-Participant-Roundtrip (Application offline → Reconnect → EventParticipant erscheint).
+- Coverage-Threshold `lib/rxdb/**` bleibt aktiv (≥ 80 %).
+
+### Verworfene Alternativen
+
+- **Push-Endpoint mit `_deleted`-Toggle:** Würde M5c.4-Funktionalität vorziehen, ohne klare RLS-Validierung der Insert-Branch (dort ginge es nicht über den Auto-Participant-Trigger). Bewusst auf M5c.4 verschoben.
+- **Person als RxDB-Collection in M5c.1b mitnehmen:** Hätte vollständig reaktive Names ermöglicht, aber öffnet eine eigene RLS-Diskussion (Person ist global sichtbar, Maskierungs-Logik aus `app/services/masking.py` müsste abgebildet werden) und sprengt den Sub-Schritt. Verlagert nach M5c.2 oder einen späteren Zeitpunkt.
+- **`participant_ids: list[uuid]` direkt auf `EventDoc` denormalisieren:** Hätte ohne neue Collection auskommen, mischt aber Concerns und macht künftige EventParticipant-Properties (Beitrittszeit, geladen_durch, Linkable-Status) zu Event-Schema-Änderungen — die RxDB-Replication-Architektur ist explizit row-orientiert (ADR-030).
+- **Composite-PK behalten + RxDB-Schlüssel synthetisieren (z. B. `${event_id}__${person_id}`):** Funktional, aber gegen die Konventionen von M5b und schwer mit `id`-Indizes/-Joins zu kombinieren. Surrogate-PK ist die saubere Lösung.
+
+### Folge-Arbeit
+
+- M5c.2: Detail-Page-Refresh als unified `EventDetailView` (laufend + beendet), `reveal_participants`-Maskierung im Frontend.
+- M5c.4: bei Bedarf Push-Endpoint für `event_participant` (ADR-036 §E2-Variante), wenn Editor/Admin die Teilnehmer-Liste manuell editieren sollen.
+- Mittelfristig (kein eigener Sub-Schritt geplant): Person als RxDB-Collection, sobald die Maskierungs-Logik vom Backend-Service in einen Wire-Format-äquivalenten Pfad übersetzt ist.
 
 ---
 

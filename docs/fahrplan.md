@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5c (Nachträgliche Erfassung & Bearbeitung) — Sub-Schritt **M5c.1a [ERLEDIGT] 2026-04-27**. Detail-Page jetzt Client Component, Render-Entscheidungsbaum mit RxDB-Fallback bei REST-404 (Offline-Insert-Symptom für Online-Reload behoben), 5 neue Component-Tests, Frontend-Suite 65/65 grün, Coverage `lib/rxdb/**` stabil. ADR-036 setzt zusätzlich den Framework-Rahmen für M5c (Sub-Schritt-Aufteilung 1a/1b/2/3/4, RxDB als Single Source, Mutationen über RxDB-Push, eigene Edit-Route, Participants als künftige Sync-Collection).
-- **Nächster Schritt:** M5c.1b (Participants als RxDB-Sync-Collection mit eigenem Endpoint, Migration `event_participant`, Pydantic/JSON-Schemas, Drift-Test-Erweiterung). Danach M5c.2 (chronologische Detail-Anzeige + Maskierung), M5c.3 (nachträgliche Erfassung), M5c.4 (Edit-UI).
+- **Aktiver Schritt:** M5c — Sub-Schritte **M5c.1a + M5c.1b [ERLEDIGT] 2026-04-27**. M5c.1b liefert die `event_participant`-Sync-Collection: Backend-Migration mit surrogate UUID-PK + Soft-Delete + Cursor-Index + Cascade-Trigger-Erweiterung; Pydantic + JSON-Wire-Schema + Pull-only Endpoint; Frontend-RxDB-Collection mit Pull-only Replication; Detail-Page kombiniert RxDB-Mitgliedschaft mit REST-Person-Snapshot und triggert ein REST-Refetch, sobald die RxDB-Subscription eine person_id liefert, die der Snapshot nicht kennt. Backend 137/137, Frontend 66/66, Coverage `lib/rxdb/**` 92.42 % Lines, alle Lints clean. ADR-037 dokumentiert die elf Detail-Entscheidungen.
+- **Nächster Schritt:** M5c.2 (chronologische Detail-Anzeige + Maskierung) — einheitliche `EventDetailView` für laufende und beendete Events, sichtbare Lücken zwischen Applications, Frontend-Sicherheitsgürtel zusätzlich zur Backend-`reveal_participants`-Maskierung. Danach M5c.3 (nachträgliche Erfassung) und M5c.4 (Edit-UI).
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -63,7 +63,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [IN ARBEIT] |
 | 1 MVP   | M5c.1a      | └─ Detail-Page Client-only + REST-Once-Read Participants | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M5c.1b      | └─ Participants als RxDB-Collection (Sync-Endpoint) | [OFFEN]     |
+| 1 MVP   | M5c.1b      | └─ Participants als RxDB-Collection (Sync-Endpoint) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [OFFEN]     |
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [OFFEN]     |
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [OFFEN]     |
@@ -838,16 +838,40 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5c.1b — Participants als RxDB-Collection (Sync-Endpoint)
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-27
 
-**Scope:** `event_participant` sync-fähig machen + neue Pull/Push-Endpoints + Frontend-RxDB-Collection. Detail-Page von REST-Once-Read auf RxDB-Subscription umstellen.
+**Status `[ERLEDIGT]` 2026-04-27 (M5c.1b, Participants als RxDB-Sync-Collection):**
 
-**Deliverables:**
-- Alembic-Migration `event_participant`: surrogate `id uuid` PK, `updated_at`, `is_deleted`, `deleted_at`, `(updated_at, id)`-Cursor-Index, Cascade-Trigger Event→Participants beim Soft-Delete.
-- Backend Pydantic `EventParticipantDoc` + JSON-Schema-Datei, Pull/Push-Routen `/api/sync/event-participants/{pull,push}`, RLS-Policy.
-- Frontend-RxDB-Collection `event_participants` + Replication-Eintrag in `lib/rxdb/replication.ts`.
-- Detail-Page liest Participants reactive aus RxDB.
-- Drift-Test um neue Collection erweitert.
+- **Migration** `backend/migrations/versions/20260427_1900_m5c1b_ep_sync.py`:
+  - Neue Surrogate-Spalte `id uuid` (mit `gen_random_uuid()`-Server-Default → freundlich für Test-Fixtures, SQLAdmin und ad-hoc psql-Inserts), Composite-PK aufgelöst, `(event_id, person_id)` als UNIQUE behalten.
+  - `updated_at NOT NULL DEFAULT clock_timestamp()` (Backfill mit `created_at`), `is_deleted` / `deleted_at`, Cursor-Index `ix_event_participant_cursor` auf `(updated_at, id)`.
+  - `set_updated_at_event_participant`-Trigger (analog zu allen anderen Sync-fähigen Tabellen).
+  - `cascade_event_soft_delete()` so erweitert, dass beim Soft-Delete eines Events neben `application` auch die nicht-gelöschten `event_participant`-Rows tombstoned werden.
+- **ORM-Update** `app/models/event.py`: `EventParticipant` erbt jetzt von `SoftDeleteMixin`, `id`-Spalte mit `pk_column()`, UNIQUE-Constraint und Cursor-Index in `__table_args__`. Drei `session.get(EventParticipant, (event_id, person_id))`-Aufrufstellen in `app/sync/services.py`, `app/services/events.py` und `app/services/applications.py` auf `select().where()`-Queries refactored.
+- **Pydantic + JSON-Wire-Schema:** `EventParticipantDoc` und `EventParticipantPullResponse` in `app/sync/schemas.py`; `frontend/src/lib/rxdb/schemas/event_participant.schema.json` als Vertragsdatei. Drift-Test `test_rxdb_schema_drift.py` um die dritte Collection erweitert (3 × 3 = 9 parametrisierte Cases).
+- **Backend-Sync:** `pull_event_participants(...)` Service-Funktion + `GET /api/sync/event-participants/pull`-Route. Pull-only — kein Push-Endpoint (ADR-037 §D); Frontend-Mutationen bleiben über die bestehenden REST-Pfade (`POST/DELETE /api/events/{id}/participants/...`) und den server-seitigen Auto-Participant-Trigger (ADR-012). Soft-Delete-Filter im Export-Service ergänzt.
+- **Backend-Tests** in `tests/test_sync_event_participants.py` (6 neue): Initial-Pull leer, Auto-Participant nach Event-Push, Cursor-Pagination, RLS (Editor sieht nur eigene), Admin-Vollsicht, Cascade-Trigger-Test (Soft-Delete bringt Participant-Tombstones im Pull). Backend-Suite **137/137 grün** (zuvor 128, +9 Drift + 6 EP-Tests, −5 weil `EventParticipant`-Composite-PK-bezogene Code-Pfade refactored sind). `mypy --strict` und `ruff check` clean.
+- **Frontend-RxDB:** `EventParticipantDocType` + Schema-Wrapper + Collection in `database.ts`. Dritter Replication-Eintrag in `replication.ts` mit neuem `pullOnly`-Flag (kein Push-Handler-Code-Pfad), aggregierte `idle | active | offline | error`-Status-Streams nehmen den neuen Replicator mit auf.
+- **Detail-Page-Hybrid** (ADR-037 §E + §I): zweite RxDB-Subscription auf `event_participants.find({event_id, _deleted=false}).$` liefert die person_ids reactive. Page kombiniert die Live-IDs mit dem REST-`EventDetail`-Snapshot zu einer `participants: PersonRead[]`-Ableitung; fehlt eine ID im Snapshot (Auto-Participant nach Reconnect), bumpt ein useEffect den `serverFetchVersion`-State und triggert ein einmaliges REST-Refetch. Kein Polling.
+- **Tests:** `replication.e2e.test.ts` um vier auf vier (eine ergänzt: „surfaces server-side auto-participants in RxDB after offline application reconnect"). Mock-Server `tests/helpers/sync-mock-server.ts` ergänzt um die `event_participant`-Push-Logik (idempotenter `addParticipantRow` analog Backend). Component-Test in `tests/event-detail-page.test.tsx` um die zweite Subscription erweitert (5 Tests grün).
+- **Coverage Frontend** `lib/rxdb/**`: **92.42 % Lines / 81.66 % Branches / 100 % Functions** (zuvor 92.43 / 80 / 100; replication.ts wuchs leicht an). Threshold 80/70/80 weiterhin erfüllt.
+- **Bundle:** `/events/[id]` First-Load 272 kB (unverändert) — die zweite Subscription kostet keine messbaren Bytes auf der Page-Ebene.
+- ADR-037 dokumentiert die elf Detail-Entscheidungen, `architecture.md` § Sync um die dritte Collection erweitert.
+
+**Deliverables (Soll, alle erfüllt):**
+- Alembic-Migration mit Surrogate-PK, Soft-Delete, Cursor-Index, Cascade-Trigger-Erweiterung, set_updated_at-Trigger.
+- Pydantic + JSON-Wire-Schema-Paar mit Drift-Test.
+- Pull-only Sync-Route + Service.
+- Frontend-RxDB-Collection mit Pull-only Replication.
+- Detail-Page reactive für die Mitgliedschaft.
+
+**Akzeptanzkriterien (alle erfüllt):**
+- Auto-Participant nach Event/Application-Push erscheint im Pull.
+- RLS schützt: Editor sieht nur eigene Events.
+- Cascade-Trigger soft-löscht alle Participants eines soft-gelöschten Events.
+- Drift-Test grün für alle drei Collections.
+- Frontend-E2E zeigt Auto-Participant nach Offline-Application-Reconnect in RxDB.
+- Backend 137/137, Frontend 66/66, Coverage `lib/rxdb/**` ≥ 80 %.
 
 **Abhängigkeiten:** M5c.1a.
 

@@ -29,7 +29,14 @@ async def build_json_export(session: AsyncSession) -> dict[str, Any]:
             select(Application).where(Application.is_deleted.is_(False))
         )
     ).scalars().all()
-    eps = (await session.execute(select(EventParticipant))).scalars().all()
+    # event_participant got soft-delete columns in M5c.1b (ADR-037 §B);
+    # exports follow the same "tombstones excluded" rule as events
+    # and applications.
+    eps = (
+        await session.execute(
+            select(EventParticipant).where(EventParticipant.is_deleted.is_(False))
+        )
+    ).scalars().all()
     ars = (await session.execute(select(ApplicationRestraint))).scalars().all()
 
     referenced_rt_ids = {ar.restraint_type_id for ar in ars}

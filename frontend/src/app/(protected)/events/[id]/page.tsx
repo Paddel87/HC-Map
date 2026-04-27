@@ -36,8 +36,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { useDatabase } from "@/lib/rxdb/provider";
-import type { EventDocType } from "@/lib/rxdb/types";
-import { coerceNumber, type EventDetail } from "@/lib/types";
+import type { EventDocType, EventParticipantDocType } from "@/lib/rxdb/types";
+import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
 
 type RxdbState =
   | { resolved: false; doc: null }
@@ -60,7 +60,13 @@ export default function EventDetailPage() {
   const me = useMe();
   const database = useDatabase();
   const [rxdb, setRxdb] = useState<RxdbState>({ resolved: false, doc: null });
+  const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [server, setServer] = useState<ServerState>({ status: "loading" });
+  // `serverFetchVersion` increments to trigger a REST refetch when the
+  // RxDB participant set surfaces a person the snapshot doesn't yet
+  // know — typical case is the auto-participant after an offline
+  // application reconnects (ADR-037 §E).
+  const [serverFetchVersion, setServerFetchVersion] = useState(0);
 
   // RxDB subscription: tracks the event doc reactively. The `resolved`
   // flag distinguishes "haven't heard back yet" from "RxDB definitely
@@ -75,9 +81,30 @@ export default function EventDetailPage() {
     return () => sub.unsubscribe();
   }, [database, id]);
 
-  // One-shot REST fetch for fields not in RxDB (`plus_code`,
-  // `participants`). M5c.1b promotes participants to their own sync
-  // collection; this fetch then becomes plus_code-only or vanishes.
+  // RxDB subscription for the participant set (M5c.1b, ADR-037 §I).
+  // Only the person_ids — Person details (name/alias) still come from
+  // the REST snapshot below; the hybrid is documented in ADR-037 §E.
+  useEffect(() => {
+    if (!database) return;
+    const sub = database.event_participants
+      .find({ selector: { event_id: id, _deleted: { $eq: false } } })
+      .$.subscribe((rows) => {
+        const next = rows
+          .map((r) => (r.toJSON() as EventParticipantDocType).person_id)
+          .sort();
+        setParticipantIds((current) =>
+          current.length === next.length && current.every((v, i) => v === next[i])
+            ? current
+            : next,
+        );
+      });
+    return () => sub.unsubscribe();
+  }, [database, id]);
+
+  // One-shot REST fetch for fields not yet in RxDB (`plus_code`) plus
+  // the Person details that back the participant list. Re-runs when
+  // `serverFetchVersion` bumps — see the "missing-name → refetch" effect
+  // below.
   useEffect(() => {
     let cancelled = false;
     setServer({ status: "loading" });
@@ -97,7 +124,21 @@ export default function EventDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, serverFetchVersion]);
+
+  // Trigger a REST refetch when the RxDB participant set has at least
+  // one id that the latest server snapshot doesn't know about. This
+  // closes the offline-application → reconnect → auto-participant
+  // round-trip without polling (ADR-037 §E).
+  useEffect(() => {
+    if (server.status !== "ok") return;
+    if (participantIds.length === 0) return;
+    const known = new Set(server.detail.participants.map((p) => p.id));
+    const hasUnknown = participantIds.some((pid) => !known.has(pid));
+    if (hasUnknown) {
+      setServerFetchVersion((v) => v + 1);
+    }
+  }, [participantIds, server]);
 
   // Auth gating. `useMe()` resolves to `null` for anonymous users; we
   // bounce to login and pass `next` so the post-login redirect lands
@@ -126,7 +167,7 @@ export default function EventDetailPage() {
   }
 
   // Pick the source of truth for the initial event payload.
-  const initial = pickInitialEvent(server, rxdb);
+  const initial = pickInitialEvent(server, rxdb, participantIds);
   if (!initial) {
     // REST is loading and RxDB has nothing yet — keep showing skeleton.
     if (server.status === "loading" || (server.status === "error" && !rxdb.resolved)) {
@@ -161,20 +202,44 @@ export default function EventDetailPage() {
 /**
  * Decide which payload to render with.
  *
- * REST OK is always preferred (it carries `plus_code` and
- * `participants`). When REST has failed or returned 404 but RxDB has
- * the doc — which is the offline-insert-then-direct-nav case — we fall
- * back to a synthesized `EventDetail` whose `plus_code` and
- * `participants` are empty placeholders. M5c.1b promotes these to a
- * proper sync collection.
+ * REST OK is always preferred (it carries `plus_code` and the full
+ * `Person` details). When REST has failed or returned 404 but RxDB has
+ * the doc — the offline-insert-then-direct-nav case — we fall back to
+ * a synthesized `EventDetail` whose `plus_code` is empty and whose
+ * `participants` list is built from the RxDB participant ids
+ * (anonymous placeholders until the server delivers names; see
+ * ADR-037 §E).
+ *
+ * If REST returned a snapshot, we still merge in the live participant
+ * ids from RxDB — they are the source of truth for membership. Person
+ * details fall back to the snapshot's name if available, otherwise to
+ * an anonymous "?" placeholder until the next REST refetch.
  */
-function pickInitialEvent(server: ServerState, rxdb: RxdbState): EventDetail | null {
-  if (server.status === "ok") return server.detail;
-  if (rxdb.resolved && rxdb.doc) return synthesizeFromRxdb(rxdb.doc);
+function pickInitialEvent(
+  server: ServerState,
+  rxdb: RxdbState,
+  participantIds: string[],
+): EventDetail | null {
+  if (server.status === "ok") {
+    return mergeParticipants(server.detail, participantIds);
+  }
+  if (rxdb.resolved && rxdb.doc) {
+    return synthesizeFromRxdb(rxdb.doc, participantIds);
+  }
   return null;
 }
 
-function synthesizeFromRxdb(doc: EventDocType): EventDetail {
+function mergeParticipants(
+  detail: EventDetail,
+  rxdbIds: string[],
+): EventDetail {
+  if (rxdbIds.length === 0) return detail;
+  const byId = new Map(detail.participants.map((p) => [p.id, p]));
+  const merged: PersonRead[] = rxdbIds.map((id) => byId.get(id) ?? anonymousPerson(id));
+  return { ...detail, participants: merged };
+}
+
+function synthesizeFromRxdb(doc: EventDocType, participantIds: string[]): EventDetail {
   return {
     id: doc.id,
     started_at: doc.started_at,
@@ -188,7 +253,21 @@ function synthesizeFromRxdb(doc: EventDocType): EventDetail {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
     plus_code: "",
-    participants: [],
+    participants: participantIds.map(anonymousPerson),
+  };
+}
+
+function anonymousPerson(personId: string): PersonRead {
+  return {
+    id: personId,
+    name: "…",
+    alias: null,
+    note: null,
+    origin: "managed",
+    linkable: false,
+    is_deleted: false,
+    deleted_at: null,
+    created_at: new Date(0).toISOString(),
   };
 }
 

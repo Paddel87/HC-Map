@@ -205,6 +205,35 @@ describe("RxDB replication — M5b.4 offline / reconnect E2E", () => {
     expect(state.applications.size).toBe(baselineApps);
   });
 
+  it("surfaces server-side auto-participants in RxDB after offline application reconnect (M5c.1b)", async () => {
+    const { db } = await bootReplication();
+    await db.events.insert(buildEvent());
+    await handles!.events.awaitInSync();
+
+    // Offline: insert an application — the auto-participant trigger
+    // would normally fire server-side and add performer + recipient
+    // rows to event_participant.
+    setOnline(false);
+    await db.applications.insert(buildApplication(0));
+    expect(await db.event_participants.find().exec()).toHaveLength(0);
+
+    // Reconnect — application push triggers the auto-participant edges
+    // in the mock server, then a pull cycle replicates them back into
+    // RxDB.
+    setOnline(true);
+    handles!.applications.reSync();
+    await handles!.applications.awaitInSync();
+    handles!.eventParticipants.reSync();
+    await handles!.eventParticipants.awaitInSync();
+
+    expect(state.eventParticipants.size).toBe(2);
+    const stored = await db.event_participants
+      .find({ selector: { event_id: EVENT_ID, _deleted: { $eq: false } } })
+      .exec();
+    const personIds = stored.map((d) => d.person_id).sort();
+    expect(personIds).toEqual([PERFORMER_ID, RECIPIENT_ID].sort());
+  });
+
   it("pulls server-authoritative fields back into RxDB after reconnect", async () => {
     const { db } = await bootReplication();
     await db.events.insert(buildEvent());

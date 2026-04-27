@@ -61,6 +61,11 @@ Status-Legende:
 | ADR-033 | Implementierungsstrategie M5b.2 (Sync-Endpoints + Owner-SELECT-Policy) | Accepted | 2026-04-26 |
 | ADR-034 | Implementierungsstrategie M5b.3 (RxDB-Frontend-Setup + Live-Modus-Refactor) | Accepted | 2026-04-26 |
 | ADR-035 | Implementierungsstrategie M5b.4 (E2E-Offline-Test + Coverage-Tooling)   | Accepted | 2026-04-27 |
+| ADR-036 | M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only) | Accepted | 2026-04-27 |
+| ADR-037 | Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection) | Accepted | 2026-04-27 |
+| ADR-038 | Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung) | Accepted | 2026-04-27 |
+| ADR-039 | Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)                | Accepted | 2026-04-27 |
+| ADR-040 | Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC) | Accepted | 2026-04-27 |
 
 ---
 
@@ -2887,6 +2892,351 @@ Der Test wartet auf `replication.events.awaitInSync()` (RxDB-Standard) statt fes
 ### Folge-Arbeit (M5c)
 - `(protected)/events/[id]/page.tsx` von Server-Side-Render auf Client-only umstellen, damit Offline-Inserts ohne 404-Race direkt navigierbar sind.
 - `event.participants` als reaktive RxDB-Subscription statt Server-Side-Snapshot, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden.
+
+---
+
+## ADR-036 — M5c-Framework + Implementierungsstrategie M5c.1a (Detail-Page Client-only)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c (Nachträgliche Erfassung & Bearbeitung) ist als Gesamtmilestone zu groß für einen Sub-Schritt: sieben Deliverables aus dem Fahrplan plus die zwei aus M5b.4 übernommenen Edge-Cases (ADR-035 §C / ADR-034 §K) berühren Architektur, API-Vertrag und Sicherheit zugleich. Diese ADR legt den **Framework-Rahmen für M5c** fest (Sub-Schritt-Aufteilung, Datenpfad-Architektur, Edit-UX) und konkretisiert die **Implementierungsstrategie M5c.1a** als ersten Sub-Schritt — den reinen SSR-Refactor der Detail-Page ohne neue Sync-Collection.
+
+### Framework-Entscheidungen (gelten für M5c.1a–4)
+
+**A. Sub-Schritt-Aufteilung (analog M5a/M5b).**
+M5c zerfällt in fünf Sub-Schritte (M5c.1 wurde nach Risikoanalyse in 1a/1b geteilt):
+
+- **M5c.1a — Detail-Page Client-only + REST-Once-Read Participants** (dieser Sub-Schritt). Beendet die SSR-Detail-Page; Participants und `plus_code` kommen weiter über REST `/api/events/{id}`, aber nur als One-Shot-Fetch beim Mount, nicht via SSR. Behebt den 404-Race aus ADR-035 §C im häufigen Fall (Online-Reload nach Offline-Insert), nicht im seltenen Fall (echte Offline-Navigation auf direkt eingefügte Events).
+- **M5c.1b — Participants als RxDB-Collection (eigener Sync-Endpoint).** Beendet den 404-Race vollständig: `event_participant` wird sync-fähig (Migration mit `updated_at`/`is_deleted`/Cursor-Index/Cascade), eigene Pull/Push-Endpoints, Frontend-RxDB-Collection, Drift-Test-Erweiterung. M5c.1a setzt damit die Vorbereitung in einem reviewbaren Schritt ohne Migration.
+- **M5c.2 — Chronologische Detail-Anzeige + reveal_participants-Maskierung.** Einheitliche `EventDetailView` für laufende und beendete Events, Lücken-Anzeige zwischen Applications, Frontend-Sicherheitsgürtel zusätzlich zur Backend-Maskierung in `app/services/masking.py`.
+- **M5c.3 — Nachträgliche Erfassung (Schalter + manuelle Zeitstempel).** Startseiten-Schalter, editierbare `started_at`/`ended_at`-Felder, monotone Zeitvalidierung ohne Sequenz-Überlappung.
+- **M5c.4 — Event-/Application-Bearbeitung (Edit-UI).** `/events/[id]/edit`-Pfad, Inline-Application-Edit via Sheet, Soft-Delete via RxDB-Push (gemäß ADR-029 LWW).
+
+**B. Datenpfad: RxDB als Single Source of Truth (Variante B1 aus dem M5c-Vorschlag).**
+Detail-Page liest ausschließlich aus RxDB für die in `EventDocType` und `ApplicationDocType` enthaltenen Felder. `plus_code` und `participants` (M5c.1a) werden über einen einmaligen REST-Fetch geholt und nicht reactive — bis M5c.1b die Participants-Sync-Collection einführt. Hybrid-Lesepfade (B2) und REST-Only (B3) verworfen; sie würden die Single-Source-Eigenschaft der M5b-Sync-Architektur aufbrechen.
+
+**C. Mutations-Datenpfad: RxDB-Push (Variante C1).**
+Edits gehen ausschließlich über RxDB-Push, mit den ADR-029-LWW-Regeln. Die in M3 erstellten REST-PATCH-Endpoints (`PATCH /api/events/{id}`, `PATCH /api/applications/{id}`) bleiben für SQLAdmin/Admin-UI erhalten, werden aber vom Frontend nicht mehr genutzt. Dadurch ist Offline-Bearbeitung „kostenlos" und der Schreibpfad bleibt einheitlich.
+
+**D. Edit-UX: dedizierte Route `/events/[id]/edit` (Variante D1).**
+`architecture.md` § Routing sieht den Pfad bereits vor. Detail-Page bleibt read-only-View, Edit-Variante ist eine eigene Route mit eigenem Form-State. Vermeidet doppelte Komponentenlogik und macht den State testbarer als ein Inline-Toggle.
+
+**E. Backend-Anpassungen: Participants als RxDB-Collection (Variante E3, nur in M5c.1b).**
+Die saubere Lösung für reactive Participants ist eine eigene Sync-Collection — identisches Muster wie `events`/`applications` aus M5b.2. M5c.1b adressiert die Migration (`event_participant` bekommt `id` (surrogate UUID), `updated_at`, `is_deleted`, `deleted_at`, Cursor-Index, Cascade-Trigger Event→Participants), das Pydantic/JSON-Schema-Paar, Pull/Push-Routen, RLS-Policy, Drift-Test. Das ist freigegeben, aber nicht Teil von M5c.1a.
+
+### M5c.1a — Konkrete Implementierungsstrategie
+
+**F. Page als Client Component.**
+`(protected)/events/[id]/page.tsx` wird `"use client"`. Kein `getServerMe()` mehr — stattdessen `useMe()` aus `lib/auth.ts` (TanStack-Query-Hook, der `/api/users/me` befragt). Loading-State bis User aufgelöst ist, dann je nach Auth-Zustand entweder Skeleton, Login-Redirect oder echter Render.
+
+**G. Drei Datenquellen, ein Render-Baum.**
+- `useEventDoc(id)` — RxDB-Subscription auf `database.events.findOne(id).$`. Gibt `EventDocType | null` plus `resolved`-Flag zurück (so können wir „RxDB hat ja noch nicht angetwortet" von „RxDB hat nichts gefunden" unterscheiden).
+- `useEventDetailFetch(id)` — One-Shot REST-Fetch via `apiFetch<EventDetail>` mit Status `"loading" | "ok" | "not-found" | "error"`.
+- `useMe()` — bestehender Auth-Hook.
+
+**H. Render-Entscheidungsbaum.**
+1. `me.isPending` → Skeleton.
+2. `me.data === null` → Login-Redirect via `window.location.replace`.
+3. RxDB nicht resolved UND REST loading → Skeleton.
+4. RxDB null UND REST 404 → `notFound()`.
+5. REST ok → übergibt `EventDetail` an `LiveEventView` / `EndedEventView` (existierende Komponenten, unverändert).
+6. REST not-found ODER REST error UND RxDB hat doc → synthetisiert `EventDetail` aus dem RxDB-Doc mit `plus_code = ""` und `participants = []`. Damit ist der Offline-Insert-Fall gerendert; Participants und Plus-Code holt M5c.1b nach.
+
+**I. Keine Architektur- oder Datenmodell-Änderung in M5c.1a.**
+- Keine neuen Routen.
+- Keine Schema-Migrationen.
+- Keine neuen Dependencies.
+- Keine neuen Sync-Collections.
+- Bestehender Backend-Code bleibt unberührt.
+- Live-Modus-Verhalten unverändert (LiveEventView und EndedEventView werden weiter benutzt).
+
+**J. Tests.**
+- Frontend-Component-Test (`tests/event-detail-page.test.tsx`): vier Szenarien — Loading, REST-OK, RxDB-Fallback nach REST-404, Hard-404.
+- Bestehende Test-Suite bleibt grün; Coverage `lib/rxdb/**` aus M5b.4 bleibt aktiv (≥ 80 % CI-Threshold).
+- E2E-Erweiterung in `replication.e2e.test.ts` ist bewusst nicht Teil von M5c.1a — sie macht erst mit M5c.1b (Participants in RxDB) wirklich Sinn.
+
+**K. Edge-Cases bewusst akzeptiert (für M5c.1b):**
+- Bei Offline-Insert + direkter Navigation **ohne** Server-Roundtrip dauerhaft: Participants bleiben leer (keine reaktive Update-Quelle bis M5c.1b), Plus-Code bleibt leer (Backend-generiert). Acceptable, weil der Offline-Insert-Pfad bisher 404 lieferte; jetzt rendert er das Event.
+- Reactive Participants-Update bei Backend-Auto-Participant-Trigger ist bis M5c.1b nicht möglich — dafür braucht es die Sync-Collection.
+
+### Begründung der Aufteilung 1a/1b
+Die Risiko-Note in der M5c-Empfehlung („Nicht-trivialer Refactor in M5c.1: Server→Client + neue Sync-Collection in einem Sub-Schritt") wurde durch die Codebase-Inspektion bestätigt: Die SSR-Entfernung allein hat zwölf bis fünfzehn Render-Pfad-Konsequenzen (Skeleton, Auth-Loading, REST-Failure-Handling, Hard-404). Eine Sync-Collection mit eigener Migration und neuer RLS dazu zu legen, würde die PR-Größe verdoppeln und den Review erschweren. M5c.1a liefert den Architektur-Refactor isoliert; M5c.1b folgt mit der Migration als zweiter Schritt.
+
+### Verworfene Alternativen
+- **B2 / B3:** würden den Live-Modus-Reactive-Pfad aus M5b.3 brechen oder eine zweite Datenquelle in einer Komponente einführen.
+- **C2:** würde Offline-Bearbeitung verbieten und zwei Mutation-Quellen schaffen.
+- **D2 (Inline-Edit):** verdoppelt die Komponentenlogik der Detail-Page.
+- **E1 (gar keine Backend-Änderung):** Participants blieben dauerhaft nicht reactive, der Auto-Participant-Trigger würde nie sichtbar.
+- **E2 (Soft-Delete-REST-Endpoint statt Sync-Push):** zweigleisige Mutation-Quelle, widerspricht ADR-029.
+- **Denormalisierte `participant_ids: list[uuid]` auf `EventDoc`:** kürzere Migration, aber mischt Concerns und macht künftige Participant-Properties (z. B. Beitrittszeit, geladen_durch) zu Event-Schema-Änderungen. Bleibt als „letzte Reserve", falls E3 in M5c.1b zu sperrig wird.
+
+### Folge-Arbeit (M5c.1b)
+- Migration `event_participant`: surrogate `id uuid` PK, `updated_at`, `is_deleted`, `deleted_at`, `(updated_at, id)`-Cursor-Index, Cascade-Trigger Event→Participants beim Soft-Delete.
+- Pydantic `EventParticipantDoc` + JSON-Schema, Pull/Push-Routen `/api/sync/event-participants/{pull,push}`.
+- RLS-Policy für `event_participant`-Sync (Member sieht eigene Participants des Events).
+- Frontend-RxDB-Collection `event_participants`, Replication-Eintrag in `lib/rxdb/replication.ts`.
+- Detail-Page von REST-One-Shot auf RxDB-Subscription für Participants umstellen.
+- Drift-Test um die neue Collection erweitern.
+
+---
+
+## ADR-037 — Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1a hat die Detail-Page client-only gemacht; `participants` und `plus_code` werden weiter über einen REST-One-Shot geholt, sind also nicht reactive. Das ADR-035-§C-Akzeptanzkriterium („`event.participants` als reaktive RxDB-Subscription, sodass Auto-Participants vom ersten Pull-Roundtrip on-the-fly sichtbar werden") wird in M5c.1b erfüllt: Die Junction-Tabelle `event_participant` wird sync-fähig.
+
+### Entscheidungen
+
+**A. Surrogate UUID-PK auf `event_participant`.**
+RxDB-Collections brauchen einen einzigen String-PK. Die bestehende Composite-PK `(event_id, person_id)` wird durch eine neue Spalte `id uuid` ersetzt; die Eindeutigkeit bleibt über einen UNIQUE-Constraint auf `(event_id, person_id)`. ORM-Code, der bisher `session.get(EventParticipant, (event_id, person_id))` nutzt, wird auf `select(EventParticipant).where(event_id=…, person_id=…)` umgestellt (drei Aufrufstellen: `app/sync/services.py`, `app/services/events.py`, `app/services/applications.py`).
+
+**B. Soft-Delete + Cursor-Felder analog ADR-030.**
+`updated_at timestamptz NOT NULL DEFAULT clock_timestamp()`, `is_deleted boolean NOT NULL DEFAULT false`, `deleted_at timestamptz NULL`. Cursor-Index `(updated_at, id)` für `GET /api/sync/event-participants/pull`. Backfill `updated_at = COALESCE(updated_at, created_at)` für bestehende Rows. Der bestehende `set_updated_at()`-Trigger (M1) wird auf `event_participant` ausgedehnt, damit jede Modifikation den Cursor bumpt.
+
+**C. Cascade-Trigger erweitert.**
+`cascade_event_soft_delete()` aus M5b.1 hat bisher nur `application` mitgenommen. Die Funktion wird so erweitert, dass beim Soft-Delete eines Events auch die nicht-gelöschten `event_participant`-Rows desselben Events auf `is_deleted = true` gesetzt werden. Restore (true→false) propagiert weiterhin nicht.
+
+**D. Pull-only Replication.**
+`event_participant` ist eine derived Junction-Tabelle: Inserts entstehen serverseitig durch den Auto-Participant-Trigger (ADR-012, beim Application-Push), Deletes laufen entweder über das bestehende REST-Endpoint `DELETE /api/events/{id}/participants/{person_id}` oder den Cascade beim Event-Soft-Delete. Es gibt keinen sinnvollen Frontend-Push-Pfad in M5c.1b. Daher: **Pull-only**, kein `/push`-Endpoint. RxDB-`replicateRxCollection` lässt das `push`-Feld weg. Falls M5c.4 (Bearbeitung) Frontend-getriebenes Hinzufügen/Entfernen will, wird Push dort nachgezogen — die Server-RLS lässt das zu, wir würden nur Wire-Schema und Service ergänzen.
+
+**E. Hybrid-Name-Resolution: RxDB für Mitgliedschaft, REST für Person-Details.**
+Die `EventParticipantDoc`-Wire-Form trägt nur `id`, `event_id`, `person_id`, plus die Sync-Standardfelder (`created_at`, `updated_at`, `deleted_at`, `_deleted`). Person-Details (`name`, `alias`) werden weiter über den bestehenden `EventDetail`-REST-Aufruf geholt, weil `Person` in M5c.1b **nicht** in eine RxDB-Collection promotet wird (das wäre eigener Sub-Schritt mit eigener RLS-Diskussion).
+
+Konsequenz: Die Detail-Page subscribet auf `event_participants.find({event_id, _deleted=false}).$` als Quelle der Wahrheit für die **Mitgliedschaft** und nutzt den REST-Snapshot als Lookup-Tabelle für **Namen**. Sobald die RxDB-Subscription eine person_id liefert, die der REST-Snapshot nicht kennt (Auto-Participant nach Reconnect), triggert ein useEffect ein einmaliges REST-Refetch von `EventDetail`.
+
+Damit ist der Akzeptanz-Pfad „Offline-Application-Insert → Reconnect → Auto-Participant erscheint reactive in der Detail-Page" geschlossen, ohne `Person` in die Sync-Schicht zu ziehen.
+
+**F. RLS-Policies bleiben unverändert.**
+Die in M2 (Migration `20260425_1730_strict_rls`) angelegten Policies — `event_participant_admin_all`, `event_participant_member_select` (über `app_user_can_see_event`), `event_participant_editor_modify` — passen unverändert. Der Pull-Endpoint nutzt `get_rls_session`, sodass Member nur ihre sichtbaren Participants bekommen.
+
+**G. JSON-Schema + Pydantic parallel zu ADR-031.**
+`backend/app/sync/schemas.py` bekommt `EventParticipantDoc` und `EventParticipantPullResponse`. Die Wire-Form-Datei liegt unter `frontend/src/lib/rxdb/schemas/event_participant.schema.json`. Der bestehende Drift-Test (`backend/tests/test_rxdb_schema_drift.py`) wird um die dritte Collection erweitert.
+
+**H. Frontend-RxDB-Collection ohne Push-Handler.**
+`lib/rxdb/types.ts` bekommt `EventParticipantDocType`, `lib/rxdb/schemas.ts` den neuen Schema-Wrapper, `lib/rxdb/database.ts` die Collection. `lib/rxdb/replication.ts` ergänzt einen dritten Replication-Eintrag mit nur `pull`-Konfiguration; die aggregierten `idle | active | offline | error`-Status-Streams nehmen den neuen Replicator mit auf.
+
+**I. Detail-Page-Anpassung.**
+`useEventParticipantIds(eventId)` (RxDB-Subscription) ersetzt die statische `participants`-Liste auf der Page. Aus dem RxDB-Result wird ein `Set<string>` von person_ids gebaut. Die Page kombiniert die Live-IDs mit dem REST-Snapshot zu einer `participants: PersonRead[]`-Ableitung; fehlt eine ID im Snapshot, wird ein REST-Refetch angestoßen.
+
+**J. Bundle- und Performance-Annahmen.**
+Die neue Collection ist klein (drei Feld-Properties + Sync-Standard); Bundle-Auswirkung erwartet < 1 KB. Cursor-Pull ist O(log N) durch den neuen Index.
+
+**K. Tests.**
+- Backend: Migration-Test für die neuen Trigger (Cascade-Trigger-Erweiterung, set_updated_at), Pull-Endpoint-Tests (Cursor, Tombstones), RLS-Test (Member sieht nur eigene Events), Drift-Test-Erweiterung.
+- Frontend: Component-Test der RxDB-Subscription, Erweiterung der `replication.e2e.test.ts` um den Auto-Participant-Roundtrip (Application offline → Reconnect → EventParticipant erscheint).
+- Coverage-Threshold `lib/rxdb/**` bleibt aktiv (≥ 80 %).
+
+### Verworfene Alternativen
+
+- **Push-Endpoint mit `_deleted`-Toggle:** Würde M5c.4-Funktionalität vorziehen, ohne klare RLS-Validierung der Insert-Branch (dort ginge es nicht über den Auto-Participant-Trigger). Bewusst auf M5c.4 verschoben.
+- **Person als RxDB-Collection in M5c.1b mitnehmen:** Hätte vollständig reaktive Names ermöglicht, aber öffnet eine eigene RLS-Diskussion (Person ist global sichtbar, Maskierungs-Logik aus `app/services/masking.py` müsste abgebildet werden) und sprengt den Sub-Schritt. Verlagert nach M5c.2 oder einen späteren Zeitpunkt.
+- **`participant_ids: list[uuid]` direkt auf `EventDoc` denormalisieren:** Hätte ohne neue Collection auskommen, mischt aber Concerns und macht künftige EventParticipant-Properties (Beitrittszeit, geladen_durch, Linkable-Status) zu Event-Schema-Änderungen — die RxDB-Replication-Architektur ist explizit row-orientiert (ADR-030).
+- **Composite-PK behalten + RxDB-Schlüssel synthetisieren (z. B. `${event_id}__${person_id}`):** Funktional, aber gegen die Konventionen von M5b und schwer mit `id`-Indizes/-Joins zu kombinieren. Surrogate-PK ist die saubere Lösung.
+
+### Folge-Arbeit
+
+- M5c.2: Detail-Page-Refresh als unified `EventDetailView` (laufend + beendet), `reveal_participants`-Maskierung im Frontend.
+- M5c.4: bei Bedarf Push-Endpoint für `event_participant` (ADR-036 §E2-Variante), wenn Editor/Admin die Teilnehmer-Liste manuell editieren sollen.
+- Mittelfristig (kein eigener Sub-Schritt geplant): Person als RxDB-Collection, sobald die Maskierungs-Logik vom Backend-Service in einen Wire-Format-äquivalenten Pfad übersetzt ist.
+
+---
+
+## ADR-038 — Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1a/1b haben die Detail-Page client-only und reactive gemacht; die eigentliche Detail-Anzeige hängt aber noch an der M5a.3-Aufteilung in `LiveEventView` (laufend) und `EndedEventView` (Stub). M5c.2 liefert das Fahrplan-Akzeptanzkriterium „Event-Detailseite mit chronologischer Anzeige aller Applications inkl. Lücken zwischen ihnen" und „Respektiert `reveal_participants`: zeigt ‚+N weitere‘ statt Namen, wenn Flag false".
+
+### Entscheidungen
+
+**A. Eine einheitliche `EventDetailView` ersetzt `LiveEventView` + `EndedEventView`.**
+Datei `frontend/src/components/event/event-detail-view.tsx` (neu); `live-event-view.tsx` wird gelöscht. Die neue Komponente orchestriert dieselben drei Abschnitte für laufende **und** beendete Events:
+1. Status-Card (Standort, Plus-Code, Live-Timer wenn laufend, Quick-Actions nur wenn `isLive`).
+2. Applications-Timeline (chronologische Liste, Lücken-Visualisierung).
+3. Beteiligte (Participants-Liste mit Frontend-Maskierung).
+
+**B. Lücken-Anzeige zwischen Applications.**
+Zwischen `app[i].ended_at` und `app[i+1].started_at` wird ein dünnes „Lücke" -Element gerendert, wenn die Lücke ≥ 1 Sekunde beträgt. Die Lücke trägt die Dauer (gleicher `formatDuration`-Helper wie sonst) und einen leichten visuellen Trenner, sodass „Materialwechsel"-Phasen erkennbar werden. Lücken erscheinen nur zwischen vollständig beendeten Applications — laufende oder noch nicht-gestartete Applications produzieren keine Lücke.
+
+**C. Frontend-Maskierungs-Helper als Sicherheitsgürtel.**
+Neue Datei `lib/masking.ts` mit `maskParticipants(participants, event, currentPersonId)`. Die Logik spiegelt `backend/app/services/masking.py`:
+- `event.reveal_participants === true` → unverändert.
+- Person mit `id === currentPersonId` → unverändert.
+- Sonst → `name = "[verborgen]"`, `alias = null`, `note = null`.
+Der Backend-Pfad maskiert weiterhin als primäre Schicht; der Frontend-Helper läuft beim Render und greift auch dann, wenn:
+- Eine veraltete REST-Snapshot-Antwort im TanStack-Query-Cache liegt, die noch nicht das aktualisierte `reveal_participants=false` reflektiert.
+- Künftige Code-Pfade (z. B. Person-RxDB-Collection in einem späteren Sub-Schritt) Person-Daten ohne Backend-Maskierung liefern.
+Konstante `PLACEHOLDER = "[verborgen]"` deckungsgleich zum Backend.
+
+**D. Maskierte Anzeige in der ParticipantsList.**
+Die Teilnehmer-Liste rendert pro Person: Name (oder Placeholder), Alias-Zeile (nur wenn vorhanden), und ein „Du"-Badge für den eigenen Eintrag. Maskierte Einträge werden visuell zurückgenommen (italics + muted color) und nicht klickbar. Die Frage „+N weitere statt Namen" aus dem Fahrplan ist damit implizit erfüllt: Wenn drei Beteiligte alle bis auf den Anwender maskiert sind, sieht man drei Einträge mit `[verborgen]` als Label — die Anzahl bleibt sichtbar, die Namen nicht.
+
+**E. Keine Backend-Änderungen, keine neuen Endpoints.**
+Backend-Maskierung in `app/services/masking.py` bleibt unverändert; sie ist die primäre Sicherheitsschicht. Auch der `mask_event_view`-Helper im REST-Detail-Endpoint bleibt wie er ist.
+
+**F. Tests.**
+- `tests/masking.test.ts` für die neue Pure-Funktion (vier Fälle: reveal=true, reveal=false-Self, reveal=false-Other, leere Liste).
+- `tests/event-detail-view.test.tsx` für die neue Komponente: Status-Card-Rendering, Live-Action-Card-Sichtbarkeit (laufend vs. beendet), Lücken-Visualisierung, Participants-Maskierung.
+- `tests/event-detail-page.test.tsx` Mock-Update auf den neuen Komponenten-Namen.
+- `replication.e2e.test.ts` und `tests/sync-status-indicator.test.tsx` bleiben unverändert.
+- Coverage `lib/rxdb/**` bleibt aktiv; neuer Coverage-Block für `lib/masking.ts` wird nicht eingeführt — der Threshold-Block deckt Sync-Pfade, nicht alle Lib-Dateien.
+
+**G. Migration der Hooks.**
+`useEventDoc`, `useApplications` und `pickRecipientPerson` ziehen mit in `event-detail-view.tsx`. `LiveEventViewProps` wird zu `EventDetailViewProps`. `page.tsx` ändert nur den Import + die JSX-Verwendung; der bisherige `EndedEventView`-Inline-Stub wird entfernt.
+
+### Verworfene Alternativen
+
+- **`LiveEventView` parallel behalten und nur `EndedEventView` auf die neue Detail-View umlenken:** Doppelte Quelle der Wahrheit für die Application-Liste — bei späterem Drift unweigerlich Inkonsistenz.
+- **„+N weitere"-Aggregat statt einzelner Maskierungen:** Spart einen Listeneintrag pro Verborgenem, verschleiert aber die tatsächliche Beteiligten-Anzahl. Die per-Eintrag-Maskierung ist transparenter und passt zum Backend-Verhalten („Anzahl bleibt, Inhalt nicht").
+- **Frontend-Maskierung in der Komponente statt in `lib/masking.ts`:** Erschwert Tests und macht das Wiederverwenden in M5c.4 (Edit-UI) und M6 (Map-Popup) später aufwändiger.
+
+### Folge-Arbeit
+
+- M5c.3 (Nachträgliche Erfassung) nutzt dieselbe `EventDetailView` als Read-Pfad nach dem Speichern.
+- M5c.4 (Edit-UI) ergänzt einen separaten Edit-Pfad `/events/[id]/edit`; `EventDetailView` bleibt Read-only.
+- M6 (Karte) kann den `maskParticipants`-Helper im Popup-Renderer wiederverwenden.
+
+---
+
+## ADR-039 — Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+Der Live-Modus (M5a.3) ist die primäre Erfassungsansicht; nachträgliche Erfassung wurde von Anfang an als sekundärer Modus gescoped (ADR-011, Fahrplan §M5c). M5c.3 schließt diese Lücke: Events ohne GPS-now-Workflow erfassen können, mit selbst gesetzten Zeitstempeln für Event und Applications.
+
+### Entscheidungen
+
+**A. Eigene Route `/events/new/backfill` statt Query-Param.**
+Der Live-Pfad bleibt unverändert auf `/events/new`. Die nachträgliche Erfassung bekommt einen eigenen Pfad, weil das Form-Verhalten (editierbare Zeitstempel, mehrere Applications direkt im Submit) deutlich abweicht. Sauberer Test-Anker (`event-backfill-form.test.tsx`), klare Navigation, kein konditionaler Render-Pfad in einer Datei.
+
+**B. Eigene Komponente `EventBackfillForm`.**
+Datei `frontend/src/components/event/event-backfill-form.tsx` (neu); `EventCreateForm` bleibt als Live-Form unangetastet. Doppelter Code für die Cards (Standort, Recipient) ist akzeptabel — beide Formulare könnten in M5c.4 oder später zu einem gemeinsamen Form-Skelett zusammengeführt werden, falls die Pflege der zwei Formulare lästig wird. Aktuell überwiegt die Klarheit pro Form.
+
+**C. Zeitstempel-Inputs als HTML5 `datetime-local`.**
+Standard-Browser-Widget, keine zusätzliche Dependency. Kommt mit Mobile-Datepickern auf iOS/Android gratis. Konvertierung zu/von ISO-8601 in der Form-Logik. Edge-Case: Browsern, die `datetime-local` nicht unterstützen, fällt das Widget auf ein Text-Feld zurück — akzeptabel für die kleine Pfad-A-Gruppe.
+
+**D. Application-Erfassung als wachsende Liste.**
+Innerhalb des Backfill-Forms ist eine Liste von Applications, jede mit `started_at`, `ended_at`, `recipient`, `note`. Ein „+ Application hinzufügen"-Button hängt eine leere Zeile an; ein „Entfernen"-Button (Trash-Icon) löscht eine Zeile. Mindestens null Applications erlaubt (manche Events sind nur Marker ohne Sequenz).
+
+**E. Submit-seitige Validierung mit inline-Fehlermeldungen + Toast-Zusammenfassung.**
+Zwei Ebenen:
+1. **Pflichtfelder:** Standort gesetzt, Event-`started_at` gesetzt; pro Application: `started_at` + Recipient.
+2. **Konsistenz:**
+   - Event: `ended_at >= started_at`, falls beide gesetzt.
+   - Applications: `ended_at >= started_at`, falls beide gesetzt.
+   - Applications: `started_at >= event.started_at` und `ended_at <= event.ended_at`, falls beide Event-Grenzen gesetzt.
+   - Applications: nicht-überlappend in Reihenfolge ihrer `started_at`. `app[i].ended_at <= app[i+1].started_at`. Bei Verletzung: präzise Zeile + Lücke benannt.
+Validierung läuft synchron im Submit-Handler, nicht reactive — ergibt klare Toast-Sammelmeldung („3 Probleme: …") plus per-Zeile-Markierung.
+
+**F. Server-vergebene `sequence_no`.**
+Der Client sortiert die Applications beim Submit nach `started_at` und sendet sie mit lokaler `sequence_no = index+1`. Backend überschreibt die Nummer wie immer (ADR-029 §sequence_no). Heißt: die UI zeigt ein „Nr."-Label nicht — die Reihenfolge ergibt sich beim Speichern aus der `started_at`-Sortierung.
+
+**G. Schreibpfad: dieselbe RxDB-Insertion wie Live.**
+`database.events.insert(...)` mit den editierten Zeitstempeln, dann sequenziell `database.applications.insert(...)` pro Anwendung. Auto-Participant-Trigger und Sync-Replication funktionieren unverändert. Offline-Fähigkeit kommt damit kostenlos: Backfill-Inserts landen erst in IndexedDB, dann beim nächsten Push auf dem Server.
+
+**H. Dashboard-Schalter.**
+Auf der Startseite (`(protected)/page.tsx`) wird der bestehende „Neues Event starten"-Button als primärer Call-to-Action belassen; daneben kommt ein sekundärer Button „Nachträglich erfassen" mit ghost/secondary-Variante. Roll-out-Sichtbarkeit für Editor und Admin (analog Live-Form); Viewer sehen den Schalter nicht.
+
+**I. Bestehende Routen unverändert.**
+Keine Backend-Änderung, keine API-Vertragsänderung. Backend RLS und Sync-Push akzeptieren Events mit beliebigen Zeitstempeln (ADR-029 §immutable-after-create — der erste Push fixiert; spätere Edits sind M5c.4-Territorium).
+
+**J. Tests.**
+- `tests/event-backfill-form.test.tsx`: Pflichtfeld-Validierung (Standort fehlt, started_at fehlt), Konsistenz-Validierung (`ended_at < started_at`, App-Überlappung), erfolgreicher Submit-Flow mit zwei Applications (verifiziert RxDB-Insertion und sortierte sequence_no), Recipient-Default (Self-Bondage wenn Recipient leer).
+- Dashboard-Test (`tests/dashboard-buttons.test.tsx` — neu): die zwei Buttons existieren für Editor/Admin, fehlen für Viewer. Falls die Snapshot-Pflege zu sperrig wird, kann dieser Test auch entfallen — der Live-Button-Pfad ist bereits implizit getestet.
+
+**K. Validierungs-Helper als reine Funktion.**
+`lib/event-backfill-validation.ts`: `validateBackfill(input): { valid: true } | { valid: false; errors: BackfillError[] }`. Trennt Validierung von der Komponente — testbarer und in M5c.4 (Edit-UI) wiederverwendbar.
+
+### Verworfene Alternativen
+
+- **Mode-Prop auf `EventCreateForm`:** Hätte einen Toggle in einer Komponente erfordert, mit konditionalen Inputs und Submit-Pfaden. Schnell unübersichtlich. Eigene Komponente bleibt schlanker.
+- **react-hook-form + zod:** Beide Bibliotheken sind bereits Deps, würden aber das bestehende `EventCreateForm`-Pattern (raw `useState` + Submit-Validierung) brechen. Konsistenz schlägt Eleganz hier.
+- **Custom Calendar-Picker-Lib:** Neuer Dev-Dep nicht gerechtfertigt für eine niedrigfrequente Erfassung. Browser-natives `datetime-local` reicht.
+- **Sequenz-Editor mit Drag-and-Drop:** Über-engineered. Beim Submit nach `started_at` sortieren ist deterministisch und scheidet Anwender-Fehlbedienung aus.
+
+### Folge-Arbeit
+
+- M5c.4 (Bearbeitung) kann den `validateBackfill`-Helper für die Edit-UI wiederverwenden.
+- Spätere UI-Iteration kann `EventCreateForm` und `EventBackfillForm` zu einem gemeinsamen Skelett zusammenfassen, sobald die Anforderungen stabilisiert sind.
+
+---
+
+## ADR-040 — Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1–M5c.3 haben Read-Pfad und Backfill-Anlage abgedeckt; M5c.4 schließt M5c mit der Bearbeitung bestehender Events und Applications. Mutationen laufen gemäß ADR-036 §C ausschließlich über RxDB-Push; die in M3 erstellten REST-PATCH-Endpoints bleiben für SQLAdmin/Admin-Workflows erhalten, werden aber vom Frontend nicht mehr genutzt.
+
+### Entscheidungen
+
+**A. Eigene Route `/events/[id]/edit` (ADR-036 §D bestätigt).**
+`(protected)/events/[id]/edit/page.tsx` neu; Detail-Page bleibt read-only. Der Edit-Pfad spiegelt das Routing aus `architecture.md` § Routing („/events/[id]/edit — Bearbeiten"). RBAC-Gate via Server-Redirect: anonyme User → `/login?next=…`; Viewer → `/?error=role`; Editor mit fremdem Event → `/events/{id}` (Read-only-Detail).
+
+**B. RBAC-Helper `canEditEvent(user, event)` als reine Funktion.**
+`frontend/src/lib/rbac.ts` (neu) liefert `canEditEvent({ role, id }, { created_by })`:
+- `role === "admin"` → `true`.
+- `role === "editor"` und `created_by === user.id` → `true`.
+- sonst → `false`.
+Gleiche Logik landet im Edit-Button-Conditional auf der Detail-Page **und** im Server-Redirect der Edit-Page. Eine reine Funktion macht beide Pfade testbar und konsistent.
+
+**C. Editierbare Felder folgen ADR-029 (Conflict-Resolution).**
+Nicht alle Felder sind editierbar — die in ADR-029 als `immutable-after-create` markierten bleiben read-only:
+- **Event editierbar:** `note` (LWW), `reveal_participants` (LWW), `ended_at` (FWW — nur setzbar, wenn aktuell `null`).
+- **Event read-only:** `lat`, `lon`, `started_at`, `created_by`, `created_at`, `updated_at`.
+- **Application editierbar:** `note` (LWW), `recipient_id` (LWW), `ended_at` (FWW — nur setzbar, wenn aktuell `null`).
+- **Application read-only:** `started_at`, `event_id`, `sequence_no`, `performer_id` (Performer-Wechsel ändert Semantik „wer hat es gemacht" zu stark; bewusst nicht in M5c.4), Position-FKs (`arm_position_id`, `hand_position_id`, `hand_orientation_id`) — UI-Komplexität bei drei Katalog-Pickern; Schritt für M6/M7 oder einen späteren Sub-Schritt.
+Die Position-FKs sind technisch LWW per ADR-029, werden aber **nicht** im Edit-UI exponiert — `_deleted` und neu setzen ist der Pfad, falls Korrektur nötig wird. Dokumentiert in §C, sodass der Scope explizit ist.
+
+**D. Soft-Delete via `doc.patch({ _deleted: true })`.**
+Sowohl Event- als auch Application-Soft-Delete erfolgen direkt über die RxDB-Mutation (nicht über REST DELETE). Cascade-Trigger (`cascade_event_soft_delete`, ADR-030/ADR-037 §C) sorgt server-seitig dafür, dass Applications und EventParticipants automatisch tombstoned werden, sobald das Event-Tombstone synchronisiert ist. Restore (`true → false`) ist Admin-only per ADR-029 und in M5c.4 **nicht** im UI exponiert — der Pfad ist absichtlich asymmetrisch (Löschen einfach, Wiederherstellen bewusst Hürde).
+
+**E. Confirmation via `window.confirm`.**
+Bewusste Reduktion: Pfad-A-Gruppe ist <20 User, native Browser-Bestätigung ist barrierefrei und kostet keine neue UI-Library. Eine schicke Custom-Dialog-Komponente kann später in einer UI-Iteration nachgelegt werden, ohne die Edit-Logik zu ändern. Im Code: `if (!window.confirm("Event endgültig löschen?")) return;`. Umgehbarer Edge-Case (User dismisst): klar dokumentiert, keine Datenverluste.
+
+**F. Submit-Pfad: Diff-basiertes Patchen.**
+`EventEditForm` lädt Event und Applications einmal aus RxDB beim Mount in lokalen State (Single-Read, **keine** Subscription während der Edit-Session, damit gleichzeitige Sync-Pull-Updates die Eingabe nicht clobbern). Beim Submit:
+1. Vergleicht lokalen State mit RxDB-Initialwerten.
+2. Patch-Calls nur für Docs mit Änderung.
+3. Soft-Delete-Aktionen sind separat und sofort (nicht im Submit-Pfad gebündelt) — Click → confirm → `doc.patch({ _deleted: true })` → Liste aktualisiert sich reactive (Application) bzw. Page navigiert weg (Event).
+
+**G. Validierung: `validateBackfill`-Wiederverwendung.**
+ADR-039 §K hat das vorausgesehen. Der Edit-Form ruft `validateBackfill` mit den aktuellen Werten auf — `started_at` der Apps und des Events ist immutable, also identisch zu den RxDB-Originalwerten; nur `ended_at` und Recipient ändern sich. Konsistenz-Verstöße (z. B. neuer `ended_at` vor `started_at`, oder ended_at überlappt mit nächster App) werden inline gemeldet. Kein zweiter Validator nötig.
+
+**H. Edit-Button in `EventDetailView`.**
+Sichtbar wenn `canEditEvent(user, event)`. Kleines Icon-Button-Trio in der Status-Card-Header-Zeile (oder unter der CardDescription). Routing per `Link` zu `/events/[id]/edit`. `data-testid="edit-event-button"` für Tests.
+
+**I. Tests.**
+- `tests/rbac.test.ts` (neu): `canEditEvent` für die drei Rollen + Edge-Case (admin sieht eigene und fremde, editor nur eigene, viewer nie).
+- `tests/event-edit-form.test.tsx`: Render mit pre-filled values aus RxDB-Mock; Submit ruft `doc.patch` nur für geänderte Felder; Soft-Delete-Button (mit gemocktem `window.confirm`) ruft `doc.patch({_deleted: true})`; immutable Felder sind read-only oder nicht im DOM.
+- `tests/event-detail-view.test.tsx`: Erweiterung um Edit-Button-Sichtbarkeit (Editor own / Editor fremd / Admin / Viewer).
+- Coverage `lib/rxdb/**` bleibt aktiv.
+
+**J. Backend bleibt unangetastet.**
+Keine neuen Endpoints, keine Migrations, keine RLS-Anpassung. Soft-Delete der Application via Sync-Push triggert das bestehende ADR-029-Verhalten („`_deleted` true ist LWW-Übergang"). Das Cascade-Trigger-Verhalten von M5b.1/M5c.1b deckt Event-Soft-Delete ab.
+
+**K. Position-FK-Editing als bewusste Lücke.**
+Wenn ein Editor bemerkt, dass die Position falsch ist, ist der dokumentierte Workaround: Application soft-deleten, neue erfassen. Im Live-Modus ist das zumutbar; im Backfill ohnehin. Eine spätere UI-Iteration kann Position-Picker im Edit-Form nachreichen, sobald die Kategorie-Auswahl-Komponente aus M7 (Katalog-Verwaltung) ausgereift ist.
+
+### Verworfene Alternativen
+- **Inline-Edit-Modus auf der Detail-Page** statt eigene Route: doppelt der UI-Komplexität, harder zu testen — ADR-036 §D-Begründung gilt unverändert.
+- **Custom-Confirm-Dialog mit shadcn/ui-`Dialog`**: würde eine neue UI-Komponente ergänzen. Für M5c.4-Scope übertrieben; `window.confirm` reicht.
+- **Restore-UI für Admin im Edit-Form**: erweitert die Komplexität um eine asymmetrische Operation, die nur einmal im Admin-Workflow gebraucht wird. Bleibt M8 (Admin-Bereich) vorbehalten.
+- **Live-Subscription während der Edit-Session**: bringt Race-Condition-Komplexität (gleichzeitige Pulls clobbern Eingaben). Single-Read beim Mount ist robuster.
+
+### Folge-Arbeit
+- M8 (Admin-Bereich) bringt Restore-UI für soft-gelöschte Events/Applications.
+- Spätere UI-Iteration kann Position-FK-Picker im Edit-Form nachreichen (siehe §K).
 
 ---
 

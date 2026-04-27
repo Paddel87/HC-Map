@@ -45,6 +45,26 @@ class EventDoc(BaseModel):
     deleted: bool = Field(default=False, alias="_deleted")
 
 
+class EventParticipantDoc(BaseModel):
+    """EventParticipant document in the RxDB replication shape (M5c.1b, ADR-037).
+
+    Surrogate ``id`` PK keeps the row addressable for RxDB; ``event_id``
+    and ``person_id`` carry the join. ``Person`` details are not part
+    of this wire format — the frontend resolves names through the
+    existing ``GET /api/events/{id}`` REST snapshot (ADR-037 §E).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: uuid.UUID
+    event_id: uuid.UUID
+    person_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+    deleted: bool = Field(default=False, alias="_deleted")
+
+
 class ApplicationDoc(BaseModel):
     """Application document in the RxDB replication shape."""
 
@@ -87,6 +107,19 @@ class EventPullResponse(BaseModel):
 
 class ApplicationPullResponse(BaseModel):
     documents: list[ApplicationDoc]
+    checkpoint: SyncCheckpoint | None = None
+
+
+class EventParticipantPullResponse(BaseModel):
+    """Pull response for ``GET /api/sync/event-participants/pull``.
+
+    M5c.1b is pull-only (ADR-037 §D); there is intentionally no
+    matching ``EventParticipantPushItem`` — the frontend never pushes
+    participant rows directly. Auto-Participant inserts originate from
+    server-side logic (ADR-012) and surface here on the next pull.
+    """
+
+    documents: list[EventParticipantDoc]
     checkpoint: SyncCheckpoint | None = None
 
 

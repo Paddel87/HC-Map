@@ -1,4 +1,4 @@
-import { Calendar, Clock, Map as MapIcon } from "lucide-react";
+import { Calendar, Clock, Map as MapIcon, NotebookPen } from "lucide-react";
 import { cookies } from "next/headers";
 import Link from "next/link";
 
@@ -62,11 +62,17 @@ export default async function DashboardPage() {
         </p>
       </header>
       {user.role !== "viewer" ? (
-        <section>
+        <section className="flex flex-col gap-2 md:flex-row md:items-center" data-testid="dashboard-event-actions">
           <Button asChild size="lg" className="w-full md:w-auto">
-            <Link href="/events/new">
+            <Link href="/events/new" data-testid="dashboard-new-event">
               <Clock className="mr-2 h-5 w-5" />
               Neues Event starten
+            </Link>
+          </Button>
+          <Button asChild variant="secondary" size="lg" className="w-full md:w-auto">
+            <Link href="/events/new/backfill" data-testid="dashboard-backfill-event">
+              <NotebookPen className="mr-2 h-5 w-5" />
+              Nachträglich erfassen
             </Link>
           </Button>
         </section>

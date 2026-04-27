@@ -14,15 +14,17 @@
 import { addRxPlugin, createRxDatabase, type RxDatabase, type RxCollection } from "rxdb";
 import { getRxStorageDexie } from "rxdb/plugins/storage-dexie";
 
-import { applicationSchema, eventSchema } from "./schemas";
-import type { ApplicationDocType, EventDocType } from "./types";
+import { applicationSchema, eventParticipantSchema, eventSchema } from "./schemas";
+import type { ApplicationDocType, EventDocType, EventParticipantDocType } from "./types";
 
 export type EventCollection = RxCollection<EventDocType>;
 export type ApplicationCollection = RxCollection<ApplicationDocType>;
+export type EventParticipantCollection = RxCollection<EventParticipantDocType>;
 
 export interface HCMapCollections {
   events: EventCollection;
   applications: ApplicationCollection;
+  event_participants: EventParticipantCollection;
 }
 
 export type HCMapDatabase = RxDatabase<HCMapCollections>;
@@ -55,6 +57,7 @@ async function buildDatabase(): Promise<HCMapDatabase> {
   await db.addCollections({
     events: { schema: eventSchema },
     applications: { schema: applicationSchema },
+    event_participants: { schema: eventParticipantSchema },
   });
   return db;
 }

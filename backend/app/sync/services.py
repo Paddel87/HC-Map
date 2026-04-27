@@ -56,6 +56,8 @@ from app.sync.schemas import (
     ApplicationPullResponse,
     ApplicationPushItem,
     EventDoc,
+    EventParticipantDoc,
+    EventParticipantPullResponse,
     EventPullResponse,
     EventPushItem,
     SyncCheckpoint,
@@ -125,6 +127,41 @@ async def pull_applications(
     else:
         new_cp = checkpoint
     return ApplicationPullResponse(documents=docs, checkpoint=new_cp)
+
+
+async def pull_event_participants(
+    session: AsyncSession,
+    *,
+    checkpoint: SyncCheckpoint | None,
+    limit: int,
+) -> EventParticipantPullResponse:
+    """Cursor-walked pull for ``event_participant`` (M5c.1b, ADR-037).
+
+    Mirrors ``pull_events`` / ``pull_applications`` — same composite
+    ``(updated_at, id)`` cursor, same tombstone-aware shape — but
+    pull-only (ADR-037 §D); there is no matching push handler.
+    """
+    stmt = select(EventParticipant)
+    if checkpoint is not None:
+        stmt = stmt.where(
+            or_(
+                EventParticipant.updated_at > checkpoint.updated_at,
+                and_(
+                    EventParticipant.updated_at == checkpoint.updated_at,
+                    EventParticipant.id > checkpoint.id,
+                ),
+            )
+        )
+    stmt = stmt.order_by(EventParticipant.updated_at, EventParticipant.id).limit(limit)
+    rows = list((await session.execute(stmt)).scalars().all())
+    docs = [_event_participant_to_doc(r) for r in rows]
+    new_cp: SyncCheckpoint | None
+    if rows:
+        last = rows[-1]
+        new_cp = SyncCheckpoint(updated_at=last.updated_at, id=last.id)
+    else:
+        new_cp = checkpoint
+    return EventParticipantPullResponse(documents=docs, checkpoint=new_cp)
 
 
 # ---------------------------------------------------------------------------
@@ -414,7 +451,19 @@ async def _ensure_participant(
     event_id: uuid.UUID,
     person_id: uuid.UUID,
 ) -> None:
-    existing = await session.get(EventParticipant, (event_id, person_id))
+    """Auto-Participant insert (ADR-012) used by the sync push path.
+
+    M5c.1b (ADR-037 §A) introduced a surrogate ``id`` PK on
+    ``event_participant``; uniqueness lives on the new
+    ``(event_id, person_id)`` UNIQUE constraint, so we look up by
+    query and rely on the constraint to resolve insert races.
+    """
+    existing = await session.scalar(
+        select(EventParticipant).where(
+            EventParticipant.event_id == event_id,
+            EventParticipant.person_id == person_id,
+        )
+    )
     if existing is not None:
         return
     try:
@@ -438,6 +487,18 @@ def _event_to_doc(row: Event) -> EventDoc:
         reveal_participants=row.reveal_participants,
         note=row.note,
         created_by=row.created_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+        deleted_at=row.deleted_at,
+        deleted=row.is_deleted,
+    )
+
+
+def _event_participant_to_doc(row: EventParticipant) -> EventParticipantDoc:
+    return EventParticipantDoc(
+        id=row.id,
+        event_id=row.event_id,
+        person_id=row.person_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
         deleted_at=row.deleted_at,

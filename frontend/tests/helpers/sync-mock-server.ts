@@ -15,7 +15,12 @@
  * resolve via `replication.events.awaitInSync()`, not by sleeping.
  */
 
-import type { ApplicationDocType, EventDocType, SyncCheckpoint } from "@/lib/rxdb/types";
+import type {
+  ApplicationDocType,
+  EventDocType,
+  EventParticipantDocType,
+  SyncCheckpoint,
+} from "@/lib/rxdb/types";
 
 interface PullRequest {
   updated_at?: string;
@@ -38,6 +43,8 @@ type DocCommon = { id: string; updated_at: string; _deleted?: boolean };
 export interface MockServerState {
   events: Map<string, EventDocType>;
   applications: Map<string, ApplicationDocType>;
+  /** Auto-participant rows surfaced by the pull-only event-participants endpoint (M5c.1b). */
+  eventParticipants: Map<string, EventParticipantDocType>;
   /** Number of `_ensure_participant` invocations — proxies the auto-participant trigger. */
   participantInserts: number;
   /** Total push rows the mock has accepted (for idempotency assertions). */
@@ -48,6 +55,7 @@ export function createMockServerState(): MockServerState {
   return {
     events: new Map(),
     applications: new Map(),
+    eventParticipants: new Map(),
     participantInserts: 0,
     acceptedPushes: 0,
   };
@@ -98,7 +106,8 @@ export interface MockFetchOptions {
   state: MockServerState;
 }
 
-const SYNC_PATH = /^\/api\/sync\/(events|applications)\/(pull|push)(?:\?(.*))?$/;
+const SYNC_PATH =
+  /^\/api\/sync\/(events|applications|event-participants)\/(pull|push)(?:\?(.*))?$/;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -133,7 +142,15 @@ export function makeMockFetch(options: MockFetchOptions): typeof fetch {
         limit: params.get("limit") ? Number(params.get("limit")) : undefined,
       };
       if (collection === "events") return jsonResponse(pull(state.events, req));
-      return jsonResponse(pull(state.applications, req));
+      if (collection === "applications") return jsonResponse(pull(state.applications, req));
+      // event-participants is pull-only (M5c.1b, ADR-037 §D).
+      return jsonResponse(pull(state.eventParticipants, req));
+    }
+
+    // event-participants has no push handler in M5c.1b; the real backend
+    // returns 405. The mock mirrors that.
+    if (collection === "event-participants") {
+      return new Response("Method Not Allowed", { status: 405 });
     }
 
     // push branch — CSRF guard mirrors the real middleware.
@@ -178,6 +195,12 @@ function applyEventPushes(
       const stored: EventDocType = { ...next, updated_at: bumpClock(next.updated_at) };
       state.events.set(stored.id, stored);
       state.participantInserts += 1;
+      // The real backend's `start_event` adds the creator as a
+      // participant (ADR-012). Tests that don't seed a creator just
+      // skip this branch by leaving `created_by` null.
+      if (next.created_by) {
+        addParticipantRow(state, next.id, next.created_by);
+      }
       continue;
     }
     // Idempotent re-push of identical state → no-op.
@@ -216,7 +239,11 @@ function applyApplicationPushes(
       };
       state.applications.set(stored.id, stored);
       state.participantInserts += 1; // auto-participant for performer
-      if (next.recipient_id !== next.performer_id) state.participantInserts += 1;
+      addParticipantRow(state, next.event_id, next.performer_id);
+      if (next.recipient_id !== next.performer_id) {
+        state.participantInserts += 1;
+        addParticipantRow(state, next.event_id, next.recipient_id);
+      }
       continue;
     }
     if (sameApplication(existing, next)) continue;
@@ -229,6 +256,45 @@ function applyApplicationPushes(
     state.applications.set(merged.id, merged);
   }
   return conflicts;
+}
+
+function addParticipantRow(
+  state: MockServerState,
+  eventId: string,
+  personId: string,
+): void {
+  // Idempotent: server holds a UNIQUE(event_id, person_id) constraint
+  // (ADR-037 §A); the auto-participant helper is a no-op if the row
+  // already exists. Mirror that here so test scenarios can replay
+  // pushes without double-inserting participants.
+  for (const ep of state.eventParticipants.values()) {
+    if (ep.event_id === eventId && ep.person_id === personId && !ep._deleted) {
+      return;
+    }
+  }
+  const now = bumpClock(new Date().toISOString());
+  const id = randomUuid();
+  state.eventParticipants.set(id, {
+    id,
+    event_id: eventId,
+    person_id: personId,
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+    _deleted: false,
+  });
+}
+
+function randomUuid(): string {
+  // jsdom's crypto.randomUUID is stable enough for tests; falls back
+  // to a manual v4-like string when not available.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const hex = (n: number) => Math.floor(Math.random() * 16 ** n)
+    .toString(16)
+    .padStart(n, "0");
+  return `${hex(8)}-${hex(4)}-4${hex(3)}-8${hex(3)}-${hex(12)}`;
 }
 
 function nextSequenceFor(state: MockServerState, eventId: string): number {

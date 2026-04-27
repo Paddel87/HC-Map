@@ -1,6 +1,23 @@
 "use client";
 
-import { Flag, Pause, Play, Plus } from "lucide-react";
+/**
+ * Unified event detail view (M5c.2, ADR-038).
+ *
+ * Replaces the previous `LiveEventView` + `EndedEventView` split: the
+ * same component now renders running and ended events. Three sections:
+ *
+ *   1. Status card (location, plus-code, total timer; live-action
+ *      buttons only when `isLive`).
+ *   2. Applications timeline — chronological list with explicit
+ *      "Pause" markers between completed applications, so the
+ *      material-change gaps from ADR-011 §6 are visible.
+ *   3. Participants list, masked client-side via `maskParticipants`
+ *      (ADR-038 §C). The backend already masks names; this is the
+ *      defense-in-depth step described in ADR-036 §B.
+ */
+
+import { Flag, Pause, Pencil, Play, Plus } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -12,19 +29,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useNow } from "@/hooks/use-now";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 import type { AuthUser } from "@/lib/auth";
+import { diffSeconds, formatDuration } from "@/lib/duration";
+import { isMasked, maskParticipants } from "@/lib/masking";
+import { canEditEvent } from "@/lib/rbac";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { ApplicationDocType, EventDocType } from "@/lib/rxdb/types";
 import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
-import { diffSeconds, formatDuration } from "@/lib/duration";
 
 const RECIPIENT_DRAFT_PREFIX = "hcmap:event-recipient:";
 
-export interface LiveEventViewProps {
+export interface EventDetailViewProps {
   user: AuthUser;
   initialEvent: EventDetail;
 }
 
-export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
+export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
   const router = useRouter();
   const database = useDatabase();
   const now = useNow(1000);
@@ -47,9 +66,15 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
       : 0;
 
   const activeApplication = applications.find((a) => a.ended_at === null) ?? null;
+
+  const maskedParticipants = useMemo(
+    () => maskParticipants(event.participants, event, user.person_id),
+    [event, user.person_id],
+  );
+
   const recipientPerson = pickRecipientPerson(
     applications,
-    event.participants,
+    maskedParticipants,
     user.person_id,
     initialEvent.id,
   );
@@ -79,8 +104,10 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
     router.refresh();
   }
 
+  const editable = canEditEvent(user, { created_by: initialEvent.created_by });
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" data-testid="event-detail-view">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-2 text-base">
@@ -91,6 +118,20 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
             Standort: {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
             {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}
           </CardDescription>
+          {editable ? (
+            <div className="pt-1">
+              <Button
+                asChild
+                variant="secondary"
+                size="sm"
+                data-testid="edit-event-button"
+              >
+                <Link href={`/events/${initialEvent.id}/edit`}>
+                  <Pencil aria-hidden /> Bearbeiten
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </CardHeader>
         {isLive ? (
           <CardContent className="flex flex-col gap-2">
@@ -146,11 +187,32 @@ export function LiveEventView({ user, initialEvent }: LiveEventViewProps) {
             </div>
           ) : applications.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Tippe auf „Neue Application“, um die erste zu starten.
+              {isLive
+                ? "Tippe auf „Neue Application“, um die erste zu starten."
+                : "In diesem Event wurden keine Applications erfasst."}
             </p>
           ) : (
-            <ApplicationList applications={applications} now={now} />
+            <ApplicationsTimeline applications={applications} now={now} />
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Beteiligte</CardTitle>
+          <CardDescription>
+            {maskedParticipants.length === 0
+              ? "Noch keine Beteiligten erfasst."
+              : event.reveal_participants
+                ? `${maskedParticipants.length} Beteiligte sichtbar.`
+                : "Andere Beteiligte werden verborgen."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ParticipantsList
+            participants={maskedParticipants}
+            currentPersonId={user.person_id}
+          />
         </CardContent>
       </Card>
 
@@ -177,6 +239,7 @@ interface MergedEvent {
   note: string | null;
   plus_code: string;
   participants: readonly PersonRead[];
+  reveal_participants: boolean;
 }
 
 function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent {
@@ -190,6 +253,7 @@ function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent 
     note: doc.note,
     plus_code: server.plus_code,
     participants: server.participants,
+    reveal_participants: doc.reveal_participants,
   };
 }
 
@@ -222,16 +286,64 @@ function useApplications(eventId: string): ApplicationDocType[] {
   return docs;
 }
 
-function ApplicationList({
+/**
+ * Render the chronological application list and surface the gap
+ * between two completed applications as an explicit "Pause" row
+ * (ADR-038 §B). A gap requires both the previous `ended_at` and the
+ * next `started_at` to be set; running or not-yet-started applications
+ * don't produce a gap.
+ */
+function ApplicationsTimeline({
   applications,
   now,
 }: {
   applications: ApplicationDocType[];
   now: number;
 }) {
+  type Item =
+    | { kind: "app"; app: ApplicationDocType }
+    | { kind: "gap"; key: string; durationSeconds: number };
+
+  const items: Item[] = [];
+  for (let i = 0; i < applications.length; i += 1) {
+    const app = applications[i]!;
+    if (i > 0) {
+      const previous = applications[i - 1]!;
+      const previousEnded = previous.ended_at;
+      const nextStarted = app.started_at;
+      if (previousEnded && nextStarted) {
+        const gapSeconds = diffSeconds(previousEnded, nextStarted);
+        if (gapSeconds >= 1) {
+          items.push({
+            kind: "gap",
+            key: `gap-${previous.id}-${app.id}`,
+            durationSeconds: gapSeconds,
+          });
+        }
+      }
+    }
+    items.push({ kind: "app", app });
+  }
+
   return (
-    <ul className="flex flex-col gap-2">
-      {applications.map((application) => {
+    <ul className="flex flex-col gap-2" data-testid="applications-timeline">
+      {items.map((item) => {
+        if (item.kind === "gap") {
+          return (
+            <li
+              key={item.key}
+              data-testid="applications-timeline-gap"
+              className="flex items-center gap-2 px-3 text-xs text-slate-500 dark:text-slate-400"
+            >
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" aria-hidden />
+              <span className="font-mono tabular-nums">
+                Pause · {formatDuration(item.durationSeconds)}
+              </span>
+              <span className="h-px flex-1 bg-slate-200 dark:bg-slate-800" aria-hidden />
+            </li>
+          );
+        }
+        const application = item.app;
         const startedAt = application.started_at;
         const endedAt = application.ended_at;
         const seconds = startedAt
@@ -243,6 +355,7 @@ function ApplicationList({
         return (
           <li
             key={application.id}
+            data-testid="applications-timeline-app"
             className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-800"
           >
             <div className="min-w-0 flex-1">
@@ -267,6 +380,58 @@ function ApplicationList({
               ) : null}
             </div>
             <span className="font-mono text-base tabular-nums">{formatDuration(seconds)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ParticipantsList({
+  participants,
+  currentPersonId,
+}: {
+  participants: readonly PersonRead[];
+  currentPersonId: string;
+}) {
+  if (participants.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Keine Beteiligten erfasst.
+      </p>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-2" data-testid="participants-list">
+      {participants.map((person) => {
+        const masked = isMasked(person);
+        const isSelf = person.id === currentPersonId;
+        return (
+          <li
+            key={person.id}
+            data-testid="participants-list-item"
+            data-masked={masked ? "true" : "false"}
+            className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+          >
+            <span
+              className={
+                masked
+                  ? "italic text-slate-500 dark:text-slate-400"
+                  : "text-slate-900 dark:text-slate-100"
+              }
+            >
+              {person.name}
+            </span>
+            {person.alias ? (
+              <span className="truncate text-xs text-slate-500 dark:text-slate-400">
+                · {person.alias}
+              </span>
+            ) : null}
+            {isSelf ? (
+              <span className="ml-auto rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                Du
+              </span>
+            ) : null}
           </li>
         );
       })}

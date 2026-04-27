@@ -22,6 +22,7 @@ from app.sync.schemas import (
     ApplicationPullResponse,
     ApplicationPushItem,
     EventDoc,
+    EventParticipantPullResponse,
     EventPullResponse,
     EventPushItem,
     SyncCheckpoint,
@@ -110,3 +111,28 @@ async def push_applications(
     session: AsyncSession = Depends(get_rls_session),
 ) -> list[ApplicationDoc]:
     return await sync_svc.push_applications(session, items, user=user)
+
+
+# --- event_participant: pull-only sync (M5c.1b, ADR-037 §D) -----------
+
+
+@router.get(
+    "/event-participants/pull",
+    response_model=EventParticipantPullResponse,
+    summary="Pull event-participant rows updated since the cursor",
+)
+async def pull_event_participants(
+    updated_at: datetime | None = Query(default=None, description="Cursor timestamp"),
+    cursor_id: uuid.UUID | None = Query(
+        default=None,
+        alias="id",
+        description="Cursor id (tiebreaker)",
+    ),
+    limit: int = Query(default=100, ge=1, le=500),
+    session: AsyncSession = Depends(get_rls_session),
+) -> EventParticipantPullResponse:
+    return await sync_svc.pull_event_participants(
+        session,
+        checkpoint=_checkpoint(updated_at, cursor_id),
+        limit=limit,
+    )

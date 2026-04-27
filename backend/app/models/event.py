@@ -19,8 +19,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
-    PrimaryKeyConstraint,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -77,19 +77,34 @@ class Event(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     )
 
 
-class EventParticipant(Base):
+class EventParticipant(Base, SoftDeleteMixin):
     """n:m link between events and persons.
 
-    Composite PK (event_id, person_id) prevents duplicates. Auto-Participant
-    rule (ADR-012) is enforced in the service layer (M3+).
+    Surrogate ``id`` PK (M5c.1b, ADR-037 §A) keeps the row addressable
+    by RxDB's single-string primary-key model; the original
+    ``(event_id, person_id)`` invariant is preserved as a UNIQUE
+    constraint. Auto-Participant rule (ADR-012) is still enforced in
+    the service layer.
+
+    Soft-delete columns (``is_deleted``, ``deleted_at``) and the
+    ``updated_at`` cursor follow the same pattern as event/application
+    (ADR-030, ADR-037 §B); the ``cascade_event_soft_delete()`` trigger
+    sets ``is_deleted = true`` here when the parent event is
+    soft-deleted (ADR-037 §C).
     """
 
     __tablename__ = "event_participant"
     __table_args__ = (
-        PrimaryKeyConstraint("event_id", "person_id", name="pk_event_participant"),
+        UniqueConstraint(
+            "event_id",
+            "person_id",
+            name="uq_event_participant_event_id_person_id",
+        ),
         Index("ix_event_participant_person_id", "person_id"),
+        Index("ix_event_participant_cursor", "updated_at", "id"),
     )
 
+    id: Mapped[uuid.UUID] = pk_column()
     event_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("event.id", ondelete="CASCADE"),
@@ -104,4 +119,12 @@ class EventParticipant(Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
+    )
+    # ADR-037 §B: updated_at is the RxDB pull cursor for
+    # /api/sync/event-participants. NOT NULL with a server-side
+    # default so every INSERT yields a usable timestamp.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
     )

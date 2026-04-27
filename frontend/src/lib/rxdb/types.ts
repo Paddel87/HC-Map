@@ -30,6 +30,22 @@ export interface EventDocType {
   _deleted: boolean;
 }
 
+/**
+ * EventParticipant link row replicated via /api/sync/event-participants
+ * (M5c.1b, ADR-037). Pull-only — there is no client-side mutation
+ * path: server-side auto-participant inserts (ADR-012) and the
+ * existing REST endpoints handle the writes; the frontend only reads.
+ */
+export interface EventParticipantDocType {
+  id: string;
+  event_id: string;
+  person_id: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  _deleted: boolean;
+}
+
 export interface ApplicationDocType {
   id: string;
   event_id: string;

@@ -9,6 +9,55 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.5 — Geocoding-Suchbox in `MapView` (ADR-041 §J):**
+  Letzter M6-Sub-Step. Adress-Eingabe oben links, fliegt die Karte
+  an. **M6 vollständig abgeschlossen.**
+  - Neue Komponente
+    [components/map/geocode-search-box.tsx](frontend/src/components/map/geocode-search-box.tsx):
+    - Debounce 300 ms, Mindestlänge 2 Zeichen.
+    - `GET /api/geocode?q=…&proximity=<lat>,<lon>&limit=5` über
+      `apiFetch` (M6.1-Endpoint).
+    - Optionaler `getProximity`-Callback liefert die aktuelle
+      Viewport-Mitte als Bias; Stale-Response-Filter via
+      `requestSeq`-Ref (späte Antworten werden verworfen).
+    - Treffer-Dropdown mit `place_name`; Auswahl ruft
+      `onSelect(lat, lon)` und schließt das Dropdown.
+    - Fehler-Toast-Mapping über `ApiError.status`:
+      - 429 → „Geocoding-Limit erreicht"
+      - 503 → „Adress-Suche nicht konfiguriert"
+      - 502 → „Adress-Suche nicht erreichbar"
+      - sonst → generische Fehlermeldung
+      In jedem Fall funktioniert die Karte weiter.
+    - X-Button leert die Eingabe.
+  - **`MapView`-Integration**:
+    - `mapRef.current.flyTo({ center: [lon, lat], zoom: 14 })` bei
+      Treffer-Auswahl; Viewport-Update wird zusätzlich in den
+      debounced URL-Write geschoben, damit die geflogene Position
+      teilbar bleibt.
+    - SearchBox + Filter-Toggle teilen sich einen
+      Top-Left-Container (`flex flex-col gap-2 sm:flex-row`).
+    - `getProximity` liefert den aktuellen `viewportRef`-Stand
+      (oder `null`, wenn weder URL noch Pan/Zoom je etwas gesetzt
+      haben).
+  - **Tests:** +13 Cases —
+    - 10 in
+      [geocode-search-box.test.tsx](frontend/tests/geocode-search-box.test.tsx):
+      Mindestlänge, Debounce auf finalen Wert (echte Timer +
+      `waitFor`), Proximity-Forwarding mit `lat,lon`-Encoding,
+      Treffer-Auswahl, Empty-Hint, je ein Toast-Test für 429 / 503
+      / 502, X-Clear, Stale-Response-Drop.
+    - 3 zusätzliche in `map-view.test.tsx`: flyTo bei Treffer-Klick
+      (Map-Mock mit `forwardRef` + `useImperativeHandle` für
+      `flyTo`), Proximity-Forwarding aus URL-Viewport, `null`-
+      Proximity ohne URL-Viewport.
+  - **Frontend-Suite:** 194/194 grün (+13), Lint/Typecheck clean.
+  - Production-Build grün, `/map` 13.7 kB / 252 kB First Load
+    (+1.4 kB).
+  - **M6 Gesamtbilanz:** 5 Sub-Steps, 1 Backend-Endpoint, 8 neue
+    Frontend-Module, **77 neue Tests** seit M5c (Backend-Suite
+    150/150, Frontend-Suite 194/194), Coverage `lib/map/**`
+    99.12 % Lines / 93.1 % Branches.
+
 - **M6.4 — Filter (Zeitraum, Beteiligte) + URL-Viewport-Sync (ADR-041 §H/§I):**
   Karte teilbar per Link, Filter wirken sofort.
   - **URL-State-Codec**

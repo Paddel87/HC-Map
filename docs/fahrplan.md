@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 / M6.2 / M6.3 [ERLEDIGT] 2026-04-27**. **M6.4 [ERLEDIGT] 2026-04-27**: URL-State-Codec (`lib/map/url-state.ts`) parst `lat`/`lon`/`zoom`/`from`/`to`/`p`-Komma-UUIDs mit Range-Validierung; `serializeMapUrlState` baut den Query-String. Filter-Logik (`lib/map/event-filter.ts`) `applyEventFilter` wendet Datum (UTC-Tagesgrenzen, inklusiv) und Beteiligte (OR über `participantsByEvent`-Index aus RxDB) clientseitig an. `MapFilterPanel`-Drawer (Sheet, rechts) mit zwei Datepicker und Personen-Multi-Select; Personen via `apiFetch<Page<PersonRead>>("/api/persons")` (REST, lazy, `enabled: open`). `MapView` liest Initial-Viewport+Filter aus `useSearchParams`, schreibt Pan/Zoom debounced (300 ms) in die URL via `router.replace({ scroll: false })`, wendet die Filter über RxDB-`event_participants` an. Status-Bar zeigt „X von Y Events (gefiltert)", Filter-Toggle färbt sich primary wenn aktiv. Frontend-Suite **181/181 grün** (+46 Tests: 18 url-state, 14 event-filter, 9 FilterPanel, 5 MapView-Integration), Coverage `lib/map/**` **99.12 % Lines / 93.1 % Branches**, Production-Build grün (`/map` 12.3 kB / 242 kB). Aktiver Sub-Step: **M6.5 (Geocoding-Suchbox in `MapView`)**.
-- **Nächster Schritt:** M6.5 — `components/map/geocode-search-box.tsx`: Debounced Eingabefeld oben links, ruft `/api/geocode` an, Treffer-Auswahl `flyTo` zur Adresse; 429/503/502 → Toast.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [ERLEDIGT] 2026-04-28** — alle fünf Sub-Schritte abgeschlossen. **M6.5 [ERLEDIGT] 2026-04-28**: `GeocodeSearchBox` (`components/map/geocode-search-box.tsx`) mit Debounce (300 ms), Mindestlänge 2, optionalem `getProximity`-Callback, Stale-Response-Filter via `requestSeq`-Ref, Treffer-Dropdown mit `place_name`, Auswahl ruft `onSelect(lat, lon)`. Fehler-Mapping: 429 → „Geocoding-Limit erreicht", 503 → „Adress-Suche nicht konfiguriert", 502 → „Adress-Suche nicht erreichbar", sonst generisch. `MapView` integriert: `mapRef`-`flyTo({ center: [lon, lat], zoom: 14 })` bei Treffer-Auswahl, Viewport+URL-Sync werden mitgepflegt. SearchBox + Filter-Toggle teilen sich einen Top-Left-Container (`flex flex-col gap-2 sm:flex-row`). Frontend-Suite **194/194 grün** (+13 Tests: 10 GeocodeSearchBox + 3 MapView-Integration: flyTo, proximity, null-proximity), Lint/Typecheck clean, Production-Build grün (`/map` 13.7 kB / 252 kB). **M6 vollständig abgeschlossen.**
+- **Nächster Schritt:** M7 (Katalog-Verwaltung & Vorschlags-Workflow) — Admin-CRUD-UI für RestraintType / ArmPosition / HandPosition / HandOrientation; Editor-Vorschlags-Workflow mit `status=pending`; rollenbasierte Sichtbarkeit.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -67,12 +67,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6          | Kartenansicht                                    | [IN ARBEIT] |
+| 1 MVP   | M6          | Kartenansicht                                    | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [OFFEN]     |
+| 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
@@ -999,7 +999,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 ---
 
-### M6 — Kartenansicht
+### M6 — Kartenansicht — [ERLEDIGT] 2026-04-28
 
 **Ziel:** Events werden auf einer Karte visualisiert.
 
@@ -1128,17 +1128,20 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 **Ziel:** Nutzer kann Adresse eingeben und die Karte fliegt dorthin.
 
 **Deliverables:**
-- `components/map/geocode-search-box.tsx`: Input oben links, 300 ms Debounce, `GET /api/geocode?q=…&proximity=<center>&limit=5`.
-- Treffer-Dropdown mit `place_name`; Auswahl → `map.flyTo({ center, zoom: 14 })`.
-- Fehler 429 / 503 / 502 → `sonner`-Toast mit klartextlicher Begründung; Karte funktioniert weiter.
-- Leere Eingabe oder Auswahl → Treffer-Liste schließen.
-- Kein persistierter Marker für Treffer.
-- Tests: Debounce-Verhalten, flyTo-Aufruf bei Treffer-Klick, Toast bei 429.
+- `components/map/geocode-search-box.tsx`: Input oben links, 300 ms Debounce, `GET /api/geocode?q=…&proximity=<center>&limit=5`. ✓
+- Mindestlänge 2 Zeichen, sonst kein Request. ✓
+- Treffer-Dropdown mit `place_name`; Auswahl → `onSelect(lat, lon)` → `mapRef.current.flyTo({ center: [lon, lat], zoom: 14 })`. ✓
+- Fehler 429 / 503 / 502 → `sonner`-Toast mit klartextlicher Begründung („Geocoding-Limit erreicht", „Adress-Suche nicht konfiguriert", „Adress-Suche nicht erreichbar"); Karte funktioniert weiter. ✓
+- Leere Eingabe oder Auswahl → Treffer-Liste schließen, Input via X-Button leerbar. ✓
+- Stale-Response-Filter via `requestSeq`-Ref (späte Antworten verworfen). ✓
+- Kein persistierter Marker für Treffer. ✓
+- Tests: Mindestlänge, Debounce auf finalen Wert, Proximity-Forwarding, Treffer-Auswahl, Empty-Hint, je ein Toast-Test pro Fehler-Status, X-Clear, Stale-Response-Drop, MapView-flyTo + Proximity-Lookup. ✓
 
 **Akzeptanzkriterien:**
-- Eingabe einer Adresse zeigt Treffer-Liste.
-- Auswahl fliegt die Karte an, URL-State (`lat`/`lon`/`zoom`) wird aktualisiert.
-- Kein Treffer / Rate-Limit → klare User-Rückmeldung.
+- Eingabe einer Adresse zeigt Treffer-Liste. ✓
+- Auswahl fliegt die Karte an, URL-State (`lat`/`lon`/`zoom`) wird über den `MapView`-Viewport-Sync aktualisiert. ✓
+- Kein Treffer / Rate-Limit → klare User-Rückmeldung via Toast. ✓
+- Frontend-Suite grün (194/194). ✓
 
 **Abhängigkeiten:** M6.1 (Endpoint), M6.4 (URL-Sync).
 

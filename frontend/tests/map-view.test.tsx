@@ -24,7 +24,7 @@
 import "fake-indexeddb/auto";
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, forwardRef, useImperativeHandle } from "react";
 import type { ReactNode } from "react";
 import { BehaviorSubject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -88,16 +88,32 @@ interface FilterPanelMockProps {
   onChange: (next: MapFilters) => void;
 }
 
+interface GeocodeSearchBoxMockProps {
+  getProximity?: () => { lat: number; lon: number } | null;
+  onSelect: (lat: number, lon: number) => void;
+}
+
 let mapProps: MapMockProps | null = null;
 let sourceProps: SourceMockProps | null = null;
 let layerProps: LayerMockProps[] = [];
 let filterPanelProps: FilterPanelMockProps | null = null;
+let geocodeSearchProps: GeocodeSearchBoxMockProps | null = null;
+
+const flyToMock = vi.fn();
 
 vi.mock("react-map-gl/maplibre", () => ({
-  default: (props: MapMockProps) => {
+  default: forwardRef<unknown, MapMockProps>((props, ref) => {
     mapProps = props;
+    useImperativeHandle(
+      ref,
+      () => ({
+        flyTo: flyToMock,
+        easeTo: vi.fn(),
+      }),
+      [],
+    );
     return <div data-testid="mock-map">{props.children}</div>;
-  },
+  }),
   Source: (props: SourceMockProps) => {
     sourceProps = props;
     return (
@@ -140,6 +156,13 @@ vi.mock("@/components/map/map-filter-panel", () => ({
         data-open={props.open ? "true" : "false"}
       />
     );
+  },
+}));
+
+vi.mock("@/components/map/geocode-search-box", () => ({
+  GeocodeSearchBox: (props: GeocodeSearchBoxMockProps) => {
+    geocodeSearchProps = props;
+    return <div data-testid="mock-geocode-search" />;
   },
 }));
 
@@ -237,10 +260,12 @@ beforeEach(() => {
   useDatabaseMock.mockReset();
   routerReplaceMock.mockReset();
   useSearchParamsMock.mockReturnValue(new URLSearchParams(""));
+  flyToMock.mockReset();
   mapProps = null;
   sourceProps = null;
   layerProps = [];
   filterPanelProps = null;
+  geocodeSearchProps = null;
 });
 
 afterEach(() => {
@@ -605,5 +630,48 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
     expect(screen.getByTestId("map-filter-toggle")).toHaveTextContent(
       "Filter aktiv",
     );
+  });
+
+  it("flies to the picked geocoding result", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(geocodeSearchProps).not.toBeNull();
+    act(() => {
+      geocodeSearchProps?.onSelect(48.137, 11.575);
+    });
+    expect(flyToMock).toHaveBeenCalledWith({
+      center: [11.575, 48.137],
+      zoom: 14,
+    });
+  });
+
+  it("forwards the current viewport as proximity to the search box", () => {
+    vi.useFakeTimers();
+    try {
+      useSearchParamsMock.mockReturnValue(
+        new URLSearchParams("lat=48.1&lon=11.5&zoom=12"),
+      );
+      useDatabaseMock.mockReturnValue(makeDatabase([]));
+      render(<MapView />);
+
+      // Initial viewport seeded from URL but viewportRef is set in
+      // onMoveEnd; simulate one to populate it.
+      act(() => {
+        mapProps?.onMoveEnd?.({
+          viewState: { latitude: 48.1, longitude: 11.5, zoom: 12 },
+        });
+      });
+
+      const proximity = geocodeSearchProps?.getProximity?.() ?? null;
+      expect(proximity).toEqual({ lat: 48.1, lon: 11.5 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns null proximity before any pan/zoom or URL viewport", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(<MapView />);
+    expect(geocodeSearchProps?.getProximity?.()).toBeNull();
   });
 });

@@ -43,6 +43,7 @@ import Map, {
   type ViewStateChangeEvent,
 } from "react-map-gl/maplibre";
 
+import { GeocodeSearchBox } from "@/components/map/geocode-search-box";
 import { MapFilterPanel } from "@/components/map/map-filter-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +68,7 @@ import type {
 } from "@/lib/rxdb/types";
 
 const INITIAL_ZOOM = 11;
+const GEOCODE_FLYTO_ZOOM = 14;
 const SOURCE_ID = "events";
 const CLUSTER_LAYER_ID = "events-clusters";
 const CLUSTER_COUNT_LAYER_ID = "events-cluster-count";
@@ -257,6 +259,28 @@ export function MapView() {
     [writeUrl],
   );
 
+  const getProximity = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return null;
+    return { lat: viewport.lat, lon: viewport.lon };
+  }, []);
+
+  const handleGeocodeSelect = useCallback(
+    (lat: number, lon: number) => {
+      const map = mapRef.current;
+      if (!map) return;
+      map.flyTo({ center: [lon, lat], zoom: GEOCODE_FLYTO_ZOOM });
+      const viewport: MapViewport = {
+        lat: roundCoord(lat),
+        lon: roundCoord(lon),
+        zoom: GEOCODE_FLYTO_ZOOM,
+      };
+      viewportRef.current = viewport;
+      scheduleUrlWrite(viewport, filtersRef.current);
+    },
+    [scheduleUrlWrite],
+  );
+
   const handleMapClick = useCallback((event: MapLayerMouseEvent) => {
     const feature = event.features?.[0];
     if (!feature) return;
@@ -345,10 +369,16 @@ export function MapView() {
           </Popup>
         ) : null}
       </Map>
-      <FilterToggleButton
-        active={filtersActive}
-        onClick={() => setFilterPanelOpen(true)}
-      />
+      <div className="absolute left-2 top-2 flex flex-col gap-2 sm:flex-row sm:items-start">
+        <FilterToggleButton
+          active={filtersActive}
+          onClick={() => setFilterPanelOpen(true)}
+        />
+        <GeocodeSearchBox
+          getProximity={getProximity}
+          onSelect={handleGeocodeSelect}
+        />
+      </div>
       <MapStatusBar
         count={events.length}
         totalCount={allEvents.length}
@@ -376,7 +406,7 @@ function FilterToggleButton({
       type="button"
       variant={active ? "default" : "secondary"}
       size="sm"
-      className="absolute left-2 top-2 shadow-md"
+      className="shadow-md"
       onClick={onClick}
       data-testid="map-filter-toggle"
       data-filter-active={active ? "true" : "false"}

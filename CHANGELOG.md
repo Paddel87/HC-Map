@@ -9,6 +9,45 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.2 — Frontend `MapView` (ADR-041 §E/§F/§G):**
+  Vollbild-Karte unter `/map` zeigt alle sichtbaren Events als Marker.
+  - Neue Komponente [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):
+    abonniert RxDB-`events` live (Selector `_deleted=false`), filtert
+    clientseitig auf gültige lat/lon-Range via `selectMappableEvents`,
+    rendert pro Event einen `react-map-gl/Marker`. Marker-Klick öffnet
+    `react-map-gl/Popup` mit `started_at` (lokal formatiert),
+    Koordinaten, Live-/Beendet-Status und „Detailseite öffnen →"-Link.
+    Status-Bar unten links zeigt die Marker-Anzahl.
+  - **`lib/map/` Verzeichnis** statt `lib/map.ts`: `style.ts`
+    (rasterTileStyle, DEFAULT_MAP_CENTER — unverändert),
+    `event-marker-data.ts` (neue pure-Function-Helfer
+    `selectMappableEvents` / `isMappableEvent`), `index.ts`
+    re-exportiert; bestehende Importe `@/lib/map` bleiben kompatibel.
+  - **Bewusste Scope-Reduktion gegenüber ADR-041 §G:**
+    - Recipient-Name **nicht** im Popup. Persons werden per ADR-037
+      nicht in RxDB synchronisiert, eine ADR-038-§F-konforme
+      Maskierung wäre offline daher nicht zuverlässig — die Detail-
+      seite enforced die Maskierung weiterhin.
+    - Plus-Code-Anzeige verschoben — braucht
+      `open-location-code`-Dependency, die als eigener
+      freigabepflichtiger Schritt nachgezogen wird.
+    - Beide Punkte sind im Fahrplan und im CHANGELOG explizit
+      gekennzeichnet, keine stille Auslassung.
+  - **Map-Page** [(protected)/map/page.tsx](frontend/src/app/(protected)/map/page.tsx):
+    Card-Platzhalter durch `MapView` Vollbreite ersetzt.
+  - **Tests:** 18 neue Cases —
+    [event-marker-data.test.ts](frontend/tests/event-marker-data.test.ts)
+    (10 Tests: Boundary-Validierung, Soft-Delete-Filter,
+    Out-of-Range, Projektion, Reihenfolge) und
+    [map-view.test.tsx](frontend/tests/map-view.test.tsx)
+    (8 Tests: Marker-Count, Empty-State, Loading-State,
+    Singular/Plural-Status, Popup-Open-Click, Live/Beendet-Anzeige,
+    Popup-Close). `react-map-gl/maplibre` wird via `vi.mock`
+    gestubbt (ADR-027 §J2-Pattern, jsdom hat kein WebGL).
+  - **Coverage:** Threshold `lib/map/**` ≥ 70 % aktiv in
+    `vitest.config.ts`; aktuell **97.33 % Lines / 84.61 % Branches**.
+  - **Frontend-Suite:** 127/127 grün (+18), Lint/Typecheck clean.
+
 - **M6.1 — Backend Geocoding-Proxy `GET /api/geocode` (ADR-041 §B/§D):**
   Erste Iteration für M6 (Kartenansicht). Frontend wird in M6.5
   konsumieren.

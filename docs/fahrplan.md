@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]** — Sub-Step-Bündel laut ADR-041 freigegeben. **M6.1 [ERLEDIGT] 2026-04-27**: Backend-Geocoding-Proxy `GET /api/geocode` mit serverseitigem MapTiler-Key, In-Memory-Token-Bucket pro User (Default 30 req/min via `HCMAP_GEOCODE_RATE_PER_MINUTE`, `0` deaktiviert), Validierung von `q`/`proximity`/`limit`, Fehler-Matrix 401/422/429/502/503, Cache-Control `private, max-age=300`. Antwort 1:1 als GeoJSON-FeatureCollection. **13 Tests grün**, Backend-Suite **150/150 grün**, ruff/mypy clean. Architektur-Anpassung: Clustering wechselt von `supercluster` auf MapLibre-native (ADR-041 §C, architecture.md §Karten-Komponente). Aktiver Sub-Step: **M6.2 (Frontend `MapView`)**.
-- **Nächster Schritt:** M6.2 — `components/map/map-view.tsx` neu, abonniert RxDB-`events` live, rendert Marker pro gültiges Event, Popup mit `started_at` + Plus-Code + ggf. Recipient-Name (ADR-038 §F), Link zur Detailseite. Coverage-Threshold `lib/map/**` ≥ 70 %.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 [ERLEDIGT] 2026-04-27**: Backend-Geocoding-Proxy mit Rate-Limit, 13 Tests grün. **M6.2 [ERLEDIGT] 2026-04-27**: `components/map/map-view.tsx` neu, abonniert RxDB-`events` live, rendert Marker pro gültiges Event über `react-map-gl/maplibre`, Popup mit `started_at`/Koordinaten/Live-Status/Detail-Link. Datenfilter `selectMappableEvents` (`lib/map/event-marker-data.ts`) prüft `_deleted` und gültige lat/lon-Range. Map-Page `(protected)/map/page.tsx` rendert `MapView` Vollbreite. `lib/map.ts` zu Verzeichnis `lib/map/` umstrukturiert (style.ts + event-marker-data.ts + index.ts re-export). **Coverage `lib/map/**` 97.33 % Lines / 84.61 % Branches**, Threshold 70 % aktiv. Frontend-Suite **127/127 grün** (+18 Tests: 10 event-marker-data + 8 map-view), Lint/Typecheck clean. **Recipient-Name aus dem Popup gelassen**: Persons-Collection ist nicht in RxDB synchronisiert (ADR-037), eine ADR-038-§F-konforme Maskierung ist offline daher nicht möglich; Detailseite enforced die Maskierung weiterhin. Aktiver Sub-Step: **M6.3 (native MapLibre-Cluster)**.
+- **Nächster Schritt:** M6.3 — Refactor `MapView`: GeoJSON-Source mit `cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`, zwei `Layer` (Cluster-Symbol, unclustered-point), Klick auf Cluster zoomt rein.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -69,7 +69,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6          | Kartenansicht                                    | [IN ARBEIT] |
 | 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [OFFEN]   |
+| 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [OFFEN]     |
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [OFFEN]     |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [OFFEN]     |
@@ -1064,15 +1064,16 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 **Deliverables:**
 - `frontend/src/components/map/map-view.tsx` neu: Vollbreite, abonniert RxDB `events` live, filtert `_deleted=false` und gültige `lat`/`lon`.
 - Marker als `react-map-gl/Marker`-Liste (eine Marker-Komponente pro Event).
-- Popup über `react-map-gl/Popup`: `started_at` (lokal), Plus-Code (lokal aus lat/lon), Recipient-Name nach ADR-038 §F (revealed/own → Name, sonst „Beteiligte: ausgeblendet"), Link „Detailseite öffnen →" zu `/events/[id]`.
+- Popup über `react-map-gl/Popup`: `started_at` (lokal), Koordinaten (lat/lon-Floats, 5 Nachkommastellen), Live-/Beendet-Status, Link „Detailseite öffnen →" zu `/events/[id]`. **Recipient-Name bewusst weggelassen**: Persons sind nicht in RxDB synchronisiert (ADR-037), ADR-038-§F-Maskierung wäre offline nicht zuverlässig möglich. Detailseite enforced die Maskierung weiterhin. **Plus-Code-Anzeige verschoben**: braucht `open-location-code`-Dependency (architecture.md §Plus-Code-Handling) — separater freigabepflichtiger Schritt.
 - `(protected)/map/page.tsx` rendert `MapView` Vollbreite (Card-Wrapper raus).
-- Coverage-Threshold `lib/map/**` ≥ 70 % Lines (sofern reine Logik testbar; MapLibre-Wrapper-Code ausgespart).
-- Smoke-Test `tests/map-view.test.tsx` mit gemockter RxDB.
+- Coverage-Threshold `lib/map/**` ≥ 70 % Lines (sofern reine Logik testbar; MapLibre-Wrapper-Code ausgespart). **Erreicht: 97.33 % Lines / 84.61 % Branches.**
+- Smoke-Test `tests/map-view.test.tsx` mit gemockter RxDB **+ gemocktem `react-map-gl/maplibre`** (jsdom hat kein WebGL, ADR-027 §J2-Pattern).
+- Pure-Function-Test `tests/event-marker-data.test.ts` für `selectMappableEvents` und `isMappableEvent`.
 
 **Akzeptanzkriterien:**
-- Marker sichtbar für sichtbare Events (ohne Filter-Logik in diesem Sub-Step).
-- Klick auf Marker → Popup mit Link → Navigation funktioniert.
-- Frontend-Suite grün.
+- Marker sichtbar für sichtbare Events (ohne Filter-Logik in diesem Sub-Step). ✓
+- Klick auf Marker → Popup mit Link → Navigation funktioniert. ✓
+- Frontend-Suite grün. ✓ (127/127, +18 neue Tests)
 
 **Abhängigkeiten:** M6.1 (nicht hart, aber Reihenfolge).
 

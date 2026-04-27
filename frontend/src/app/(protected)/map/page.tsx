@@ -1,25 +1,15 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MapView } from "@/components/map/map-view";
 
 export default function MapPage() {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      <header>
+    <div className="flex w-full flex-col gap-3">
+      <header className="px-1">
         <h1 className="text-2xl font-semibold tracking-tight">Karte</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          MapLibre-Integration folgt mit M6.
+          Sichtbare Events als Marker. Klick auf einen Marker öffnet die Details.
         </p>
       </header>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Platzhalter</CardTitle>
-          <CardDescription>
-            Karte mit MapLibre GL JS, Tile-Proxy zu MapTiler und Marker-Clustering folgen mit M6.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-slate-500 dark:text-slate-400">
-          Geokoordinaten werden bereits server-seitig erfasst (siehe Dashboard).
-        </CardContent>
-      </Card>
+      <MapView />
     </div>
   );
 }

@@ -24,17 +24,27 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "json-summary", "html"],
-      include: ["src/lib/rxdb/**"],
-      // schemas/* is wire-format JSON; types.ts is type-only and erases at
-      // compile time, so V8 reports 0 %. Excluding both keeps the metric
-      // honest about runtime sync code (database, replication, provider,
-      // schemas.ts wrapper).
+      // `lib/rxdb/**` and `lib/map/**` are the two coverage-tracked
+      // domains. The map directory only owns pure helpers — the
+      // MapLibre wrapper code in `components/map/*.tsx` is exercised
+      // via mocks (ADR-027 §J2 / ADR-041 §K) and stays out of the
+      // coverage scope.
+      include: ["src/lib/rxdb/**", "src/lib/map/**"],
       exclude: ["src/lib/rxdb/schemas/**", "src/lib/rxdb/types.ts"],
       thresholds: {
         lines: 80,
         statements: 80,
         functions: 80,
         branches: 70,
+        // Per-pattern threshold for the map helpers (lower bar than
+        // rxdb because `style.ts` runs window-only code paths jsdom
+        // can't fully exercise).
+        "src/lib/map/**": {
+          lines: 70,
+          statements: 70,
+          functions: 70,
+          branches: 70,
+        },
       },
     },
   },

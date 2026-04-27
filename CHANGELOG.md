@@ -9,6 +9,43 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.1 — Backend Geocoding-Proxy `GET /api/geocode` (ADR-041 §B/§D):**
+  Erste Iteration für M6 (Kartenansicht). Frontend wird in M6.5
+  konsumieren.
+  - Neuer Endpoint `GET /api/geocode?q=…&proximity=lat,lon&limit=N`.
+    Auth via `current_active_user` (Anonymous → 401), MapTiler-API-Key
+    bleibt serverseitig. Antwort = MapTiler-GeoJSON-FeatureCollection
+    1:1 durchgereicht.
+  - **Validierung:** `q` 1–200 Zeichen, `limit` 1–10 (Default 5),
+    `proximity` als `lat,lon` mit Range-Check (-90/90, -180/180);
+    Verstöße → 422.
+  - **Koordinaten-Übersetzung:** API erwartet projektkonform
+    `proximity=<lat>,<lon>`, beim Upstream-Aufruf wird auf MapTilers
+    `lon,lat`-Konvention umgedreht.
+  - **Rate-Limit:** in-memory Token-Bucket pro `user.id`, rolling
+    60 s, Default 30 req/min via `HCMAP_GEOCODE_RATE_PER_MINUTE`
+    (`0` deaktiviert). Überschreitung → 429 mit `Retry-After`.
+    Bewusst kein Redis (Single-Worker, <20 User, ADR-041 §D).
+  - **Fehler-Modi (analog Tile-Proxy):** fehlender API-Key → 503,
+    Upstream-Netzwerkfehler / 4xx / invalid JSON → 502.
+  - **Cache-Control:** `private, max-age=300` (5 min) — Adressen sind
+    nicht so flüchtig, Frontend debounced ohnehin.
+  - **HTTPX-`AsyncClient` als Process-Singleton** via `lru_cache`,
+    identisches Pattern wie Tile-Proxy; Tests injizieren einen Fake.
+  - **Tests:** 13 Cases in `tests/test_geocode_proxy.py` —
+    anonym/missing-key/Erfolg + Cache-Header/Proximity-Übersetzung/
+    Proximity-422/Limit-422/leeres `q`-422/Upstream-Netzwerkfehler/
+    Upstream-403/Upstream-Invalid-JSON/Rate-Limit-Block/
+    Rate-Limit-deaktiviert/Rate-Limit-Window-Rollover. Backend-Suite
+    gesamt **150/150 grün** (137 + 13), ruff/mypy clean.
+  - **Architektur-Update:** `architecture.md` §Karten-Komponente:
+    Clustering wechselt von `supercluster` auf native MapLibre-Cluster
+    (ADR-041 §C). Pfad-A-Datenmenge < 5.000 Events; eine Dependency
+    weniger.
+  - **`.env.example`:** neue Variable `HCMAP_GEOCODE_RATE_PER_MINUTE=30`
+    dokumentiert; Platzhalter-Eintrag `HCMAP_MAPTILER_GEOCODING_KEY`
+    entfernt (Geocoding nutzt denselben `HCMAP_MAPTILER_API_KEY`).
+
 - **M5c.4 — Edit-UI mit RxDB-Push, Soft-Delete und RBAC (ADR-040):**
   Schließt M5c. Mutationen laufen jetzt vollständig über RxDB-Push
   (ADR-036 §C); REST-PATCH-Endpoints aus M3 bleiben für SQLAdmin,

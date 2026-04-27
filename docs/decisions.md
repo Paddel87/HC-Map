@@ -66,6 +66,7 @@ Status-Legende:
 | ADR-038 | Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung) | Accepted | 2026-04-27 |
 | ADR-039 | Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)                | Accepted | 2026-04-27 |
 | ADR-040 | Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC) | Accepted | 2026-04-27 |
+| ADR-041 | Implementierungsstrategie M6 (Kartenansicht: MapView, Cluster, Filter, Geocoding) | Accepted | 2026-04-27 |
 
 ---
 
@@ -3237,6 +3238,119 @@ Wenn ein Editor bemerkt, dass die Position falsch ist, ist der dokumentierte Wor
 ### Folge-Arbeit
 - M8 (Admin-Bereich) bringt Restore-UI für soft-gelöschte Events/Applications.
 - Spätere UI-Iteration kann Position-FK-Picker im Edit-Form nachreichen (siehe §K).
+
+---
+
+## ADR-041 — Implementierungsstrategie M6 (Kartenansicht: MapView, Cluster, Filter, Geocoding)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c ist abgeschlossen. M6 liefert die volle Kartenansicht: Marker aller sichtbaren Events, Popup mit Link zur Detail-Seite, Clustering bei hoher Dichte, Filter nach Zeitraum und Beteiligten, URL-persistierter Viewport, Geocoding-Suche. MapLibre/`react-map-gl`/Tile-Proxy sind über ADR-022 in M5a vorgezogen; `LocationPickerMap` existiert. Der Geocoding-Proxy ist in `architecture.md` §API-Vertrag spezifiziert, aber noch nicht implementiert. Diese ADR legt Sub-Step-Reihenfolge, Cluster-Mechanik, Rate-Limit-Strategie und Komponenten-Aufteilung fest.
+
+### Entscheidungen
+
+**A. Sub-Step-Bündel M6.1 … M6.5.**
+M6 wird in fünf eigenständige Schritte zerlegt, jeder mit eigener DoD und eigenem Commit.
+- **M6.1** Backend Geocoding-Proxy (`GET /api/geocode`).
+- **M6.2** Frontend `MapView`-Komponente (Marker aus RxDB, Popup, Detail-Link).
+- **M6.3** Clustering (native MapLibre-Cluster, siehe §C).
+- **M6.4** Filter (Zeitraum, Beteiligte) + URL-persistierter Viewport.
+- **M6.5** Geocoding-Suchbox in `MapView` (konsumiert M6.1).
+
+**B. Geocoding-Proxy: Signatur und Verhalten.**
+- Pfad: `GET /api/geocode?q=<text>&proximity=<lat>,<lon>&limit=<n>`.
+- Auth: `current_active_user` (analog Tile-Proxy, ADR-024 §C). Anonyme Anfragen → 401.
+- Upstream: `https://api.maptiler.com/geocoding/{quote(q)}.json?key=<key>&proximity=<lon,lat>&limit=<n>&language=de`.
+- `proximity` optional; Validierung: zwei Floats, durch Komma getrennt, sonst 422.
+- `limit` optional, Default 5, Range 1–10.
+- Fehlende API-Key-Konfiguration → 503 (analog Tile-Proxy).
+- Upstream-Fehler / Timeout → 502.
+- Antwort: 1:1 durchgereichtes MapTiler-GeoJSON (FeatureCollection); kein Re-Mapping, weil das Frontend die `features[].center` und `place_name` direkt nutzt. Der Schritt gilt als reiner Proxy.
+- Cache-Control: `private, max-age=300` (5 min) — Adressen sind nicht so flüchtig, Eingaben werden client-seitig debounced.
+- HTTPX-`AsyncClient` als Process-Singleton via `lru_cache`, identisches Pattern wie Tile-Proxy.
+
+**C. Clustering: native MapLibre-Cluster statt `supercluster` (Architektur-Update).**
+`architecture.md` listet bisher `supercluster` als Cluster-Library. Die Entscheidung in M6 ist, **nativ über MapLibre-`cluster: true`-Source** zu clustern statt eine zusätzliche Dependency aufzunehmen.
+- MapLibre rendert Cluster über GeoJSON-Source mit `cluster: true`, `clusterRadius`, `clusterMaxZoom`.
+- Pfad-A-Datenmenge < 5.000 Events → MapLibre-Cluster reicht klar aus.
+- Eine Dependency weniger → kleineres Frontend-Bundle, weniger Lizenz-Audit-Aufwand, kein zusätzlicher Test-Setup für `supercluster`.
+- Gleicher visueller Effekt: Kreis mit Anzahl, Klick zoomt rein.
+- `architecture.md` §Karten-Komponente wird in derselben Änderung auf „MapLibre-native Cluster" angepasst.
+- Falls in Phase 2 oder Pfad B serverseitiges Clustern nötig wird, kann `supercluster` zu dem Zeitpunkt nachgezogen werden — keine vorzeitige Investition.
+
+**D. Rate-Limit Geocoding: in-memory Token-Bucket pro User-ID.**
+- Default: 30 Anfragen / 60 s pro `user.id`.
+- Konfigurierbar über `HCMAP_GEOCODE_RATE_PER_MINUTE` (Default 30), `0` = aus.
+- In-memory `dict[user_id, deque[timestamp]]`, Worker-lokal, Test-injizierbar (analog `_http_client`).
+- Bei Überschreitung: 429 Too Many Requests + `Retry-After`-Header in Sekunden.
+- Bewusst kein Redis: <20 User, Single-Worker-Deployment, in-memory reicht. Bei Wechsel auf Multi-Worker / Pfad B wird ein Backend-Store nachgezogen — als bekannte Limitation in `architecture.md` §Externe Abhängigkeiten dokumentiert.
+
+**E. `MapView` als neue Komponente, `LocationPickerMap` bleibt eigenständig.**
+- `components/map/map-view.tsx` neu (Vollbild-Karte mit Markern, Popups, Clustering, Filter-Panel, Geocoding-Box).
+- `LocationPickerMap` bleibt unverändert (Single-Marker-Picker für Live-Modus / Edit-UI). Kein Refactor, kein Wrapper.
+- Gemeinsame Helper (Tile-Style, Default-Center) bleiben in `lib/map`. Falls beim Bauen von `MapView` ein weiterer Helper offensichtlich wiederverwendbar wird, wandert er ebenfalls dorthin — kleiner, lokaler Refactor (autonomiebereich).
+
+**F. Marker-Datenquelle: RxDB-Subscription auf `events`-Collection.**
+- `MapView` abonniert `events` live (analog Dashboard-Liste).
+- Filter (`_deleted=false`, gültige `lat`/`lon`) clientseitig.
+- Bei <5.000 Events ist eine clientseitige Filterung pro Re-Render unproblematisch (memoisiert via `useMemo` über die Filter-Inputs).
+- Keine REST-Round-Trips für Marker → Karte funktioniert offline (Geocoding und Tiles bleiben online-only, Toast-Hinweis).
+
+**G. Popup-Inhalt.**
+- `started_at` (lokales Format, dateutil-Pattern aus `lib/format-date`).
+- Adressen-Stub: keine Reverse-Geocoding-Anfrage (Kosten / Privacy); Plus-Code aus `lat`/`lon` lokal berechnet.
+- Recipient-Name nur, wenn `event.reveal_participants === true` ODER aktueller User ist beteiligt — gleiche Logik wie `EventDetailView` (ADR-038 §F). Sonst „Beteiligte: ausgeblendet".
+- Link „Detailseite öffnen →" zu `/events/[id]` (Next.js `<Link>`).
+
+**H. URL-State-Schema.**
+- Viewport: `?lat=<n>&lon=<n>&zoom=<n>` (drei Floats).
+- Zeitraum-Filter: `&from=<ISO-Date>&to=<ISO-Date>` (jeweils optional, beide unabhängig).
+- Beteiligte-Filter: `&p=<id>,<id>,...` (komma-separierte UUIDs).
+- Sync via `useSearchParams` + `router.replace` (debounced 300 ms, kein Push, damit Browser-Back nicht jeden Pan/Zoom-Schritt aufzeichnet).
+- Beim Laden ohne Parameter: `DEFAULT_MAP_CENTER` aus `lib/map`, Zoom 11.
+
+**I. Filter-UI.**
+- Zeitraum: zwei Datepicker (HTML `<input type="date">`, kein zusätzliches UI-Lib).
+- Beteiligte: Multi-Select aus `event_participant`-Collection (RxDB), gruppiert nach Person. Implementierung als shadcn/ui-`Popover` mit Checkbox-Liste (UI bleibt stack-konform).
+- Filter-State leitet sich aus URL-Params ab (Single Source of Truth = URL); UI-Inputs sind controlled gegen URL.
+
+**J. Geocoding-Suchbox.**
+- Eingabefeld oben links, Debounce 300 ms.
+- API-Call: `GET /api/geocode?q=<text>&proximity=<viewport-center>&limit=5`.
+- Treffer-Liste als Dropdown; Auswahl ruft `map.flyTo({ center, zoom: 14 })` auf.
+- Kein Persistieren des Treffer-Markers; reine Navigations-Hilfe.
+- 429 / 503 / 502 → `sonner`-Toast mit klartextlicher Begründung; Karte funktioniert weiter.
+- Leere Eingabe → keine Anfrage.
+
+**K. Tests.**
+- **Backend M6.1:** `tests/test_geocode_proxy.py` mit (1) anonym → 401, (2) fehlender Key → 503, (3) erfolgreicher Treffer → 200 + GeoJSON, (4) Upstream-Fehler → 502, (5) Rate-Limit → 429 + `Retry-After`, (6) `proximity`-Format-Validierung → 422, (7) `limit`-Range → 422.
+- **Frontend M6.2 ff.:** Smoke-Test `MapView` mit gemockter RxDB (analog `EventDetailView`); Filter-Reducer als pure-function-Test; URL-Sync-Test mit gemocktem `useSearchParams`/`router.replace`; Geocoding-Suchbox-Test (Debounce, Toast bei 429, flyTo bei Treffer-Klick).
+- WebGL-Render-Tests in jsdom bleiben ausgespart (siehe ADR-027 §J2-Begründung).
+- Coverage `lib/rxdb/**` ≥ 80 % bleibt aktiv; Coverage-Schwelle für `lib/map/**` neu: ≥ 70 % Lines (sofern reine Logik-Helper getestbar sind, MapLibre-Wrapper-Code bleibt davon ausgenommen).
+
+**L. RxDB-Schemas / Backend-Datenmodell unverändert.**
+M6 nutzt nur bestehende Collections (`events`, `event_participant`, `applications`, `restraint_types`, `arm_positions`, `hand_positions`, `hand_orientations`). Keine Migrations, keine Schema-Änderungen, keine RLS-Anpassung. Geocoding-Treffer landen nicht in der DB.
+
+**M. ENV-Variablen.**
+- `HCMAP_MAPTILER_API_KEY` (existiert): wird auch für Geocoding wiederverwendet.
+- `HCMAP_GEOCODE_RATE_PER_MINUTE` (neu, Default 30, `0` deaktiviert): Token-Bucket-Limit.
+- `.env.example` wird in M6.1 entsprechend ergänzt.
+
+### Verworfene Alternativen
+- **`supercluster` als Frontend-Dependency** (laut bestehender architecture.md §Karten-Komponente): bringt für Pfad-A-Datenmenge keinen Mehrwert gegenüber MapLibre-nativem Cluster, kostet Bundle-Größe und Audit-Aufwand. Architektur wird angepasst.
+- **Geocoding-Treffer in DB cachen**: Datenschutz-Risiko (Suchanfragen sind sensibel) ohne klaren Performance-Vorteil bei <20 Usern. Verworfen.
+- **Reverse-Geocoding für Popup-Adresse**: zusätzliche MapTiler-Anfragen pro Marker-Klick → Kosten / Privacy. Plus-Code reicht.
+- **Filter-State als RxDB-Collection**: über-engineered. URL-State ist serverlos, teilbar, browser-historie-kompatibel.
+- **Zwei separate Pages für Karte und Liste**: Liste existiert bereits am Dashboard (M5a.2); Karte fokussiert sich auf den Karten-Use-Case.
+- **Marker via REST statt RxDB**: Karte verlöre Offline-Fähigkeit. RxDB ist die etablierte Quelle.
+- **Redis-basiertes Rate-Limit**: nicht nötig in Single-Worker-Pfad-A; Aufwand > Nutzen.
+
+### Folge-Arbeit
+- M12 (Self-Hosted Tileserver): `MapView`-Tile-URL bleibt unverändert (`/api/tiles/...`), Backend-Proxy-Ziel ändert sich → kein Frontend-Refactor.
+- M7 (Katalog-Verwaltung) ist orthogonal; M6 nutzt keine Katalog-Editor-UI.
+- M17 (Statistik-Dashboard) kann später aggregierte Heatmap-Layer auf `MapView` aufsetzen — nicht in M6-Scope.
 
 ---
 

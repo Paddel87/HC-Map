@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** M5c — Sub-Schritte **M5c.1a + M5c.1b + M5c.2 + M5c.3 [ERLEDIGT] 2026-04-27**. M5c.3 ergänzt den nachträglichen Erfassungspfad: eigene Route `/events/new/backfill` mit `EventBackfillForm`, editierbare `started_at`/`ended_at` für Event und Applications, wachsende Application-Liste mit Add/Remove. Pure Validierungs-Helper `lib/event-backfill-validation.ts` deckt Pflichtfelder, Konsistenz (Ende ≥ Start, App innerhalb Event-Grenzen, keine Überlappungen) und chronologische Sortierung ab. Dashboard bekommt einen sekundären „Nachträglich erfassen"-Button neben dem primären Live-Start. Frontend **94/94 grün** (+16 Tests: 11 Validierung, 5 Form), Coverage `lib/rxdb/**` 92.42 % Lines stabil. Backend unverändert (137/137). ADR-039 dokumentiert die elf Detail-Entscheidungen.
-- **Nächster Schritt:** M5c.4 (Edit-UI) — `/events/[id]/edit`-Pfad für Editor/Admin, Inline-Application-Edit via Sheet, Soft-Delete via RxDB-Push.
+- **Aktiver Schritt:** **M5c vollständig [ERLEDIGT] 2026-04-27** — alle fünf Sub-Schritte abgeschlossen. M5c.4 schließt M5c mit dem Edit-Pfad: eigene Route `/events/[id]/edit` mit RBAC-Server-Redirect (Editor only own, Admin all, Viewer redirect), `EventEditForm` lädt Event + Applications einmal aus RxDB und patcht nur die geänderten Docs beim Submit. Editierbare Felder folgen ADR-029 (note, recipient, ended_at-FWW); immutable Felder (lat/lon/started_at/sequence_no/performer/positions) sind read-only oder bewusst aus dem Scope (ADR-040 §K). Soft-Delete via `doc.patch({_deleted: true})` mit `window.confirm`-Bestätigung; Event-Delete navigiert zum Dashboard. Edit-Button in `EventDetailView` mit `canEditEvent`-RBAC-Helper. Frontend **109/109 grün** (+15 Tests: 4 RBAC, 7 EditForm, 4 EventDetailView-RBAC-Visibility), Coverage `lib/rxdb/**` 92.42 % Lines stabil. Backend unverändert (137/137). ADR-040 dokumentiert die elf Detail-Entscheidungen.
+- **Nächster Schritt:** M6 (Kartenansicht) — Marker-Darstellung aller sichtbaren Events, Popup mit Kurzinfo, Clustering, Filter, URL-persistierter Viewport. Geocoding-Proxy ergänzen.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -61,12 +61,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M5b.2       | └─ Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.3       | └─ RxDB-Setup + Live-Modus auf RxDB-Schreibpfad  | [ERLEDIGT] 2026-04-26 |
 | 1 MVP   | M5b.4       | └─ E2E-Offline-Test & Doc-Updates                | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [IN ARBEIT] |
+| 1 MVP   | M5c         | Nachträgliche Erfassung & Bearbeitung            | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.1a      | └─ Detail-Page Client-only + REST-Once-Read Participants | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.1b      | └─ Participants als RxDB-Collection (Sync-Endpoint) | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.2       | └─ Chronologische Detail-Anzeige + Maskierung    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M5c.3       | └─ Nachträgliche Erfassung (Schalter + manuelle Zeitstempel) | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [OFFEN]     |
+| 1 MVP   | M5c.4       | └─ Event-/Application-Bearbeitung (Edit-UI)      | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6          | Kartenansicht                                    | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
@@ -953,9 +953,42 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M5c.4 — Event-/Application-Bearbeitung (Edit-UI)
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-27
 
-**Scope:** `/events/[id]/edit`-Pfad für Editor/Admin-Rollen; Inline-Application-Edit via Sheet; Soft-Delete via RxDB-Push.
+**Status `[ERLEDIGT]` 2026-04-27 (M5c.4, Edit-UI mit RxDB-Push, Soft-Delete, RBAC):**
+
+- **Eigene Route** `/events/[id]/edit` (`(protected)/events/[id]/edit/page.tsx`) mit Server-Side-RBAC-Gate: anonym → `/login?next=…`; Viewer → `/events/{id}`; Editor mit fremdem Event → `/events/{id}` (Read-only-Detail); Admin und Editor mit eigenem Event → Edit-Form.
+- **`canEditEvent`-Helper** in `frontend/src/lib/rbac.ts` (reine Funktion, ADR-040 §B): liefert die kanonische RBAC-Logik für beide Enforcement-Punkte (Server-Redirect der Edit-Page **und** UI-Conditional des Edit-Buttons in `EventDetailView`). Frontend ist UX-Hint; die Backend-RLS aus M2 + M5b.2 hat das letzte Wort.
+- **`EventEditForm`-Komponente** in `frontend/src/components/event/event-edit-form.tsx`:
+  - Lädt Event und Applications einmalig aus RxDB beim Mount (Single-Read, **keine** Live-Subscription während der Edit-Session — verhindert Sync-Pull-Clobbering der Eingaben, ADR-040 §F).
+  - Editierbare Felder (ADR-040 §C): Event `note` / `reveal_participants` / `ended_at` (FWW: nur setzbar wenn aktuell `null`); Application `note` / `recipient_id` / `ended_at` (FWW). Immutable Felder (lat, lon, started_at, sequence_no, performer, Position-FKs) als read-only-Display.
+  - Submit ruft `validateBackfill` (M5c.3-Helper, ADR-039 §K wiederverwendbar) und patcht via Diff nur Docs mit Änderung. Server überschreibt `updated_at` beim Push.
+- **Soft-Delete-Pfad** (ADR-040 §D + §E):
+  - Event: `window.confirm` → `doc.patch({_deleted: true, deleted_at, updated_at})` → Toast → `router.push("/")`. Cascade-Trigger (`cascade_event_soft_delete`, ADR-030/ADR-037 §C) tombstoned Applications + EventParticipants server-seitig.
+  - Application: `window.confirm` → `doc.patch({_deleted: true, …})` → Liste aktualisiert sich reactive (Subscription auf `applications.find({event_id, _deleted=false}).$` filtert es weg).
+  - Restore (`true → false`) **nicht** im UI exponiert; Admin-Workflow für M8 vorbehalten.
+- **Edit-Button in `EventDetailView`**: kleines `Pencil`-Icon mit „Bearbeiten"-Label in der Status-Card, conditional gerendert via `canEditEvent`. `data-testid="edit-event-button"` für Tests.
+- **Position-FK-Editing** bewusst aus M5c.4-Scope (ADR-040 §K): performer + arm_position/hand_position/hand_orientation sind immutable per ADR-029-LWW-Grauzone und drei Katalog-Picker im Form-Layout zu invasiv. Korrektur erfolgt über Soft-Delete + neue Erfassung. Spätere UI-Iteration kann Position-Picker nachreichen.
+- **Tests** (15 neu, alle grün):
+  - `tests/rbac.test.ts` (4): admin sieht alles, editor nur eigene, viewer nie, orphan-Event (created_by null) für editor → false.
+  - `tests/event-edit-form.test.tsx` (7): no-op submit (kein Patch wenn nichts geändert), event-only Patch, application-only Patch, FWW-Disable für gesetzte ended_at, Soft-Delete Application (mit confirm), Confirm-Abbruch (kein Patch), Soft-Delete Event mit Dashboard-Redirect.
+  - `tests/event-detail-view.test.tsx` (+4): Edit-Button-Sichtbarkeit für Admin (auch fremde Events), Editor (eigene), Editor (fremde → versteckt), Viewer (versteckt).
+- **Frontend-Suite**: **109/109 grün** (zuvor 94; +15). Coverage `lib/rxdb/**` stabil bei 92.42 % Lines. ESLint, `tsc --noEmit`, `next build` clean.
+- **Bundle**: neue Route `/events/[id]/edit` First-Load 262 kB; `/events/[id]` Detail-Page wuchs um 1 kB (Edit-Button + RBAC-Helper). Im Rahmen.
+- **Keine Backend-Änderung in M5c.4:** keine Migrations, keine neuen Endpoints, keine neuen Dependencies, keine RLS-Anpassung. Soft-Delete via Sync-Push triggert das bestehende ADR-029-LWW-Verhalten; Cascade-Trigger aus M5b.1/M5c.1b deckt Event→Children ab.
+- ADR-040 dokumentiert die elf Detail-Entscheidungen, `architecture.md` § Frontend um die neue Route + Komponente erweitert. **Damit ist M5c (Nachträgliche Erfassung & Bearbeitung) vollständig abgeschlossen.**
+
+**Deliverables (Soll, alle erfüllt):**
+- `/events/[id]/edit`-Pfad für Editor/Admin-Rollen mit RBAC-Server-Redirect.
+- Editierbare Felder gemäß ADR-029-Conflict-Matrix; immutable Felder read-only.
+- Soft-Delete für Event und Application via RxDB-Push.
+
+**Akzeptanzkriterien (alle erfüllt):**
+- Editor sieht und nutzt Edit nur für eigene Events (UI + Server-Gate).
+- Admin sieht und nutzt Edit für alle Events.
+- Viewer sieht weder Edit-Button noch erreicht die Edit-Route.
+- Soft-Delete von Event löscht Cascade Children server-seitig; Frontend navigiert zur Startseite.
+- Frontend-Suite + Coverage-Threshold `lib/rxdb/**` ≥ 80 % grün.
 
 **Abhängigkeiten:** M5c.3.
 

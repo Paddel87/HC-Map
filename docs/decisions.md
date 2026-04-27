@@ -65,6 +65,7 @@ Status-Legende:
 | ADR-037 | Implementierungsstrategie M5c.1b (Participants als RxDB-Sync-Collection) | Accepted | 2026-04-27 |
 | ADR-038 | Implementierungsstrategie M5c.2 (EventDetailView, Lücken-Anzeige, Frontend-Maskierung) | Accepted | 2026-04-27 |
 | ADR-039 | Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)                | Accepted | 2026-04-27 |
+| ADR-040 | Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC) | Accepted | 2026-04-27 |
 
 ---
 
@@ -3166,6 +3167,76 @@ Keine Backend-Änderung, keine API-Vertragsänderung. Backend RLS und Sync-Push 
 
 - M5c.4 (Bearbeitung) kann den `validateBackfill`-Helper für die Edit-UI wiederverwenden.
 - Spätere UI-Iteration kann `EventCreateForm` und `EventBackfillForm` zu einem gemeinsamen Skelett zusammenfassen, sobald die Anforderungen stabilisiert sind.
+
+---
+
+## ADR-040 — Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC)
+
+**Status:** Accepted
+**Datum:** 2026-04-27
+
+### Kontext
+M5c.1–M5c.3 haben Read-Pfad und Backfill-Anlage abgedeckt; M5c.4 schließt M5c mit der Bearbeitung bestehender Events und Applications. Mutationen laufen gemäß ADR-036 §C ausschließlich über RxDB-Push; die in M3 erstellten REST-PATCH-Endpoints bleiben für SQLAdmin/Admin-Workflows erhalten, werden aber vom Frontend nicht mehr genutzt.
+
+### Entscheidungen
+
+**A. Eigene Route `/events/[id]/edit` (ADR-036 §D bestätigt).**
+`(protected)/events/[id]/edit/page.tsx` neu; Detail-Page bleibt read-only. Der Edit-Pfad spiegelt das Routing aus `architecture.md` § Routing („/events/[id]/edit — Bearbeiten"). RBAC-Gate via Server-Redirect: anonyme User → `/login?next=…`; Viewer → `/?error=role`; Editor mit fremdem Event → `/events/{id}` (Read-only-Detail).
+
+**B. RBAC-Helper `canEditEvent(user, event)` als reine Funktion.**
+`frontend/src/lib/rbac.ts` (neu) liefert `canEditEvent({ role, id }, { created_by })`:
+- `role === "admin"` → `true`.
+- `role === "editor"` und `created_by === user.id` → `true`.
+- sonst → `false`.
+Gleiche Logik landet im Edit-Button-Conditional auf der Detail-Page **und** im Server-Redirect der Edit-Page. Eine reine Funktion macht beide Pfade testbar und konsistent.
+
+**C. Editierbare Felder folgen ADR-029 (Conflict-Resolution).**
+Nicht alle Felder sind editierbar — die in ADR-029 als `immutable-after-create` markierten bleiben read-only:
+- **Event editierbar:** `note` (LWW), `reveal_participants` (LWW), `ended_at` (FWW — nur setzbar, wenn aktuell `null`).
+- **Event read-only:** `lat`, `lon`, `started_at`, `created_by`, `created_at`, `updated_at`.
+- **Application editierbar:** `note` (LWW), `recipient_id` (LWW), `ended_at` (FWW — nur setzbar, wenn aktuell `null`).
+- **Application read-only:** `started_at`, `event_id`, `sequence_no`, `performer_id` (Performer-Wechsel ändert Semantik „wer hat es gemacht" zu stark; bewusst nicht in M5c.4), Position-FKs (`arm_position_id`, `hand_position_id`, `hand_orientation_id`) — UI-Komplexität bei drei Katalog-Pickern; Schritt für M6/M7 oder einen späteren Sub-Schritt.
+Die Position-FKs sind technisch LWW per ADR-029, werden aber **nicht** im Edit-UI exponiert — `_deleted` und neu setzen ist der Pfad, falls Korrektur nötig wird. Dokumentiert in §C, sodass der Scope explizit ist.
+
+**D. Soft-Delete via `doc.patch({ _deleted: true })`.**
+Sowohl Event- als auch Application-Soft-Delete erfolgen direkt über die RxDB-Mutation (nicht über REST DELETE). Cascade-Trigger (`cascade_event_soft_delete`, ADR-030/ADR-037 §C) sorgt server-seitig dafür, dass Applications und EventParticipants automatisch tombstoned werden, sobald das Event-Tombstone synchronisiert ist. Restore (`true → false`) ist Admin-only per ADR-029 und in M5c.4 **nicht** im UI exponiert — der Pfad ist absichtlich asymmetrisch (Löschen einfach, Wiederherstellen bewusst Hürde).
+
+**E. Confirmation via `window.confirm`.**
+Bewusste Reduktion: Pfad-A-Gruppe ist <20 User, native Browser-Bestätigung ist barrierefrei und kostet keine neue UI-Library. Eine schicke Custom-Dialog-Komponente kann später in einer UI-Iteration nachgelegt werden, ohne die Edit-Logik zu ändern. Im Code: `if (!window.confirm("Event endgültig löschen?")) return;`. Umgehbarer Edge-Case (User dismisst): klar dokumentiert, keine Datenverluste.
+
+**F. Submit-Pfad: Diff-basiertes Patchen.**
+`EventEditForm` lädt Event und Applications einmal aus RxDB beim Mount in lokalen State (Single-Read, **keine** Subscription während der Edit-Session, damit gleichzeitige Sync-Pull-Updates die Eingabe nicht clobbern). Beim Submit:
+1. Vergleicht lokalen State mit RxDB-Initialwerten.
+2. Patch-Calls nur für Docs mit Änderung.
+3. Soft-Delete-Aktionen sind separat und sofort (nicht im Submit-Pfad gebündelt) — Click → confirm → `doc.patch({ _deleted: true })` → Liste aktualisiert sich reactive (Application) bzw. Page navigiert weg (Event).
+
+**G. Validierung: `validateBackfill`-Wiederverwendung.**
+ADR-039 §K hat das vorausgesehen. Der Edit-Form ruft `validateBackfill` mit den aktuellen Werten auf — `started_at` der Apps und des Events ist immutable, also identisch zu den RxDB-Originalwerten; nur `ended_at` und Recipient ändern sich. Konsistenz-Verstöße (z. B. neuer `ended_at` vor `started_at`, oder ended_at überlappt mit nächster App) werden inline gemeldet. Kein zweiter Validator nötig.
+
+**H. Edit-Button in `EventDetailView`.**
+Sichtbar wenn `canEditEvent(user, event)`. Kleines Icon-Button-Trio in der Status-Card-Header-Zeile (oder unter der CardDescription). Routing per `Link` zu `/events/[id]/edit`. `data-testid="edit-event-button"` für Tests.
+
+**I. Tests.**
+- `tests/rbac.test.ts` (neu): `canEditEvent` für die drei Rollen + Edge-Case (admin sieht eigene und fremde, editor nur eigene, viewer nie).
+- `tests/event-edit-form.test.tsx`: Render mit pre-filled values aus RxDB-Mock; Submit ruft `doc.patch` nur für geänderte Felder; Soft-Delete-Button (mit gemocktem `window.confirm`) ruft `doc.patch({_deleted: true})`; immutable Felder sind read-only oder nicht im DOM.
+- `tests/event-detail-view.test.tsx`: Erweiterung um Edit-Button-Sichtbarkeit (Editor own / Editor fremd / Admin / Viewer).
+- Coverage `lib/rxdb/**` bleibt aktiv.
+
+**J. Backend bleibt unangetastet.**
+Keine neuen Endpoints, keine Migrations, keine RLS-Anpassung. Soft-Delete der Application via Sync-Push triggert das bestehende ADR-029-Verhalten („`_deleted` true ist LWW-Übergang"). Das Cascade-Trigger-Verhalten von M5b.1/M5c.1b deckt Event-Soft-Delete ab.
+
+**K. Position-FK-Editing als bewusste Lücke.**
+Wenn ein Editor bemerkt, dass die Position falsch ist, ist der dokumentierte Workaround: Application soft-deleten, neue erfassen. Im Live-Modus ist das zumutbar; im Backfill ohnehin. Eine spätere UI-Iteration kann Position-Picker im Edit-Form nachreichen, sobald die Kategorie-Auswahl-Komponente aus M7 (Katalog-Verwaltung) ausgereift ist.
+
+### Verworfene Alternativen
+- **Inline-Edit-Modus auf der Detail-Page** statt eigene Route: doppelt der UI-Komplexität, harder zu testen — ADR-036 §D-Begründung gilt unverändert.
+- **Custom-Confirm-Dialog mit shadcn/ui-`Dialog`**: würde eine neue UI-Komponente ergänzen. Für M5c.4-Scope übertrieben; `window.confirm` reicht.
+- **Restore-UI für Admin im Edit-Form**: erweitert die Komplexität um eine asymmetrische Operation, die nur einmal im Admin-Workflow gebraucht wird. Bleibt M8 (Admin-Bereich) vorbehalten.
+- **Live-Subscription während der Edit-Session**: bringt Race-Condition-Komplexität (gleichzeitige Pulls clobbern Eingaben). Single-Read beim Mount ist robuster.
+
+### Folge-Arbeit
+- M8 (Admin-Bereich) bringt Restore-UI für soft-gelöschte Events/Applications.
+- Spätere UI-Iteration kann Position-FK-Picker im Edit-Form nachreichen (siehe §K).
 
 ---
 

@@ -9,6 +9,78 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M5c.4 — Edit-UI mit RxDB-Push, Soft-Delete und RBAC (ADR-040):**
+  Schließt M5c. Mutationen laufen jetzt vollständig über RxDB-Push
+  (ADR-036 §C); REST-PATCH-Endpoints aus M3 bleiben für SQLAdmin,
+  Frontend nutzt sie nicht mehr.
+  - **Eigene Route** `/events/[id]/edit` mit Server-Side-RBAC-Gate:
+    - anonym → `/login?next=…`
+    - Viewer → `/events/{id}` (Read-only)
+    - Editor mit fremdem Event → `/events/{id}` (Read-only)
+    - Admin und Editor mit eigenem Event → Edit-Form.
+  - **`canEditEvent`-Helper** in `frontend/src/lib/rbac.ts`
+    (reine Funktion, ADR-040 §B) ist die kanonische RBAC-Logik für
+    beide Enforcement-Punkte (Server-Redirect der Edit-Page +
+    UI-Conditional des Edit-Buttons in `EventDetailView`). Frontend
+    ist UX-Hint; Backend-RLS hat das letzte Wort.
+  - **`EventEditForm`-Komponente** (ADR-040 §F):
+    - Lädt Event und Applications einmal aus RxDB beim Mount —
+      keine Live-Subscription während der Edit-Session, damit
+      gleichzeitige Sync-Pulls die Eingaben nicht clobbern.
+    - Editierbare Felder folgen ADR-029-Conflict-Matrix (§C):
+      Event `note` / `reveal_participants` / `ended_at` (FWW: nur
+      setzbar wenn aktuell `null`); Application `note` /
+      `recipient_id` / `ended_at` (FWW). Immutable Felder
+      (`lat`, `lon`, `started_at`, `sequence_no`, `performer_id`,
+      Position-FKs) bleiben read-only oder bewusst aus dem Scope
+      (ADR-040 §K — Korrektur via Soft-Delete + neue Erfassung).
+    - Submit-Pfad: `validateBackfill` (M5c.3-Helper, ADR-039 §K
+      wiederverwendbar) → Diff-basiertes Patchen über
+      `doc.patch(...)`; nur Docs mit Änderung werden geschrieben.
+  - **Soft-Delete-Pfad** (§D + §E):
+    - Event-Delete: `window.confirm` → `doc.patch({_deleted: true,
+      deleted_at, updated_at})` → Toast → Dashboard-Redirect.
+      Cascade-Trigger (`cascade_event_soft_delete`, ADR-030 +
+      ADR-037 §C) tombstoned Applications und EventParticipants
+      server-seitig.
+    - Application-Delete: `window.confirm` →
+      `doc.patch({_deleted: true})` → Liste aktualisiert sich
+      reactive (Subscription auf
+      `applications.find({event_id, _deleted=false}).$` filtert
+      ihn weg).
+    - Restore (`true → false`) bleibt M8 (Admin-Bereich)
+      vorbehalten — bewusst asymmetrisch.
+  - **Edit-Button in `EventDetailView`:** kleiner `Pencil`-Icon-
+    Button mit „Bearbeiten"-Label, conditional gerendert via
+    `canEditEvent`. `data-testid="edit-event-button"` für Tests.
+  - **Tests** (15 neu, alle grün):
+    - `tests/rbac.test.ts` (4): admin sieht alles, editor nur
+      eigene, viewer nie, orphan-Event (created_by null) für editor
+      → false.
+    - `tests/event-edit-form.test.tsx` (7): no-op submit, event-
+      only Patch, application-only Patch, FWW-Disable für gesetzte
+      ended_at, Soft-Delete Application (mit confirm),
+      Confirm-Abbruch (kein Patch), Soft-Delete Event mit
+      Dashboard-Redirect.
+    - `tests/event-detail-view.test.tsx` (+4): Edit-Button-
+      Sichtbarkeit für Admin (auch fremde Events), Editor (eigene),
+      Editor (fremde → versteckt), Viewer (versteckt).
+  - **Frontend-Suite 109/109 grün** (zuvor 94; +15). Coverage
+    `lib/rxdb/**` stabil bei 92.42 % Lines / 81.66 % Branches /
+    100 % Functions. ESLint, `tsc --noEmit`, `next build` clean.
+  - **Bundle:** neue Route `/events/[id]/edit` First-Load 262 kB;
+    `/events/[id]` Detail-Page wuchs um 1 kB (Edit-Button +
+    `canEditEvent`-Import).
+  - **Keine Backend-Änderung in M5c.4:** keine Migrations, keine
+    neuen Endpoints, keine neuen Dependencies, keine RLS-Anpassung.
+    Soft-Delete via Sync-Push triggert das bestehende ADR-029-LWW-
+    Verhalten; Cascade-Trigger aus M5b.1 / M5c.1b deckt
+    Event→Children ab.
+  - ADR-040 dokumentiert die elf Detail-Entscheidungen,
+    `architecture.md` § Frontend um die neue Route + Komponente
+    erweitert. **Damit ist M5c (Nachträgliche Erfassung &
+    Bearbeitung) vollständig abgeschlossen.**
+
 - **M5c.3 — Nachträgliche Erfassung (ADR-039):**
   Vierter Sub-Schritt von M5c. Schließt das Fahrplan-Akzeptanz-
   kriterium „Schalter ‚Nachträglich erfassen' auf der Startseite +

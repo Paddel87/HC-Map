@@ -224,6 +224,52 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
     expect(screen.queryByText(/ali$/)).toBeNull();
   });
 
+  it("shows the Edit-button when the user can edit (admin)", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    const admin: AuthUser = { ...USER, role: "admin" };
+    render(
+      <EventDetailView
+        user={admin}
+        initialEvent={makeEvent({ created_by: "someone-else" })}
+      />,
+    );
+    expect(screen.getByTestId("edit-event-button")).toBeInTheDocument();
+  });
+
+  it("shows the Edit-button when the editor created the event", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(
+      <EventDetailView
+        user={USER}
+        initialEvent={makeEvent({ created_by: USER.id })}
+      />,
+    );
+    expect(screen.getByTestId("edit-event-button")).toBeInTheDocument();
+  });
+
+  it("hides the Edit-button when the editor did not create the event", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    render(
+      <EventDetailView
+        user={USER}
+        initialEvent={makeEvent({ created_by: "someone-else" })}
+      />,
+    );
+    expect(screen.queryByTestId("edit-event-button")).not.toBeInTheDocument();
+  });
+
+  it("hides the Edit-button for viewers", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    const viewer: AuthUser = { ...USER, role: "viewer" };
+    render(
+      <EventDetailView
+        user={viewer}
+        initialEvent={makeEvent({ created_by: viewer.id })}
+      />,
+    );
+    expect(screen.queryByTestId("edit-event-button")).not.toBeInTheDocument();
+  });
+
   it("shows real names when reveal_participants is true", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     render(

@@ -16,7 +16,8 @@
  *      defense-in-depth step described in ADR-036 §B.
  */
 
-import { Flag, Pause, Play, Plus } from "lucide-react";
+import { Flag, Pause, Pencil, Play, Plus } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -30,6 +31,7 @@ import { useWakeLock } from "@/hooks/use-wake-lock";
 import type { AuthUser } from "@/lib/auth";
 import { diffSeconds, formatDuration } from "@/lib/duration";
 import { isMasked, maskParticipants } from "@/lib/masking";
+import { canEditEvent } from "@/lib/rbac";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { ApplicationDocType, EventDocType } from "@/lib/rxdb/types";
 import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
@@ -102,6 +104,8 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
     router.refresh();
   }
 
+  const editable = canEditEvent(user, { created_by: initialEvent.created_by });
+
   return (
     <div className="flex flex-col gap-4" data-testid="event-detail-view">
       <Card>
@@ -114,6 +118,20 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
             Standort: {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
             {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}
           </CardDescription>
+          {editable ? (
+            <div className="pt-1">
+              <Button
+                asChild
+                variant="secondary"
+                size="sm"
+                data-testid="edit-event-button"
+              >
+                <Link href={`/events/${initialEvent.id}/edit`}>
+                  <Pencil aria-hidden /> Bearbeiten
+                </Link>
+              </Button>
+            </div>
+          ) : null}
         </CardHeader>
         {isLive ? (
           <CardContent className="flex flex-col gap-2">

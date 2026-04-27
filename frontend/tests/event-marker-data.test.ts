@@ -10,8 +10,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  eventsToGeoJSON,
   isMappableEvent,
   selectMappableEvents,
+  type MappableEvent,
 } from "@/lib/map/event-marker-data";
 import type { EventDocType } from "@/lib/rxdb/types";
 
@@ -112,5 +114,71 @@ describe("selectMappableEvents", () => {
       makeDoc({ id: "b", lat: 52 }),
     ];
     expect(selectMappableEvents(docs).map((e) => e.id)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("eventsToGeoJSON (M6.3, ADR-041 §C)", () => {
+  function makeMappable(overrides: Partial<MappableEvent> = {}): MappableEvent {
+    return {
+      id: "evt-1",
+      lat: 52.52,
+      lon: 13.405,
+      started_at: "2026-04-27T12:00:00Z",
+      ended_at: null,
+      note: null,
+      reveal_participants: false,
+      ...overrides,
+    };
+  }
+
+  it("emits an empty FeatureCollection for an empty list", () => {
+    expect(eventsToGeoJSON([])).toEqual({
+      type: "FeatureCollection",
+      features: [],
+    });
+  });
+
+  it("flips lat/lon to GeoJSON [lon, lat] order", () => {
+    const collection = eventsToGeoJSON([
+      makeMappable({ lat: 52.52, lon: 13.405 }),
+    ]);
+    expect(collection.features[0]?.geometry.coordinates).toEqual([13.405, 52.52]);
+  });
+
+  it("projects only the properties needed by MapLibre layers", () => {
+    const collection = eventsToGeoJSON([
+      makeMappable({
+        id: "evt-7",
+        started_at: "2026-04-27T08:00:00Z",
+        ended_at: "2026-04-27T09:00:00Z",
+        reveal_participants: true,
+        note: "secret",
+      }),
+    ]);
+    expect(collection.features[0]?.properties).toEqual({
+      id: "evt-7",
+      started_at: "2026-04-27T08:00:00Z",
+      ended_at: "2026-04-27T09:00:00Z",
+      reveal_participants: true,
+    });
+  });
+
+  it("preserves null ended_at literally (live event)", () => {
+    const collection = eventsToGeoJSON([makeMappable({ ended_at: null })]);
+    expect(collection.features[0]?.properties.ended_at).toBeNull();
+  });
+
+  it("yields one feature per event in input order", () => {
+    const collection = eventsToGeoJSON([
+      makeMappable({ id: "a" }),
+      makeMappable({ id: "b", lat: 48.1, lon: 11.5 }),
+      makeMappable({ id: "c", lat: 50.1, lon: 8.7 }),
+    ]);
+    expect(collection.features).toHaveLength(3);
+    expect(collection.features.map((f) => f.properties.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 });

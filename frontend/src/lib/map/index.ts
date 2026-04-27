@@ -6,5 +6,8 @@ export {
 export {
   selectMappableEvents,
   isMappableEvent,
+  eventsToGeoJSON,
   type MappableEvent,
+  type MappableEventCollection,
+  type MappableEventFeature,
 } from "./event-marker-data";

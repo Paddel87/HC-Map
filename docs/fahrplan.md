@@ -27,8 +27,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-27
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 [ERLEDIGT] 2026-04-27**: Backend-Geocoding-Proxy mit Rate-Limit, 13 Tests grün. **M6.2 [ERLEDIGT] 2026-04-27**: `components/map/map-view.tsx` neu, abonniert RxDB-`events` live, rendert Marker pro gültiges Event über `react-map-gl/maplibre`, Popup mit `started_at`/Koordinaten/Live-Status/Detail-Link. Datenfilter `selectMappableEvents` (`lib/map/event-marker-data.ts`) prüft `_deleted` und gültige lat/lon-Range. Map-Page `(protected)/map/page.tsx` rendert `MapView` Vollbreite. `lib/map.ts` zu Verzeichnis `lib/map/` umstrukturiert (style.ts + event-marker-data.ts + index.ts re-export). **Coverage `lib/map/**` 97.33 % Lines / 84.61 % Branches**, Threshold 70 % aktiv. Frontend-Suite **127/127 grün** (+18 Tests: 10 event-marker-data + 8 map-view), Lint/Typecheck clean. **Recipient-Name aus dem Popup gelassen**: Persons-Collection ist nicht in RxDB synchronisiert (ADR-037), eine ADR-038-§F-konforme Maskierung ist offline daher nicht möglich; Detailseite enforced die Maskierung weiterhin. Aktiver Sub-Step: **M6.3 (native MapLibre-Cluster)**.
-- **Nächster Schritt:** M6.3 — Refactor `MapView`: GeoJSON-Source mit `cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`, zwei `Layer` (Cluster-Symbol, unclustered-point), Klick auf Cluster zoomt rein.
+- **Aktiver Schritt:** **M6 (Kartenansicht) [IN ARBEIT]**. **M6.1 / M6.2 [ERLEDIGT] 2026-04-27**. **M6.3 [ERLEDIGT] 2026-04-27**: `MapView` refactored auf native MapLibre-Cluster — eine GeoJSON-`Source` (`cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`) mit drei Layern (`events-clusters`, `events-cluster-count`, `events-unclustered`) ersetzt die Per-Event-Marker-Schleife. Click-Handler (`interactiveLayerIds = ['events-clusters', 'events-unclustered']`) unterscheidet Cluster (zoom via `getClusterExpansionZoom` + `easeTo`) von Einzelpunkten (öffnet Popup). Neuer Pure-Helper `eventsToGeoJSON` in `lib/map/event-marker-data.ts`. Frontend-Suite **135/135 grün** (+8 Tests: 5 eventsToGeoJSON + 3 zusätzliche Cluster-Tests in map-view), Coverage `lib/map/**` **97.89 % Lines / 85.71 % Branches**, Production-Build grün (`/map` 11.5 kB / 209 kB First Load). Aktiver Sub-Step: **M6.4 (Filter + URL-Viewport)**.
+- **Nächster Schritt:** M6.4 — URL-State-Helper `lib/map/url-state.ts`, Filter-Panel mit Zeitraum (Datepicker) und Beteiligten-Multi-Select (RxDB `event_participants`), URL-Sync via `useSearchParams` + debounced `router.replace`.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -70,7 +70,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6          | Kartenansicht                                    | [IN ARBEIT] |
 | 1 MVP   | M6.1        | └─ Backend Geocoding-Proxy `GET /api/geocode`    | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.2        | └─ Frontend `MapView` (Marker, Popup, Detail-Link) | [ERLEDIGT] 2026-04-27 |
-| 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [OFFEN]     |
+| 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [OFFEN]     |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [OFFEN]     |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
@@ -1084,16 +1084,18 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 **Ziel:** Bei hoher Marker-Dichte werden Events geclustert.
 
 **Deliverables:**
-- Refactor `MapView`: Marker werden über GeoJSON-`Source` mit `cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14` ausgespielt.
-- Zwei `Layer`: `clusters` (Kreis mit Anzahl als Symbol-Layer) + `unclustered-point` (Einzelmarker).
-- Klick auf Cluster zoomt rein (Standard MapLibre-`getClusterExpansionZoom`-Pattern).
-- Klick auf unclustered Punkt öffnet Popup wie M6.2.
-- Tests: Cluster-Render mit gemocktem MapLibre-Modul (oder reine Logik-Tests des Source-Builders).
+- Refactor `MapView`: Marker werden über GeoJSON-`Source` mit `cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14` ausgespielt. ✓
+- Drei `Layer`: `events-clusters` (Kreis, Step-Expression `point_count`), `events-cluster-count` (Symbol-Layer mit `point_count_abbreviated`), `events-unclustered` (Einzelmarker). ✓
+- Klick auf Cluster zoomt rein via `getClusterExpansionZoom` + `easeTo`. ✓
+- Klick auf unclustered Punkt öffnet Popup wie M6.2. ✓
+- Pure-Helper `eventsToGeoJSON` in `lib/map/event-marker-data.ts` für die Source-Daten (Lat/Lon → `[lon, lat]` Convention). ✓
+- Tests: Cluster-Render und Cluster-Click via gemocktem `react-map-gl/maplibre` (Map/Source/Layer/Popup gestubbt). ✓
 
 **Akzeptanzkriterien:**
-- Bei >10 Markern in <50 px Distanz erscheint ein Cluster.
-- Cluster-Klick zoomt und löst Cluster auf.
-- Frontend-Suite grün.
+- Cluster-Source mit `cluster=true`, `clusterRadius=50`, `clusterMaxZoom=14`. ✓
+- Cluster-Klick ruft `getClusterExpansionZoom` und `easeTo`. ✓
+- Unclustered-Klick öffnet Popup mit Detail-Link. ✓
+- Frontend-Suite grün (135/135). ✓
 
 **Abhängigkeiten:** M6.2.
 

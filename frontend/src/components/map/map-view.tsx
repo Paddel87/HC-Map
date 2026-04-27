@@ -1,31 +1,37 @@
 "use client";
 
 /**
- * Full-screen MapView for the /map route (M6.2, ADR-041 §E/§F/§G).
+ * Full-screen MapView for the /map route (M6.2 / M6.3, ADR-041
+ * §C/§E/§F/§G).
  *
  * - Subscribes to the RxDB `events` collection live, filters by
  *   `_deleted=false` server-side (selector) and by valid lat/lon
  *   client-side via `selectMappableEvents`.
- * - Renders one `Marker` per event; clicking opens a `Popup` with date,
- *   coordinates and a link to the detail page. Person names stay out of
- *   the popup deliberately — the Persons collection is not synced via
- *   RxDB (ADR-037 keeps it server-only), so a reliable masking decision
- *   per ADR-038 §F isn't possible offline. Detail page enforces the
- *   masking rule.
- * - Clustering / filter / geocoding land in M6.3 / M6.4 / M6.5.
+ * - Renders events through a single GeoJSON `Source` with native
+ *   MapLibre clustering (`cluster: true`). Three layers stack on it:
+ *   `clusters` (filled circle), `cluster-count` (count text),
+ *   `unclustered-point` (single-event circle). No `supercluster`
+ *   dependency — the architecture choice is documented in ADR-041 §C.
+ * - Click on a cluster zooms in via `getClusterExpansionZoom` and
+ *   `easeTo`. Click on an unclustered point opens the popup.
+ * - Filter / geocoding land in M6.4 / M6.5.
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
-  Marker,
+  Layer,
   NavigationControl,
   Popup,
+  Source,
+  type LayerProps,
+  type MapLayerMouseEvent,
   type MapRef,
 } from "react-map-gl/maplibre";
 
 import {
   DEFAULT_MAP_CENTER,
+  eventsToGeoJSON,
   rasterTileStyle,
   selectMappableEvents,
   type MappableEvent,
@@ -34,16 +40,126 @@ import { useDatabase } from "@/lib/rxdb/provider";
 import type { EventDocType } from "@/lib/rxdb/types";
 
 const INITIAL_ZOOM = 11;
+const SOURCE_ID = "events";
+const CLUSTER_LAYER_ID = "events-clusters";
+const CLUSTER_COUNT_LAYER_ID = "events-cluster-count";
+const UNCLUSTERED_LAYER_ID = "events-unclustered";
+
+const clusterLayer: LayerProps = {
+  id: CLUSTER_LAYER_ID,
+  type: "circle",
+  source: SOURCE_ID,
+  filter: ["has", "point_count"],
+  paint: {
+    // Step expression: small (≤9), medium (10–29), large (30+).
+    "circle-color": [
+      "step",
+      ["get", "point_count"],
+      "#3b82f6",
+      10,
+      "#2563eb",
+      30,
+      "#1d4ed8",
+    ],
+    "circle-radius": [
+      "step",
+      ["get", "point_count"],
+      18,
+      10,
+      24,
+      30,
+      30,
+    ],
+    "circle-stroke-color": "#ffffff",
+    "circle-stroke-width": 2,
+  },
+};
+
+const clusterCountLayer: LayerProps = {
+  id: CLUSTER_COUNT_LAYER_ID,
+  type: "symbol",
+  source: SOURCE_ID,
+  filter: ["has", "point_count"],
+  layout: {
+    "text-field": ["get", "point_count_abbreviated"],
+    "text-size": 12,
+    "text-allow-overlap": true,
+  },
+  paint: {
+    "text-color": "#ffffff",
+  },
+};
+
+const unclusteredLayer: LayerProps = {
+  id: UNCLUSTERED_LAYER_ID,
+  type: "circle",
+  source: SOURCE_ID,
+  filter: ["!", ["has", "point_count"]],
+  paint: {
+    "circle-color": "#2563eb",
+    "circle-radius": 8,
+    "circle-stroke-color": "#ffffff",
+    "circle-stroke-width": 2,
+  },
+};
+
+const interactiveLayerIds = [CLUSTER_LAYER_ID, UNCLUSTERED_LAYER_ID];
 
 export function MapView() {
   const events = useEvents();
   const mapStyle = useMemo(() => rasterTileStyle(), []);
+  const geojson = useMemo(() => eventsToGeoJSON(events), [events]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const mapRef = useRef<MapRef | null>(null);
 
   const active = useMemo(
     () => (activeId ? events.find((e) => e.id === activeId) ?? null : null),
     [activeId, events],
   );
+
+  const handleMapClick = useCallback((event: MapLayerMouseEvent) => {
+    const feature = event.features?.[0];
+    if (!feature) return;
+    const layerId =
+      (feature.layer as { id?: string } | undefined)?.id ?? null;
+    if (layerId === CLUSTER_LAYER_ID) {
+      const props = feature.properties as
+        | { cluster_id?: number }
+        | null
+        | undefined;
+      const clusterId = props?.cluster_id;
+      const map = event.target;
+      if (typeof clusterId !== "number" || !map) return;
+      const source = map.getSource(SOURCE_ID) as
+        | {
+            getClusterExpansionZoom?: (
+              id: number,
+            ) => Promise<number> | undefined;
+          }
+        | null
+        | undefined;
+      const promise = source?.getClusterExpansionZoom?.(clusterId);
+      if (!promise) return;
+      const geom = feature.geometry as
+        | { type: string; coordinates?: [number, number] }
+        | undefined;
+      const center = geom?.coordinates ?? null;
+      promise
+        .then((zoom: number) => {
+          if (!center) return;
+          map.easeTo({ center, zoom });
+        })
+        .catch(() => {
+          /* swallow upstream errors — UX falls back to manual zoom */
+        });
+      return;
+    }
+    if (layerId === UNCLUSTERED_LAYER_ID) {
+      const props = feature.properties as { id?: string } | null | undefined;
+      const id = props?.id;
+      if (typeof id === "string") setActiveId(id);
+    }
+  }, []);
 
   return (
     <div
@@ -52,46 +168,36 @@ export function MapView() {
       data-testid="map-view"
     >
       <Map
+        ref={mapRef}
         mapStyle={mapStyle}
         initialViewState={{
           latitude: DEFAULT_MAP_CENTER.lat,
           longitude: DEFAULT_MAP_CENTER.lon,
           zoom: INITIAL_ZOOM,
         }}
-        ref={(_ref: MapRef | null) => {
-          // Reserved for M6.5 (flyTo from geocoding search).
-        }}
+        interactiveLayerIds={interactiveLayerIds}
+        onClick={handleMapClick}
+        cursor="auto"
       >
         <NavigationControl position="top-right" showCompass={false} />
-        {events.map((event) => (
-          <Marker
-            key={event.id}
-            latitude={event.lat}
-            longitude={event.lon}
-            anchor="bottom"
-            onClick={(domEvent) => {
-              // react-map-gl propagates the click to the map by default
-              // and would immediately close the popup we're about to
-              // open — stop the propagation explicitly.
-              domEvent.originalEvent.stopPropagation();
-              setActiveId(event.id);
-            }}
-          >
-            <button
-              type="button"
-              aria-label={`Event vom ${formatDate(event.started_at)}`}
-              data-testid="map-event-marker"
-              data-event-id={event.id}
-              className="block h-7 w-7 -translate-y-1 rounded-full border-2 border-white bg-blue-600 shadow-md transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-          </Marker>
-        ))}
+        <Source
+          id={SOURCE_ID}
+          type="geojson"
+          data={geojson}
+          cluster
+          clusterRadius={50}
+          clusterMaxZoom={14}
+        >
+          <Layer {...clusterLayer} />
+          <Layer {...clusterCountLayer} />
+          <Layer {...unclusteredLayer} />
+        </Source>
         {active ? (
           <Popup
             latitude={active.lat}
             longitude={active.lon}
             anchor="bottom"
-            offset={28}
+            offset={16}
             onClose={() => setActiveId(null)}
             closeOnClick={false}
             closeButton

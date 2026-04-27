@@ -1,71 +1,117 @@
 /**
- * Smoke coverage for `MapView` (M6.2, ADR-041 §E).
+ * Smoke coverage for `MapView` (M6.2 / M6.3, ADR-041 §C/§E).
  *
  * `react-map-gl/maplibre` needs WebGL, which jsdom does not provide
- * (see ADR-027 §J2 for the same rationale on `LocationPickerMap`). The
- * map shell is mocked here so we can verify:
- *   - the RxDB subscription drives the marker count,
- *   - clicking a marker opens a popup with a link to the detail page,
+ * (see ADR-027 §J2 for the same rationale on `LocationPickerMap`).
+ * The map shell, `Source`, `Layer` and `Popup` are mocked so we can
+ * verify:
+ *   - the GeoJSON `Source` is configured for clustering and gets
+ *     exactly one feature per mappable event,
+ *   - clicking an unclustered point opens a popup with a link to the
+ *     detail page,
+ *   - clicking a cluster zooms in via `getClusterExpansionZoom` +
+ *     `easeTo`,
  *   - the empty-state copy appears when no events are mappable.
  *
- * The data filter (`selectMappableEvents`) is covered separately in
+ * The data filter (`selectMappableEvents`) and the GeoJSON builder
+ * (`eventsToGeoJSON`) are covered separately in
  * `tests/event-marker-data.test.ts`.
  */
 
 import "fake-indexeddb/auto";
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import { act } from "react";
 import type { ReactNode } from "react";
 import { BehaviorSubject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { MappableEventCollection } from "@/lib/map";
 import type { EventDocType } from "@/lib/rxdb/types";
 
-interface MarkerProps {
-  latitude: number;
-  longitude: number;
-  onClick?: (e: { originalEvent: { stopPropagation: () => void } }) => void;
+interface MapMockProps {
+  children: ReactNode;
+  onClick?: (event: FakeMapMouseEvent) => void;
+  interactiveLayerIds?: string[];
+}
+
+interface FakeFeature {
+  layer?: { id?: string };
+  properties?: Record<string, unknown>;
+  geometry?: { type: string; coordinates?: [number, number] };
+}
+
+interface FakeMapTarget {
+  getSource?: (id: string) => unknown;
+  easeTo?: (opts: { center: [number, number]; zoom: number }) => void;
+}
+
+interface FakeMapMouseEvent {
+  features?: FakeFeature[];
+  target?: FakeMapTarget;
+}
+
+interface SourceMockProps {
+  id: string;
+  data: MappableEventCollection;
+  cluster?: boolean;
+  clusterRadius?: number;
+  clusterMaxZoom?: number;
   children: ReactNode;
 }
 
-interface PopupProps {
+interface LayerMockProps {
+  id: string;
+}
+
+interface PopupMockProps {
   latitude: number;
   longitude: number;
   onClose: () => void;
   children: ReactNode;
 }
 
-vi.mock("react-map-gl/maplibre", () => {
-  return {
-    default: ({ children }: { children: ReactNode }) => (
-      <div data-testid="mock-map">{children}</div>
-    ),
-    Marker: ({ latitude, longitude, onClick, children }: MarkerProps) => (
+let mapProps: MapMockProps | null = null;
+let sourceProps: SourceMockProps | null = null;
+let layerProps: LayerMockProps[] = [];
+
+vi.mock("react-map-gl/maplibre", () => ({
+  default: (props: MapMockProps) => {
+    mapProps = props;
+    return <div data-testid="mock-map">{props.children}</div>;
+  },
+  Source: (props: SourceMockProps) => {
+    sourceProps = props;
+    return (
       <div
-        data-testid="mock-marker"
-        data-lat={latitude}
-        data-lon={longitude}
-        onClick={() =>
-          onClick?.({ originalEvent: { stopPropagation: () => {} } })
-        }
+        data-testid="mock-source"
+        data-cluster={String(props.cluster ?? false)}
+        data-feature-count={props.data.features.length}
       >
-        {children}
+        {props.children}
       </div>
-    ),
-    Popup: ({ latitude, longitude, onClose, children }: PopupProps) => (
-      <div data-testid="mock-popup" data-lat={latitude} data-lon={longitude}>
-        <button
-          type="button"
-          aria-label="Popup schließen"
-          data-testid="mock-popup-close"
-          onClick={onClose}
-        />
-        {children}
-      </div>
-    ),
-    NavigationControl: () => <div data-testid="mock-nav" />,
-  };
-});
+    );
+  },
+  Layer: (props: LayerMockProps) => {
+    layerProps.push(props);
+    return <div data-testid="mock-layer" data-layer-id={props.id} />;
+  },
+  Popup: ({ latitude, longitude, onClose, children }: PopupMockProps) => (
+    <div
+      data-testid="mock-popup"
+      data-lat={latitude}
+      data-lon={longitude}
+    >
+      <button
+        type="button"
+        data-testid="mock-popup-close"
+        onClick={onClose}
+      />
+      {children}
+    </div>
+  ),
+  NavigationControl: () => <div data-testid="mock-nav" />,
+}));
 
 const useDatabaseMock = vi.fn();
 
@@ -119,14 +165,39 @@ function makeDatabase(docs: EventDocType[]): FakeDatabase {
 
 beforeEach(() => {
   useDatabaseMock.mockReset();
+  mapProps = null;
+  sourceProps = null;
+  layerProps = [];
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("MapView (M6.2)", () => {
-  it("renders a marker per mappable event", () => {
+describe("MapView (M6.2 / M6.3)", () => {
+  it("registers cluster, count and unclustered layers on the events source", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "a" })]));
+    render(<MapView />);
+
+    expect(sourceProps?.id).toBe("events");
+    expect(sourceProps?.cluster).toBe(true);
+    expect(sourceProps?.clusterRadius).toBe(50);
+    expect(sourceProps?.clusterMaxZoom).toBe(14);
+
+    const ids = layerProps.map((l) => l.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "events-clusters",
+        "events-cluster-count",
+        "events-unclustered",
+      ]),
+    );
+    expect(mapProps?.interactiveLayerIds).toEqual(
+      expect.arrayContaining(["events-clusters", "events-unclustered"]),
+    );
+  });
+
+  it("emits one GeoJSON feature per mappable event", () => {
     useDatabaseMock.mockReturnValue(
       makeDatabase([
         makeDoc({ id: "a", lat: 52.5, lon: 13.4 }),
@@ -136,9 +207,10 @@ describe("MapView (M6.2)", () => {
       ]),
     );
     render(<MapView />);
-    const markers = screen.getAllByTestId("map-event-marker");
-    expect(markers).toHaveLength(2);
-    expect(markers.map((m) => m.dataset.eventId)).toEqual(["a", "b"]);
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 
   it("shows the empty status when no events are mappable", () => {
@@ -147,14 +219,14 @@ describe("MapView (M6.2)", () => {
     expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
       "Keine sichtbaren Events",
     );
-    expect(screen.queryByTestId("map-event-marker")).toBeNull();
+    expect(sourceProps?.data.features).toHaveLength(0);
   });
 
   it("handles a still-loading database (null) without throwing", () => {
     useDatabaseMock.mockReturnValue(null);
     render(<MapView />);
     expect(screen.getByTestId("map-view")).toBeInTheDocument();
-    expect(screen.queryAllByTestId("map-event-marker")).toHaveLength(0);
+    expect(sourceProps?.data.features).toHaveLength(0);
   });
 
   it("reports the event count in the status bar (singular)", () => {
@@ -180,19 +252,32 @@ describe("MapView (M6.2)", () => {
     );
   });
 
-  it("opens a popup with a detail link when a marker is clicked", () => {
+  it("opens a popup with a detail link when an unclustered point is clicked", () => {
     useDatabaseMock.mockReturnValue(
       makeDatabase([makeDoc({ id: "evt-1", lat: 50, lon: 10 })]),
     );
     render(<MapView />);
     expect(screen.queryByTestId("map-event-popup")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("map-event-marker"));
+    act(() => {
+      mapProps?.onClick?.({
+        features: [
+          {
+            layer: { id: "events-unclustered" },
+            properties: { id: "evt-1" },
+            geometry: { type: "Point", coordinates: [10, 50] },
+          },
+        ],
+        target: {},
+      });
+    });
 
     const popup = screen.getByTestId("map-event-popup");
     expect(popup).toBeInTheDocument();
-    const link = screen.getByTestId("map-event-popup-link");
-    expect(link).toHaveAttribute("href", "/events/evt-1");
+    expect(screen.getByTestId("map-event-popup-link")).toHaveAttribute(
+      "href",
+      "/events/evt-1",
+    );
     expect(popup).toHaveTextContent("läuft");
   });
 
@@ -206,8 +291,73 @@ describe("MapView (M6.2)", () => {
       ]),
     );
     render(<MapView />);
-    fireEvent.click(screen.getByTestId("map-event-marker"));
+    act(() => {
+      mapProps?.onClick?.({
+        features: [
+          {
+            layer: { id: "events-unclustered" },
+            properties: { id: "ended" },
+            geometry: { type: "Point", coordinates: [13.405, 52.52] },
+          },
+        ],
+        target: {},
+      });
+    });
     expect(screen.getByTestId("map-event-popup")).toHaveTextContent("beendet");
+  });
+
+  it("zooms into a cluster on click via getClusterExpansionZoom + easeTo", async () => {
+    useDatabaseMock.mockReturnValue(
+      makeDatabase([
+        makeDoc({ id: "a", lat: 52.5, lon: 13.4 }),
+        makeDoc({ id: "b", lat: 52.51, lon: 13.41 }),
+      ]),
+    );
+    render(<MapView />);
+
+    const easeTo = vi.fn();
+    const getClusterExpansionZoom = vi.fn().mockResolvedValue(16);
+    const target: FakeMapTarget = {
+      easeTo,
+      getSource: () => ({ getClusterExpansionZoom }),
+    };
+
+    await act(async () => {
+      mapProps?.onClick?.({
+        features: [
+          {
+            layer: { id: "events-clusters" },
+            properties: { cluster_id: 42 },
+            geometry: { type: "Point", coordinates: [13.405, 52.505] },
+          },
+        ],
+        target,
+      });
+      // Allow the awaited promise to resolve.
+      await Promise.resolve();
+    });
+
+    expect(getClusterExpansionZoom).toHaveBeenCalledWith(42);
+    expect(easeTo).toHaveBeenCalledWith({
+      center: [13.405, 52.505],
+      zoom: 16,
+    });
+    // Cluster click must NOT open a popup.
+    expect(screen.queryByTestId("map-event-popup")).toBeNull();
+  });
+
+  it("ignores clicks on non-interactive features", () => {
+    useDatabaseMock.mockReturnValue(
+      makeDatabase([makeDoc({ id: "evt-1" })]),
+    );
+    render(<MapView />);
+    act(() => {
+      mapProps?.onClick?.({
+        features: [],
+        target: {},
+      });
+    });
+    expect(screen.queryByTestId("map-event-popup")).toBeNull();
   });
 
   it("closes the popup when the close button is clicked", () => {
@@ -215,7 +365,18 @@ describe("MapView (M6.2)", () => {
       makeDatabase([makeDoc({ id: "evt-1" })]),
     );
     render(<MapView />);
-    fireEvent.click(screen.getByTestId("map-event-marker"));
+    act(() => {
+      mapProps?.onClick?.({
+        features: [
+          {
+            layer: { id: "events-unclustered" },
+            properties: { id: "evt-1" },
+            geometry: { type: "Point", coordinates: [13.405, 52.52] },
+          },
+        ],
+        target: {},
+      });
+    });
     expect(screen.getByTestId("map-event-popup")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("mock-popup-close"));
     expect(screen.queryByTestId("map-event-popup")).toBeNull();

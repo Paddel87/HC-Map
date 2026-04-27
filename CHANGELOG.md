@@ -9,6 +9,44 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M6.3 — Native MapLibre-Cluster im `MapView` (ADR-041 §C):**
+  Clustering ohne `supercluster`-Dependency.
+  - **Refactor [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):**
+    Per-Event-Marker-Schleife wird durch eine GeoJSON-`Source`
+    (`cluster: true`, `clusterRadius=50`, `clusterMaxZoom=14`) mit
+    drei Layern ersetzt:
+    - `events-clusters` — Kreis-Layer mit Step-Expression auf
+      `point_count` (Farbe + Radius staffeln nach 10 / 30 Punkten).
+    - `events-cluster-count` — Symbol-Layer mit
+      `point_count_abbreviated` (weiße Zahl auf Kreis).
+    - `events-unclustered` — Kreis-Layer für einzelne Events.
+  - **Click-Handler:** `interactiveLayerIds = ['events-clusters',
+    'events-unclustered']`. Cluster-Klick ruft
+    `getClusterExpansionZoom(cluster_id)` und `easeTo({ center, zoom })`.
+    Unclustered-Klick liest `properties.id` und öffnet das Popup wie
+    in M6.2.
+  - **Neuer Pure-Helper `eventsToGeoJSON`** in
+    [lib/map/event-marker-data.ts](frontend/src/lib/map/event-marker-data.ts):
+    konvertiert `MappableEvent[]` in eine `FeatureCollection`.
+    Verantwortlich für die Lat/Lon → `[lon, lat]` Konvention nach
+    GeoJSON-Spec — der Flip findet hier und nur hier statt.
+  - **Tests:** +8 Cases —
+    - 5 für `eventsToGeoJSON` (leere Liste, Koordinaten-Flip,
+      Property-Projektion, `null`-`ended_at`, Reihenfolge).
+    - 3 zusätzliche in `map-view.test.tsx` (Source-Konfiguration mit
+      Cluster-Flags + 3 Layer registriert; Cluster-Klick ruft
+      `getClusterExpansionZoom` + `easeTo`; nicht-interaktive
+      Features werden ignoriert).
+    `react-map-gl/maplibre` wird komplett gestubbt
+    (Map/Source/Layer/Popup/NavigationControl) — der `onClick` des
+    Map-Mocks wird ausgelesen und im Test direkt mit synthetischen
+    Features aufgerufen (jsdom hat kein WebGL, ADR-027 §J2-Pattern).
+  - **Coverage `lib/map/**`:** **97.89 % Lines / 85.71 % Branches**
+    (vorher 97.33 / 84.61).
+  - **Frontend-Suite:** 135/135 grün (+8), Lint/Typecheck clean.
+    Production-Build grün (`/map` 11.5 kB / 209 kB First Load,
+    +1.4 kB für Cluster-Logic).
+
 - **M6.2 — Frontend `MapView` (ADR-041 §E/§F/§G):**
   Vollbild-Karte unter `/map` zeigt alle sichtbaren Events als Marker.
   - Neue Komponente [components/map/map-view.tsx](frontend/src/components/map/map-view.tsx):

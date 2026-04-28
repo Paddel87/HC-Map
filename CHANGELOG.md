@@ -38,6 +38,64 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M7.1 — Backend Catalog-Workflow (ADR-042):**
+  Vollständiger Reject-/Withdraw-Workflow auf den vier Katalog-Tabellen
+  (RestraintType, ArmPosition, HandPosition, HandOrientation).
+  - **Migration
+    [`20260428_1200_m7_1_catalog_workflow.py`](backend/migrations/versions/20260428_1200_m7_1_catalog_workflow.py):**
+    - Neuer Enum-Wert `catalog_status = 'rejected'` (über
+      `op.get_context().autocommit_block()`, weil Postgres den neuen
+      Wert in derselben Migration sonst nicht in einer Policy
+      verwenden lässt).
+    - Drei neue Audit-Spalten pro Tabelle: `rejected_by`,
+      `rejected_at`, `reject_reason`.
+    - RLS-Policy `<table>_select` erweitert: eigene `pending` **und**
+      `rejected` sind für den vorschlagenden Editor sichtbar (mit
+      Begründung).
+    - Neue RLS-Policy `<table>_owner_withdraw` (`FOR DELETE`): Editor
+      darf eigene `pending`-Vorschläge zurückziehen; alles andere
+      bleibt admin-only über `<table>_admin_modify`.
+    - Down-Migration ist round-trippable (Up/Down/Up/Down/Up
+      verifiziert) — Postgres kann keinen Enum-Wert direkt droppen,
+      daher Type-Swap über parallel angelegtes `catalog_status_v1`.
+  - **Endpunkte:** Pro Katalog-Typ (`/api/restraint-types`,
+    `/api/arm-positions`, `/api/hand-positions`,
+    `/api/hand-orientations`):
+    - `GET /<kind>?status=approved|pending|rejected` — optionaler
+      Filter; Sichtbarkeit weiterhin via RLS.
+    - `PATCH /<kind>/{id}` — Admin-Update aller Felder; UNIQUE-Konflikt
+      → 409 mit Klartext. **Status wird nicht akzeptiert** — Übergänge
+      laufen ausschließlich über die dedizierten Endpunkte.
+    - `DELETE /<kind>/{id}` — Hard-Delete eines `pending`-Vorschlags.
+      Editor kann nur eigene zurückziehen; Admin jeden pending. Andere
+      Stati → 409.
+    - `POST /<kind>/{id}/reject` — pending → rejected; Body
+      `{ "reason": str (1..2000) }` Pflicht; setzt `rejected_by`,
+      `rejected_at`, `reject_reason`.
+  - **Frontend-Strategie (ADR-042 §E):** Katalog-Daten werden bewusst
+    nicht in RxDB synchronisiert; Frontend (M7.2 ff.) liest sie via
+    TanStack-Query mit `staleTime: 5 min` und Cache-Key
+    `['catalog', kind, { status }]`.
+  - **Tests:** +22 Cases.
+    - Neue Datei
+      [`tests/test_catalog_workflow.py`](backend/tests/test_catalog_workflow.py):
+      17 Cases — Reject (Admin/Editor/leere Reason/already-approved),
+      Withdraw (eigene/fremde/rejected/admin-any/already-approved),
+      Admin-PATCH (Lookup + RestraintType all-fields, UNIQUE-409,
+      Editor-403), Status-Filter, eigene-rejected-sichtbar,
+      foreign-rejected-versteckt.
+    - [`tests/test_rls.py`](backend/tests/test_rls.py): +5 Cases —
+      Editor sieht eigene rejected, Viewer nicht; Editor kann eigene
+      pending via DELETE entfernen, fremde nicht, eigene rejected
+      ebenfalls nicht (Owner-Withdraw-Policy filtert auf `pending`).
+  - **Backend-Suite:** 172/172 grün (+22 seit M6). `ruff check` und
+    `mypy --strict` für `app/services/catalog.py`, `app/routes/catalog.py`,
+    `app/schemas/catalog.py`, `app/models/catalog.py` clean.
+  - **Architektur-Doku-Drift behoben:** API-Tabelle in `architecture.md`
+    zeigt jetzt die tatsächlichen Endpoint-Pfade (`/api/<kind>`)
+    statt der ursprünglich geplanten Sammelroute `/api/catalogs/{kind}`,
+    plus die neue Route-Form (DELETE/Reject) und RxDB-Hinweis.
+
 - **M6.5 — Geocoding-Suchbox in `MapView` (ADR-041 §J):**
   Letzter M6-Sub-Step. Adress-Eingabe oben links, fliegt die Karte
   an. **M6 vollständig abgeschlossen.**

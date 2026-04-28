@@ -67,6 +67,8 @@ Status-Legende:
 | ADR-039 | Implementierungsstrategie M5c.3 (Nachträgliche Erfassung)                | Accepted | 2026-04-27 |
 | ADR-040 | Implementierungsstrategie M5c.4 (Edit-UI mit RxDB-Push, Soft-Delete, RBAC) | Accepted | 2026-04-27 |
 | ADR-041 | Implementierungsstrategie M6 (Kartenansicht: MapView, Cluster, Filter, Geocoding) | Accepted | 2026-04-27 |
+| ADR-042 | Sonner-Major-Upgrade (v1.7.4 → v2.x) für React-19-Kompatibilität | Accepted | 2026-04-29 |
+| ADR-043 | Implementierungsstrategie M7 (Katalog-Verwaltung, Vorschlags-Workflow, Reject-Status) | Accepted | 2026-04-29 |
 
 ---
 
@@ -3411,6 +3413,114 @@ ADR-021 nennt Sonner als gewählte Toast-Lib (M4-Frontend-Grundgerüst). Die Wah
 - README-Badges: keine Änderung notwendig (Sonner taucht in README nicht als Badge auf).
 - M7 (`[OFFEN]`) verifiziert die Catalog-409-Toasts beim Bauen der Forms.
 - ADR-021 und ADR-026 bleiben inhaltlich gültig; das ergänzte Lessons-Learned-Regelwerk gilt für künftige ADRs (M7 ff.).
+
+---
+
+## ADR-043 — Implementierungsstrategie M7 (Katalog-Verwaltung, Vorschlags-Workflow, Reject-Status)
+
+**Status:** Accepted
+**Datum:** 2026-04-28
+**Vorgänger:** ADR-018 (RLS-Default), ADR-020 (Domain-API).
+**Bezug:** Fahrplan M7.
+
+### Kontext
+
+M7 schließt den seit M3 vorbereiteten Vorschlags-Workflow für die vier Katalog-Tabellen ab und liefert die zugehörige UI. Backend hat bereits Models (`app/models/catalog.py`), Routes (`POST /<kind>`, `POST /<kind>/{id}/approve`, `GET /<kind>`), Service (`app/services/catalog.py`) und RLS-Policies aus M2-Migration `20260425_1730_strict_rls_policies`. Was fehlt: Admin-Update, Reject-Pfad, Editor-Withdraw, sowie das komplette Frontend (`/admin/catalogs`).
+
+Die Entscheidungspunkte, die der semi-autonome Modus blockiert hat, wurden im Komplettfreigabe-Block am 2026-04-28 als **Option A** angenommen.
+
+### Entscheidung
+
+**A. Reject-Workflow via Status-Erweiterung.**
+- Postgres-Enum `catalog_status` wird um den Wert `rejected` erweitert (ALTER TYPE … ADD VALUE).
+- Drei neue Spalten pro Katalog-Tabelle: `rejected_by uuid` (FK → user.id, ON DELETE SET NULL), `rejected_at timestamptz`, `reject_reason text`.
+- Reject ist ein Status-Übergang `pending → rejected` durch Admin via `POST /<kind>/{id}/reject` (Body `{ "reason": "<text>" }`); kein Hard-Delete.
+- Vorschlagender Editor sieht eigene rejected-Rows weiterhin (Lerneffekt mit Begründung), Viewer/andere Editoren nicht.
+- Rejected → Pending oder Rejected → Approved sind aus M7-Scope ausgeklammert (keine UI; per SQLAdmin im M8 erreichbar).
+
+**B. Admin-Update via PATCH `/<kind>/{id}` (alle Felder).**
+- Admin-only.
+- Editierbar: alle Identitäts- und Display-Felder. Konkret RestraintType: `category`, `brand`, `model`, `mechanical_type`, `display_name`, `note`. Lookup-Tabellen: `name`, `description`.
+- Status-Feld kann via PATCH **nicht** gesetzt werden — Status-Übergänge laufen ausschließlich über die dedizierten `/approve` und `/reject`-Endpoints, damit Audit-Felder (`approved_by` / `rejected_by` / `reject_reason`) konsistent gesetzt werden.
+- UNIQUE-Konflikt (RestraintType: `(category, brand, model, mechanical_type)`; Lookups: `name`) → 409 mit Klartext-Body.
+- `updated_at` wird gesetzt.
+
+**C. Editor-Self-Service: Withdraw eigener pending-Vorschläge.**
+- `DELETE /<kind>/{id}` ist erlaubt für Admin (jeder Status) und Editor (nur eigene `status='pending'`-Rows). Hard-Delete, kein Soft-Delete — Tombstone-Replikation gibt es für Katalog nicht.
+- RLS-Policy `<table>_owner_modify` ergänzt UPDATE/DELETE auf eigene pending-Rows; PATCH durch Editor auf eigene pending-Rows ist **nicht** Teil von M7 (Workaround: Withdraw + Neuvorschlag).
+- Editor sieht eigene rejected-Rows weiter (Reichweite der bestehenden `<table>_select`-Policy auf `suggested_by = current_user_id` wird erweitert: `status IN ('pending','rejected')`).
+
+**D. Sub-Step-Schnitt.**
+
+| Sub-Step | Inhalt | Abschluss-Kriterium |
+|---|---|---|
+| M7.1 | Migration (`catalog_status` += rejected, neue Spalten, RLS-Policy-Erweiterung), Models/Schemas, Service-Funktionen für reject/withdraw/update, Routes (PATCH/DELETE/reject), Backend-Tests | `pytest -k "catalog or rls"` grün, Migration up/down sauber, Drift-Test grün |
+| M7.2 | Frontend `/admin/catalogs` Übersichtsseite mit Tab-Navigation für die vier Katalog-Typen, Listing-Tabelle pro Typ mit Status-Filter (approved/pending/rejected), Sortierung, Paging | Admin sieht alle Einträge; Filter funktioniert; Editor sieht approved + eigene pending/rejected |
+| M7.3 | CRUD-Formulare: Admin-Create, Admin-Edit (mit UNIQUE-Konflikt-Toast), Editor-Vorschlags-Form (mit Vorbelegung von `status=pending`); Routing `/admin/catalogs/<kind>/new` und `/admin/catalogs/<kind>/<id>/edit` | Admin und Editor können erfolgreich anlegen und ggf. updaten |
+| M7.4 | Freigabe-Queue auf `/admin/catalogs` (oder separater Tab „Pending"): Approve-Button, Reject-Button mit reject_reason-Dialog; Editor-Self-Service: Withdraw-Button auf eigenen pending-Rows | Admin kann pendings durchklicken und reject_reason erfassen; Editor kann eigene zurückziehen |
+| M7.5 | Restraint-Picker (Multi-Select mit Typeahead, Quick-Propose) im Application-Erfassen-Pfad (Live + Backfill); approved-RestraintTypes erscheinen, Editor-Quick-Propose öffnet Mini-Form. Position-Picker ist explizit aus dem Scope (M5c.4-Followup) | Anwender kann in Live/Backfill RestraintTypes pro Application zuordnen, neue spontan vorschlagen |
+
+**E. Frontend-Datenfluss.**
+- Katalog-Daten **nicht in RxDB** — Read-Path: TanStack-Query gegen `GET /api/<kind>?status=...` mit hierarchischen Cache-Keys `['catalog', kind, { status }]`. Begründung: Katalog ist nahezu statisch, klein (<200 Rows), Offline-Bedarf ist gering — Live-Modus braucht nur die approved-Liste, die einmal beim Mount geladen und cached wird.
+- Für M7.5 (Restraint-Picker im Live-Modus) gilt: Beim ersten Laden des Picker-Sheets wird die RestraintType-Liste mit `staleTime: 5 min` gecached. Offline funktioniert der Picker mit der zuletzt geladenen Liste; bei vollständigem Cold-Start ohne Netz ist der Picker leer (akzeptiert in Pfad A — wird im Einwilligungstext als bekannte Einschränkung benannt).
+- Mutation-Flow nach POST/PATCH/Approve/Reject/Delete: `queryClient.invalidateQueries(['catalog', kind])`.
+
+**F. Routes-Layout (`/admin/catalogs`).**
+- `/admin/catalogs` — Redirect zu `/admin/catalogs/restraint-types` (erste Tab-Spalte).
+- `/admin/catalogs/[kind]` — Listing + Filter; Tab-Navigation oben (4 Typen), Status-Filter rechts. „Neuen Eintrag vorschlagen"-Button.
+- `/admin/catalogs/[kind]/new` — Form (Admin: kann `status=approved` direkt setzen via `directly_approve`-Toggle? **Nein in M7 — Admin-Create geht erst über pending oder über separaten Approve-Schritt**. Vereinfachung: Admin-Create erzeugt `status=approved` automatisch (RLS erlaubt das). Editor-Create erzeugt `status=pending`).
+- `/admin/catalogs/[kind]/[id]/edit` — Form für Admin-Edit; Editor sieht read-only (eigene pending mit „Withdraw"-Button, fremde gar nicht erreichbar).
+- Server-Side-RBAC-Gate: `/admin/catalogs/**` setzt Mindestrolle Editor; Admin-Only-Routes (`new` + `edit` + `approve`/`reject`-Buttons) prüfen on-demand.
+
+**G. RBAC-Gate-Helper.**
+- Wir erweitern `frontend/src/lib/rbac.ts` um `canApproveCatalog(role)`, `canEditCatalogEntry(role, entry, currentUserId)`, `canWithdrawCatalogEntry(role, entry, currentUserId)`. Damit hat das Frontend eine eindeutige Quelle für die Sichtbarkeit der Aktionen, parallel zu `canEditEvent` aus M5c.4.
+
+**H. Tests.**
+
+Backend:
+- `tests/test_catalog_workflow.py` — Reject-Endpoint pro Katalog-Tabelle (Admin success, Editor 403, kein-Reason-Body 422); Withdraw (Editor success bei eigenem pending, Editor 403 bei fremdem pending, Editor 403 bei eigenem rejected/approved, Admin success); Admin-PATCH inkl. UNIQUE-409-Test; Admin-PATCH erlaubt Statusfeld nicht.
+- `tests/test_rls.py` Erweiterung: rejected-Sichtbarkeit (Vorschlagender sieht eigene rejected; andere Editor sehen nicht; Viewer sehen nicht; Admin sieht alle).
+- `tests/test_migration.py` (oder neue Datei): Up/Down-Roundtrip für M7.1-Migration. Da die Enum-Erweiterung `ADD VALUE` ist und Postgres-Enums kein `DROP VALUE` kennen, ist die Down-Strategie: Tabellen auf `pending`/`approved` zurücksetzen (rejected → pending), Spalten droppen, Enum komplett dropen und neu mit den ursprünglichen zwei Werten erstellen. Tests verifizieren die round-trippable Schema-Form, nicht die Daten-Konsistenz nach Down.
+
+Frontend:
+- `lib/rbac.ts` Unit-Tests für die drei neuen Helper.
+- Page-Smoke-Tests für `/admin/catalogs/[kind]` (Mock TanStack-Query + Mock-Auth) — Listing, Filter, Approve-Klick.
+- Form-Tests für Create/Edit mit Mock-API.
+- Reject-Dialog-Test (reason-Pflichtfeld).
+- M7.5: Restraint-Picker-Komponente Unit-Test (Suche, Auswahl, Quick-Propose-Submit).
+- Coverage-Schwellen: `lib/rbac.ts` ≥ 90 %, neue Komponenten ≥ 70 % Lines.
+
+**I. ENV-Variablen / Konfig.**
+Keine. M7 ist reines Schema- und UI-Update.
+
+**J. Architektur-/Doc-Updates.**
+- `docs/architecture.md` §API/Kataloge: PATCH/DELETE/reject-Endpoints ergänzen. Hinweis: Live-Endpoint-Pfade sind `/api/restraint-types`, `/api/arm-positions`, `/api/hand-positions`, `/api/hand-orientations` — nicht `/api/catalogs/{kind}` wie früher skizziert. Doku wird auf Ist-Stand korrigiert (Drift-Fix nebenbei).
+- `docs/architecture.md` §Frontend-Routing: `/admin/catalogs/[kind]` und Sub-Routen.
+- `docs/architecture.md` §RLS: rejected-Sichtbarkeit, Owner-Modify-Policy.
+- `CHANGELOG.md`: Eintrag pro Sub-Step.
+
+### Konsequenzen
+
+- Keine RxDB-Erweiterung — bewusste Asymmetrie zu Events/Applications/Participants. Vereinfacht Sync-Story.
+- Migration ist nicht-destruktiv: bestehende Rows behalten ihren Status, neue Spalten sind nullable.
+- `catalog_status`-Enum wächst von 2 auf 3 Werte; alle bestehenden Code-Pfade, die nur `'approved'`/`'pending'` prüfen, bleiben korrekt — neue Werte fallen automatisch in den „weder approved noch eigene pending"-Default und sind unsichtbar für Nicht-Vorschlagende.
+- M7.5 schließt das letzte Live-Modus-Loch (RestraintType-Auswahl), das seit M5a.3 mit Notiz-Workaround offen war.
+- M8 (Admin-Bereich) erbt einen kompletten Workflow für Catalogs; SQLAdmin kann reject- und withdraw-Aktionen ergänzend bedienen, ist aber nicht der primäre Pfad.
+
+### Verworfene Alternativen
+
+- **Reject = Hard-Delete (Option B aus Freigabeblock):** Vorschlagender erfährt nicht *warum* abgelehnt → Frust, Wiedervorschlag derselben Idee wahrscheinlich. Verworfen.
+- **Reject = Soft-Delete (Option C):** unnötig komplex (zwei Booleans für „Status"), Kollision mit zukünftigem Rejected-zu-Pending-Reset.
+- **Position-Picker im Edit-Form (M5c.4-Followup) in M7.5 mit aufnehmen:** dehnt Sub-Step zu sehr; M5c.4-ADR-040 §K hält die Beschränkung explizit fest. M7.5 fokussiert auf Restraint-Picker, der Position-Picker bleibt eigenes Sub-Step nach M7.
+- **Katalog in RxDB promoten:** Sync-Schemas wachsen, Drift-Test wird teurer, Konflikt-Resolution für Katalog-Edits muss spezifiziert werden — Aufwand übersteigt Nutzen für <200 Rows mit nicht-Live-kritischem Edit-Pfad.
+- **Status-Übergänge per generischem PATCH `/<id>` mit `status`-Feld:** Audit-Felder müssen in jedem Fall serverseitig gesetzt werden — dedizierte Endpunkte sind klarer, geben präzisere Fehler und ermöglichen Body-Validierung (reject_reason als Pflichtfeld).
+- **`/api/catalogs/{kind}`-Sammelroute statt vier separater Router (wie in architecture.md skizziert):** existierender Code ist auf vier Router aufgeteilt und stabil; eine späte Vereinheitlichung würde nur Drift-Aufwand erzeugen.
+
+### Folge-Arbeit
+
+- **M8** (Admin-Bereich): SQLAdmin-Catalog-ModelViews bekommen die neuen Spalten; Workflow-spezifische UI auf `/admin-dash` kann auf den hier eingeführten Routen aufsetzen oder eigene Workflow-Aktionen ergänzen.
+- **Position-Picker im Edit-Form** (M5c.4-Followup): kann nach Abschluss von M7.5 als kleiner Folge-Sub-Step nachgezogen werden, baut auf der Picker-Logik aus M7.5 auf.
+- **Multi-Instanz-Deployments / Pfad B**: rejected-Vorschläge enthalten potenziell sensible Begründungen ("nicht für unseren Kontext geeignet"). Bei Aktivierung von Pfad B muss das Reject-Reason-Feld in das Anonymisierungs-Konzept aufgenommen werden (Kommentar im DSFA).
 
 ---
 

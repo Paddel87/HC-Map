@@ -68,7 +68,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 | Phase | Stand |
 |---|---|
-| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, M5c komplett, **M6 komplett** (Backend-Geocoding-Proxy mit In-Memory-Token-Bucket; Frontend `MapView` mit RxDB-Marker-Subscription; native MapLibre-Cluster ohne `supercluster`; Filter (Zeitraum, Beteiligte) + URL-persistierter Viewport mit debounced `router.replace`; Geocoding-Suchbox mit `flyTo`; Backend 150/150, Frontend 194/194, Coverage `lib/map/**` 99.12 % Lines); M7 (Katalog-Verwaltung) als nächstes |
+| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, M5c komplett, M6 komplett, **M7.1 erledigt** (Backend-Catalog-Workflow: `catalog_status += 'rejected'` via `autocommit_block`, drei Audit-Spalten `rejected_by/rejected_at/reject_reason`, RLS für eigene rejected + Editor-Withdraw, neue Endpunkte `PATCH/DELETE /<kind>/{id}` und `POST /<kind>/{id}/reject`, +22 Tests, Backend 172/172 grün); M7.2–M7.5 (Frontend `/admin/catalogs`, Forms, Freigabe-Queue, Restraint-Picker) als nächstes |
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 

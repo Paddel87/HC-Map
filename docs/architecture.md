@@ -315,9 +315,12 @@ PK: composite (application_id, restraint_type_id).
 | model             | text         | NULL                                                                 |
 | mechanical_type   | enum         | NULL: 'chain' \| 'hinged' \| 'rigid' (nur bei Schellen-Kategorien)   |
 | display_name      | text         | NOT NULL                                                             |
-| status            | enum         | NOT NULL: 'approved' \| 'pending' DEFAULT 'pending'                  |
+| status            | enum         | NOT NULL: 'approved' \| 'pending' \| 'rejected' DEFAULT 'pending'    |
 | suggested_by      | uuid         | FK → user.id, NULL                                                   |
 | approved_by       | uuid         | FK → user.id, NULL                                                   |
+| rejected_by       | uuid         | FK → user.id, NULL (M7.1)                                            |
+| rejected_at       | timestamptz  | NULL (M7.1)                                                          |
+| reject_reason     | text         | NULL (M7.1)                                                          |
 | note              | text         | NULL                                                                 |
 | created_at        | timestamptz  | NOT NULL DEFAULT now()                                               |
 | updated_at        | timestamptz  | NULL                                                                 |
@@ -333,9 +336,12 @@ Identische Struktur (Lookup-Tabellen mit Vorschlags-Workflow):
 | id            | uuid         | PK                                                             |
 | name          | text         | NOT NULL                                                       |
 | description   | text         | NULL                                                           |
-| status        | enum         | NOT NULL: 'approved' \| 'pending' DEFAULT 'pending'            |
+| status        | enum         | NOT NULL: 'approved' \| 'pending' \| 'rejected' DEFAULT 'pending' |
 | suggested_by  | uuid         | FK → user.id, NULL                                             |
 | approved_by   | uuid         | FK → user.id, NULL                                             |
+| rejected_by   | uuid         | FK → user.id, NULL (M7.1)                                      |
+| rejected_at   | timestamptz  | NULL (M7.1)                                                    |
+| reject_reason | text         | NULL (M7.1)                                                    |
 | created_at    | timestamptz  | NOT NULL DEFAULT now()                                         |
 | updated_at    | timestamptz  | NULL                                                           |
 
@@ -477,27 +483,47 @@ Dieses Verhalten ist Service-Logik, nicht DB-Policy — weil es kontextabhängig
 
 #### Kataloge (RestraintType, ArmPosition, HandPosition, HandOrientation)
 
-- Admin: alle.
-- Editor: alle approved + eigene pending.
+- Admin: alle (über `<table>_admin_modify` mit `FOR ALL`).
+- Editor: alle approved + eigene `pending` + eigene `rejected` (M7.1 / ADR-043 §A — proposing editor sieht die Begründung der Ablehnung).
 - Viewer: nur approved.
 
+**Schreib-/Löschpfade:**
+- Admin: voller Zugriff (Insert/Update/Delete) via `<table>_admin_modify`.
+- Editor INSERT: nur `status='pending'` mit `suggested_by = current_user_id` (Policy `<table>_propose`).
+- Editor DELETE: nur eigene `status='pending'` (Policy `<table>_owner_withdraw`, M7.1). Edit auf eigene pending ist kein Pfad-A-Feature — Workaround = withdraw + neuer Vorschlag.
+
 ```sql
-CREATE POLICY catalog_member_select ON restraint_type
+-- M2 + M7.1 effektive SELECT-Policy (vereinfacht für restraint_type):
+CREATE POLICY restraint_type_select ON restraint_type
   FOR SELECT TO app_user
   USING (
-    current_setting('app.current_role') = 'admin'
+    current_setting('app.current_role', true) = 'admin'
     OR status = 'approved'
-    OR (status = 'pending' AND suggested_by = current_setting('app.current_user_id')::uuid)
+    OR (
+      status IN ('pending', 'rejected')
+      AND suggested_by = current_setting('app.current_user_id', true)::uuid
+    )
   );
 
-CREATE POLICY catalog_editor_propose ON restraint_type
+-- INSERT: editor darf nur eigene pending einlegen, admin frei.
+CREATE POLICY restraint_type_propose ON restraint_type
   FOR INSERT TO app_user
   WITH CHECK (
-    current_setting('app.current_role') IN ('editor', 'admin')
+    current_setting('app.current_role', true) IN ('editor', 'admin')
     AND (
-      current_setting('app.current_role') = 'admin'
-      OR (status = 'pending' AND suggested_by = current_setting('app.current_user_id')::uuid)
+      current_setting('app.current_role', true) = 'admin'
+      OR (status = 'pending'
+          AND suggested_by = current_setting('app.current_user_id', true)::uuid)
     )
+  );
+
+-- DELETE eigene pending (M7.1, ADR-043 §C):
+CREATE POLICY restraint_type_owner_withdraw ON restraint_type
+  FOR DELETE TO app_user
+  USING (
+    current_setting('app.current_role', true) = 'editor'
+    AND status = 'pending'
+    AND suggested_by = current_setting('app.current_user_id', true)::uuid
   );
 ```
 
@@ -635,14 +661,23 @@ Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Rou
 
 ### Kataloge
 
-| Methode | Pfad                          | Rolle             | Zweck                               |
-|---------|-------------------------------|-------------------|-------------------------------------|
-| GET     | `/api/catalogs/{kind}`         | alle (RLS)        | Liste der approved + eigene pending |
-| POST    | `/api/catalogs/{kind}`         | admin, editor     | Vorschlag (editor) oder direkt approved (admin) |
-| PATCH   | `/api/catalogs/{kind}/{id}`    | admin             | Update / Status ändern              |
-| POST    | `/api/catalogs/{kind}/{id}/approve` | admin        | Pending → approved                  |
+Pro Katalog-Typ ein eigener Router-Prefix: `/api/restraint-types`, `/api/arm-positions`, `/api/hand-positions`, `/api/hand-orientations`. Die Spalte `{kind}` in der folgenden Tabelle steht stellvertretend für alle vier Pfade.
 
-`{kind}` = `restraint-types` | `arm-positions` | `hand-positions` | `hand-orientations`.
+| Methode | Pfad                                    | Rolle              | Zweck                               |
+|---------|-----------------------------------------|--------------------|-------------------------------------|
+| GET     | `/api/{kind}?status=...`                | alle (RLS)         | Liste der sichtbaren Einträge; optionaler `status`-Filter (`approved`, `pending`, `rejected`). Pagination via `limit`/`offset`. |
+| POST    | `/api/{kind}`                           | admin, editor      | Vorschlag (`status='pending'`) oder Admin-Anlage; UNIQUE-Konflikt → 409 |
+| PATCH   | `/api/{kind}/{id}`                      | admin              | Update aller editierbaren Felder. **Status-Feld wird nicht akzeptiert** (ADR-043 §B); UNIQUE-Konflikt → 409 |
+| DELETE  | `/api/{kind}/{id}`                      | admin, editor      | Hard-Delete eines pending-Vorschlags. Editor: nur eigene pending (RLS-Policy `<table>_owner_withdraw`). Admin: jeden pending. Andere Stati → 409 |
+| POST    | `/api/{kind}/{id}/approve`              | admin              | pending → approved; setzt `approved_by`, leert Reject-Felder. Idempotent auf approved → no-op (außer rejected → 409) |
+| POST    | `/api/{kind}/{id}/reject`               | admin              | pending → rejected; Body `{ "reason": str (1..2000) }` Pflicht; setzt `rejected_by`, `rejected_at`, `reject_reason`. Andere Stati → 409 |
+
+**Sichtbarkeit (RLS, ADR-043 §A):**
+- Admin sieht alle Einträge.
+- Editor sieht alle approved + eigene pending + eigene rejected (mit `reject_reason`).
+- Viewer sieht nur approved.
+
+**RxDB:** Katalog-Daten werden bewusst **nicht** in RxDB synchronisiert (ADR-043 §E). Frontend lädt sie via TanStack-Query mit `staleTime: 5 min` und Cache-Key `['catalog', kind, { status }]`. Mutations invalidieren `['catalog', kind]`.
 
 ### Geocoding-Proxy
 

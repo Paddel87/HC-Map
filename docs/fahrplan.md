@@ -25,10 +25,11 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-27
+- **Stand vom:** 2026-04-28
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M6 (Kartenansicht) [ERLEDIGT] 2026-04-28** — alle fünf Sub-Schritte abgeschlossen. **M6.5 [ERLEDIGT] 2026-04-28**: `GeocodeSearchBox` (`components/map/geocode-search-box.tsx`) mit Debounce (300 ms), Mindestlänge 2, optionalem `getProximity`-Callback, Stale-Response-Filter via `requestSeq`-Ref, Treffer-Dropdown mit `place_name`, Auswahl ruft `onSelect(lat, lon)`. Fehler-Mapping: 429 → „Geocoding-Limit erreicht", 503 → „Adress-Suche nicht konfiguriert", 502 → „Adress-Suche nicht erreichbar", sonst generisch. `MapView` integriert: `mapRef`-`flyTo({ center: [lon, lat], zoom: 14 })` bei Treffer-Auswahl, Viewport+URL-Sync werden mitgepflegt. SearchBox + Filter-Toggle teilen sich einen Top-Left-Container (`flex flex-col gap-2 sm:flex-row`). Frontend-Suite **194/194 grün** (+13 Tests: 10 GeocodeSearchBox + 3 MapView-Integration: flyTo, proximity, null-proximity), Lint/Typecheck clean, Production-Build grün (`/map` 13.7 kB / 252 kB). **M6 vollständig abgeschlossen.**
-- **Nächster Schritt:** M7 (Katalog-Verwaltung & Vorschlags-Workflow) — Admin-CRUD-UI für RestraintType / ArmPosition / HandPosition / HandOrientation; Editor-Vorschlags-Workflow mit `status=pending`; rollenbasierte Sichtbarkeit.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 angelegt (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Step M7.1 abgeschlossen. **M7.1 [ERLEDIGT] 2026-04-28**: Migration `20260428_1200_m7_1_catalog_workflow` (Enum-Wert `rejected` via `autocommit_block`, Audit-Spalten `rejected_by`/`rejected_at`/`reject_reason` auf allen vier Katalog-Tabellen, RLS-Policy-Erweiterung `<table>_select` für eigene rejected, neue Policy `<table>_owner_withdraw` für Editor-Withdraw); Models/Schemas/Services/Routes mit `PATCH /<kind>/{id}`, `DELETE /<kind>/{id}`, `POST /<kind>/{id}/reject`; UNIQUE-Konflikte → 409 mit Klartext-Detail; Status-Transition-Guards via `CatalogStateError` → 409. Backend-Suite **172/172 grün** (+17 catalog_workflow-Tests, +5 RLS-Tests für rejected-Sichtbarkeit und Owner-Withdraw); Migration up/down/up/down/up Roundtrip sauber; `ruff check` und `mypy --strict` clean.
+- **Vorläufer:** **M6 (Kartenansicht) [ERLEDIGT] 2026-04-28** — alle fünf Sub-Schritte abgeschlossen.
+- **Nächster Schritt:** M7.2 — Frontend-Übersichtsseite `/admin/catalogs` mit Tab-Navigation und Status-Filter.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -74,7 +75,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | HOTFIX-001  | Sonner v1 → v2 (React-19-Kompatibilität, ADR-042) | [ERLEDIGT] 2026-04-29 |
-| 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
+| 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [IN ARBEIT] |
+| 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
+| 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [OFFEN]     |
+| 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [OFFEN]     |
+| 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [OFFEN]     |
+| 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
@@ -1185,20 +1191,138 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 ### M7 — Katalog-Verwaltung & Vorschlags-Workflow
 
-**Ziel:** Admin verwaltet Kataloge; Editor kann Vorschläge einreichen.
+**Ziel:** Admin verwaltet Kataloge; Editor kann Vorschläge einreichen; Workflow approved/pending/rejected/withdraw vollständig.
+
+**Strategie:** ADR-043 (Option A) — Sub-Step-Schnitt M7.1–M7.5.
+
+**Deliverables (übergreifend):**
+- Backend: Reject-Status, neue Spalten, RLS-Erweiterung (eigene rejected sichtbar, Editor-Withdraw), PATCH/DELETE/Reject-Endpoints.
+- Frontend: Admin-UI `/admin/catalogs/[kind]` mit CRUD + Tab-Navigation; Freigabe-Queue mit Reject-Reason-Dialog; Editor-Vorschlags-Form; Editor-Withdraw eigener pending.
+- Restraint-Picker in Application-Erfassung (Live + Backfill) inkl. Quick-Propose.
+
+**Akzeptanzkriterien (M7 gesamt):**
+- Editor kann Vorschlag einreichen, Admin kann ihn freigeben oder mit Begründung ablehnen, freigegebene Einträge erscheinen in Dropdowns der Event-Erfassung.
+- Pending- und rejected-Einträge tauchen außerhalb der Katalog-Verwaltung nirgends auf.
+- Editor sieht eigene rejected-Vorschläge mit Begründung.
+- RestraintType-Felder: Kategorie, Marke, Modell, Mechanik (chain / hinged / rigid), Display-Name — vollständig editierbar durch Admin.
+
+**Abhängigkeiten:** M3, M4. M7.5 baut auf M5a.3 + M5c.3 auf.
+
+---
+
+#### M7.1 — Backend (Migration, Reject-Status, Routes)
+
+**Status:** [ERLEDIGT] 2026-04-28
+
+**Status `[ERLEDIGT]` 2026-04-28 (M7.1, Backend Reject-Status + Workflow-Endpoints):**
+
+- **Migration `20260428_1200_m7_1_catalog_workflow.py`:**
+  - `ALTER TYPE catalog_status ADD VALUE IF NOT EXISTS 'rejected'` innerhalb `op.get_context().autocommit_block()` (zwingend, damit Postgres den neuen Enum-Wert in derselben Migration in einer Policy verwenden darf — sonst „unsafe use of new value of enum type").
+  - Pro Tabelle (`restraint_type`, `arm_position`, `hand_position`, `hand_orientation`) drei Audit-Spalten: `rejected_by uuid` (FK → user.id ON DELETE SET NULL), `rejected_at timestamptz`, `reject_reason text`.
+  - Bestehende `<table>_select`-Policies werden ersetzt: eigene `pending` **und** `rejected` sichtbar (Editor sieht den eigenen Reject-Reason; andere Editoren / Viewer nicht).
+  - Neue Policy `<table>_owner_withdraw` (`FOR DELETE`) erlaubt Editor das Hard-Delete ausschließlich auf eigenen `pending`-Rows. Edit auf eigene pending bleibt aus M7-Scope ausgeklammert (Workaround = Withdraw + Neuvorschlag).
+  - Down-Migration: `rejected` → `pending`-Zurücksetzung, alle `<table>_*`-Policies droppen, `catalog_status` über parallelen Type `catalog_status_v1` (nur `approved`+`pending`) swappen, M2-Policies (`<table>_select`, `<table>_propose`, `<table>_admin_modify`) wiederherstellen. Up/Down/Up/Down/Up Roundtrip ist verifiziert.
+
+- **Models (`app/models/catalog.py`):** `CatalogStatus` um `REJECTED` erweitert; `RestraintType` und `_LookupBase` um die drei Audit-Spalten ergänzt.
+
+- **Schemas (`app/schemas/catalog.py`):**
+  - `RestraintTypeRead` / `_CatalogRead` zeigen `rejected_by`, `rejected_at`, `reject_reason`.
+  - Neue Update-Schemas `ArmPositionUpdate`, `HandPositionUpdate`, `HandOrientationUpdate`, `RestraintTypeUpdate` — alle Felder optional, **status fehlt bewusst** (Status-Übergänge laufen ausschließlich über die dedizierten Endpunkte).
+  - Neues `CatalogReject`-Schema mit `reason: str` (1..2000).
+
+- **Service (`app/services/catalog.py`):**
+  - `list_lookup` akzeptiert optionalen `status_filter`-Parameter.
+  - `update_lookup` (Generic über `LookupModel`-TypeVar), `update_restraint_type` setzen alle editierbaren Felder; UNIQUE-Konflikte werden als `CatalogConflictError` (eigene Exception) bubble-up gegeben, Routen mappen das auf 409.
+  - `approve_entry` lehnt `rejected → approved`-Direkt-Übergang ab (`CatalogStateError`); leert Reject-Felder bei Approve.
+  - `reject_entry` setzt `rejected_by`, `rejected_at`, `reject_reason`, erlaubt nur `pending`-Quellzustand.
+  - `withdraw_entry` (`session.delete`) lehnt non-pending ab; RLS deckt zusätzlich die Editor-Eigentums-Prüfung ab.
+
+- **Routes (`app/routes/catalog.py`):**
+  - Pro Katalog-Typ identisches Set: `GET ?status=`, `POST`, `PATCH /{id}`, `DELETE /{id}`, `POST /{id}/approve`, `POST /{id}/reject`.
+  - DELETE-Endpunkte mit `response_class=Response` und `status_code=204` (FastAPI-Anforderung — sonst Assertion).
+  - `_get_or_404`-Helper Generic über `Base`-TypeVar, damit Mypy die konkreten Modelltypen propagiert.
+  - PATCH/DELETE/Approve/Reject erwarten Admin (`require_role(UserRole.ADMIN)`) — DELETE zusätzlich Editor (für Self-Service-Withdraw, RLS filtert die Reichweite).
+
+- **Tests:**
+  - **Neue Datei `tests/test_catalog_workflow.py`** (17 Tests): Reject (Admin success, Editor 403, leere Begründung 422, bereits-approved 409), Withdraw (eigene pending 204, fremde pending 404 via RLS, eigene rejected 404/409, Admin auf any pending, Admin auf approved 409), Admin-PATCH (Lookup + RestraintType all fields, status-Feld stillschweigend ignoriert via `exclude_unset`, UNIQUE-Konflikt 409 mit Klartext, Editor 403), Status-Filter (alle drei Stati pro Admin sichtbar), Editor sieht eigene rejected mit Begründung, fremder Editor sieht foreign rejected nicht.
+  - **`tests/test_rls.py`** um 5 sync-Tests erweitert: Editor sieht eigene rejected (RestraintType), Viewer nicht; Editor kann eigene pending via DELETE löschen; Editor kann fremde pending nicht löschen; Editor kann eigene rejected nicht via DELETE löschen.
+  - **Backend-Suite gesamt: 172/172 grün** (+22 neue Tests). `ruff check app tests` und `mypy --strict app/services/catalog.py app/routes/catalog.py app/schemas/catalog.py app/models/catalog.py` clean.
+
+- **Architektur-Doku-Drift:** `architecture.md` §API/Kataloge wurde auf den Ist-Zustand korrigiert (Endpoint-Pfade `/api/<kind>` statt `/api/catalogs/{kind}`, vollständige Route-Tabelle mit DELETE/Reject), §Datenmodell um die drei Audit-Spalten und den dritten Status-Wert erweitert, §RLS um die neue Policy-Form (eigene rejected sichtbar, Owner-Withdraw).
+
+- **Bekannte Folge-Punkte:**
+  - M7.2 baut auf den neuen Endpunkten auf.
+  - SQLAdmin (M8) muss die neuen Spalten in den ModelViews anzeigen — wird in M8 erledigt.
 
 **Deliverables:**
-- Admin-UI für RestraintType, ArmPosition, HandPosition, HandOrientation: CRUD.
-- Editor-UI: kann Vorschläge einreichen (`status = pending`, `suggested_by = user`).
-- Admin-Freigabe-Queue: Liste aller pending-Einträge, Aktion "Freigeben" / "Ablehnen".
-- Rollenbasierte Sichtbarkeit: Editor sieht nur approved + eigene pending.
-- RestraintType-Felder: Kategorie, Marke, Modell, Mechanik (chain / hinged / rigid), Display-Name.
+- Alembic-Migration `20260428_xxxx_m7_1_catalog_workflow`:
+  - `catalog_status` Enum-Erweiterung um `rejected` (`ALTER TYPE … ADD VALUE`).
+  - Pro Katalog-Tabelle (`restraint_type`, `arm_position`, `hand_position`, `hand_orientation`): Spalten `rejected_by uuid` (FK user.id ON DELETE SET NULL), `rejected_at timestamptz`, `reject_reason text`.
+  - RLS-Policy `<table>_select` erweitern: eigene `pending` und `rejected` sichtbar.
+  - Neue RLS-Policy `<table>_owner_modify`: Editor darf eigene `pending`-Rows updaten/löschen.
+  - Down-Migration: rejected → pending zurücksetzen, Spalten droppen, Enum komplett neu (zwei Werte).
+- Models (`app/models/catalog.py`): neue Spalten in `RestraintType` + `_LookupBase`.
+- Schemas (`app/schemas/catalog.py`):
+  - `*Read` um `rejected_by`, `rejected_at`, `reject_reason` erweitern.
+  - `*Update`-Schemas pro Katalog-Typ (alle Felder optional, status nicht setzbar).
+  - `CatalogReject`-Schema (`reason: str`, `min_length=1`).
+- Service (`app/services/catalog.py`): `update_lookup`, `update_restraint_type`, `reject_entry`, `withdraw_entry`, `list_lookup` mit optionalem `status_filter`.
+- Routes (`app/routes/catalog.py`):
+  - `GET /<kind>?status=approved|pending|rejected` (alle Stati gleichzeitig wenn `status` weggelassen → durch RLS gefiltert).
+  - `PATCH /<kind>/{id}` (Admin) — UNIQUE-Konflikt → 409.
+  - `DELETE /<kind>/{id}` (Admin: alles, Editor: nur eigene pending; sonst 403/404).
+  - `POST /<kind>/{id}/reject` (Admin) mit Body `{ "reason": str }`; pending → rejected, sonst 409.
+- Tests:
+  - `tests/test_catalog_workflow.py` — Reject + Withdraw + Update + UNIQUE-Konflikt + Status-Filter pro Katalog-Typ.
+  - `tests/test_rls.py` — Erweiterung um rejected-Sichtbarkeit pro Rolle.
+  - `tests/test_migration.py` (oder neue): Up-Roundtrip mit Daten + sauber Down + erneuter Up. Wegen `ALTER TYPE ADD VALUE`-Einschränkung wird Down-Strategie auf Enum-Recreate getestet.
 
 **Akzeptanzkriterien:**
-- Editor kann Vorschlag einreichen, Admin kann ihn freigeben, freigegebene Einträge erscheinen in Dropdowns der Event-Erfassung.
-- Pending-Einträge tauchen nirgends in normaler Nutzung auf.
+- `pytest -k "catalog or rls or migration"` grün.
+- `mypy --strict` und `ruff check` clean für `app/services/catalog.py`, `app/routes/catalog.py`, `app/schemas/catalog.py`, `app/models/catalog.py`.
+- OpenAPI-Doku enthält die neuen Endpunkte.
 
-**Abhängigkeiten:** M3, M4.
+**Abhängigkeiten:** M2 (RLS), M3 (bestehende Catalog-Routen).
+
+---
+
+#### M7.2 — Frontend Übersicht `/admin/catalogs`
+
+**Status:** [OFFEN]
+
+Liefert Tab-Navigation für die vier Katalog-Typen, Listing mit Status-Filter und Sortierung. Tests: Listing, Filter-Wechsel, RBAC-Gate.
+
+**Abhängigkeiten:** M7.1.
+
+---
+
+#### M7.3 — CRUD-Formulare
+
+**Status:** [OFFEN]
+
+Admin-Create + Admin-Edit (UNIQUE-Konflikt-Toast); Editor-Vorschlag mit Vorbelegung `status=pending`. Routes `/admin/catalogs/[kind]/new` und `/admin/catalogs/[kind]/[id]/edit`.
+
+**Abhängigkeiten:** M7.1, M7.2.
+
+---
+
+#### M7.4 — Freigabe-Queue + Editor-Withdraw
+
+**Status:** [OFFEN]
+
+Pending-Tab mit Approve-Button und Reject-Button + reject_reason-Dialog (Pflichtfeld). Editor-Self-Service: Withdraw-Button auf eigenen pending; eigene rejected werden als read-only mit Begründung angezeigt.
+
+**Abhängigkeiten:** M7.2, M7.3.
+
+---
+
+#### M7.5 — Restraint-Picker in Application-Erfassung
+
+**Status:** [OFFEN]
+
+Multi-Select-Picker mit Typeahead, lädt approved-RestraintTypes via TanStack-Query, integriert in Live-Modus + Backfill-Form. Quick-Propose-Mini-Form für spontane Editor-Vorschläge. Position-Picker bleibt explizit aus Scope (M5c.4-Followup).
+
+**Abhängigkeiten:** M7.1 (POST-Endpoint vorhanden), M5a.3 (Live-Form), M5c.3 (Backfill-Form).
 
 ---
 

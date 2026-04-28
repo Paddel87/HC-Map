@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import enum
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
+    DateTime,
     Enum,
     ForeignKey,
     Index,
@@ -31,6 +33,7 @@ class CatalogStatus(str, enum.Enum):
 
     APPROVED = "approved"
     PENDING = "pending"
+    REJECTED = "rejected"
 
 
 class RestraintCategory(str, enum.Enum):
@@ -122,6 +125,16 @@ class RestraintType(Base, TimestampMixin):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
     )
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -147,6 +160,16 @@ class _LookupBase(TimestampMixin):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
     )
+    rejected_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    rejected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ArmPosition(Base, _LookupBase):

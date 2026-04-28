@@ -312,3 +312,218 @@ def test_editor_sees_own_pending_catalog(db_engine: Engine, role_session) -> Non
                 text("DELETE FROM restraint_type WHERE id IN (:a, :b)"),
                 {"a": own_pending, "b": other_pending},
             )
+
+
+def test_editor_sees_own_rejected_catalog(db_engine: Engine, role_session) -> None:
+    """ADR-043: proposing editor keeps visibility of own rejected rows."""
+    _, world = role_session
+    own_rejected = uuid7()
+    other_rejected = uuid7()
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO restraint_type (id, category, brand, model, "
+                "mechanical_type, display_name, status, suggested_by, "
+                "rejected_by, reject_reason) "
+                "VALUES "
+                "(:id1, 'rope', null, :m1, null, :n1, 'rejected', :sb1, :rb, :rr1), "
+                "(:id2, 'rope', null, :m2, null, :n2, 'rejected', :sb2, :rb, :rr2)"
+            ),
+            {
+                "id1": own_rejected,
+                "m1": f"own-rej-{secrets.token_hex(3)}",
+                "n1": "Own rejected",
+                "rr1": "no good",
+                "id2": other_rejected,
+                "m2": f"other-rej-{secrets.token_hex(3)}",
+                "n2": "Other rejected",
+                "rr2": "also no",
+                "sb1": world["user_alice"],
+                "sb2": world["user_bob"],
+                # placeholder; rejector identity is irrelevant for SELECT-RLS
+                "rb": world["user_alice"],
+            },
+        )
+    try:
+        with db_engine.connect() as conn, conn.begin():
+            conn.execute(text("SET LOCAL ROLE app_user"))
+            conn.execute(text("SELECT set_config('app.current_role', 'editor', true)"))
+            conn.execute(
+                text("SELECT set_config('app.current_user_id', :v, true)"),
+                {"v": str(world["user_alice"])},
+            )
+            rows = conn.execute(
+                text("SELECT id FROM restraint_type WHERE id IN (:a, :b)"),
+                {"a": own_rejected, "b": other_rejected},
+            ).all()
+            visible = {r[0] for r in rows}
+        assert visible == {own_rejected}
+    finally:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM restraint_type WHERE id IN (:a, :b)"),
+                {"a": own_rejected, "b": other_rejected},
+            )
+
+
+def test_viewer_does_not_see_rejected(db_engine: Engine, role_session) -> None:
+    """Viewer must not see any rejected catalog rows, ever."""
+    _, world = role_session
+    rid = uuid7()
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO restraint_type (id, category, brand, model, "
+                "mechanical_type, display_name, status, suggested_by, "
+                "rejected_by, reject_reason) "
+                "VALUES (:id, 'rope', null, :m, null, :n, 'rejected', :sb, :rb, :rr)"
+            ),
+            {
+                "id": rid,
+                "m": f"rej-viewer-{secrets.token_hex(3)}",
+                "n": "Should be hidden",
+                "rr": "redacted",
+                "sb": world["user_alice"],
+                "rb": world["user_alice"],
+            },
+        )
+    try:
+        with db_engine.connect() as conn, conn.begin():
+            conn.execute(text("SET LOCAL ROLE app_user"))
+            conn.execute(text("SELECT set_config('app.current_role', 'viewer', true)"))
+            conn.execute(
+                text("SELECT set_config('app.current_user_id', :v, true)"),
+                {"v": str(world["user_bob"])},
+            )
+            rows = conn.execute(
+                text("SELECT id FROM restraint_type WHERE id = :id"),
+                {"id": rid},
+            ).all()
+        assert rows == []
+    finally:
+        with db_engine.begin() as conn:
+            conn.execute(text("DELETE FROM restraint_type WHERE id = :id"), {"id": rid})
+
+
+def test_editor_can_delete_own_pending_via_rls(db_engine: Engine, role_session) -> None:
+    """ADR-043 owner-withdraw policy: editor DELETE on own pending."""
+    _, world = role_session
+    own_pending = uuid7()
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO restraint_type (id, category, brand, model, "
+                "mechanical_type, display_name, status, suggested_by) "
+                "VALUES (:id, 'rope', null, :m, null, :n, 'pending', :sb)"
+            ),
+            {
+                "id": own_pending,
+                "m": f"editor-del-{secrets.token_hex(3)}",
+                "n": "Editor can delete own pending",
+                "sb": world["user_alice"],
+            },
+        )
+    try:
+        with db_engine.connect() as conn, conn.begin():
+            conn.execute(text("SET LOCAL ROLE app_user"))
+            conn.execute(text("SELECT set_config('app.current_role', 'editor', true)"))
+            conn.execute(
+                text("SELECT set_config('app.current_user_id', :v, true)"),
+                {"v": str(world["user_alice"])},
+            )
+            result = conn.execute(
+                text("DELETE FROM restraint_type WHERE id = :id"),
+                {"id": own_pending},
+            )
+            assert result.rowcount == 1
+    finally:
+        with db_engine.begin() as conn:
+            conn.execute(text("DELETE FROM restraint_type WHERE id = :id"), {"id": own_pending})
+
+
+def test_editor_cannot_delete_foreign_pending_via_rls(
+    db_engine: Engine, role_session
+) -> None:
+    """Editor must not be able to DELETE another editor's pending row."""
+    _, world = role_session
+    other_pending = uuid7()
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO restraint_type (id, category, brand, model, "
+                "mechanical_type, display_name, status, suggested_by) "
+                "VALUES (:id, 'rope', null, :m, null, :n, 'pending', :sb)"
+            ),
+            {
+                "id": other_pending,
+                "m": f"editor-foreign-{secrets.token_hex(3)}",
+                "n": "Foreign pending",
+                "sb": world["user_bob"],
+            },
+        )
+    try:
+        with db_engine.connect() as conn, conn.begin():
+            conn.execute(text("SET LOCAL ROLE app_user"))
+            conn.execute(text("SELECT set_config('app.current_role', 'editor', true)"))
+            conn.execute(
+                text("SELECT set_config('app.current_user_id', :v, true)"),
+                {"v": str(world["user_alice"])},
+            )
+            result = conn.execute(
+                text("DELETE FROM restraint_type WHERE id = :id"),
+                {"id": other_pending},
+            )
+            # RLS hides the foreign pending from editor A entirely, so
+            # the DELETE matches zero rows. (A symmetric check via SELECT
+            # is exercised in test_editor_sees_own_pending_catalog.)
+            assert result.rowcount == 0
+    finally:
+        with db_engine.begin() as conn:
+            conn.execute(
+                text("DELETE FROM restraint_type WHERE id = :id"),
+                {"id": other_pending},
+            )
+
+
+def test_editor_cannot_delete_own_rejected_via_rls(
+    db_engine: Engine, role_session
+) -> None:
+    """Editor sees own rejected (read-only) but cannot DELETE it via RLS."""
+    _, world = role_session
+    own_rejected = uuid7()
+    with db_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO restraint_type (id, category, brand, model, "
+                "mechanical_type, display_name, status, suggested_by, "
+                "rejected_by, reject_reason) "
+                "VALUES (:id, 'rope', null, :m, null, :n, 'rejected', :sb, :rb, :rr)"
+            ),
+            {
+                "id": own_rejected,
+                "m": f"editor-rej-{secrets.token_hex(3)}",
+                "n": "Own rejected",
+                "rr": "no",
+                "sb": world["user_alice"],
+                "rb": world["user_alice"],
+            },
+        )
+    try:
+        with db_engine.connect() as conn, conn.begin():
+            conn.execute(text("SET LOCAL ROLE app_user"))
+            conn.execute(text("SELECT set_config('app.current_role', 'editor', true)"))
+            conn.execute(
+                text("SELECT set_config('app.current_user_id', :v, true)"),
+                {"v": str(world["user_alice"])},
+            )
+            result = conn.execute(
+                text("DELETE FROM restraint_type WHERE id = :id"),
+                {"id": own_rejected},
+            )
+            # Editor is allowed to SELECT (status = 'rejected' AND own)
+            # but not DELETE — owner-withdraw policy only matches
+            # status = 'pending'. Postgres returns 0 affected rows.
+            assert result.rowcount == 0
+    finally:
+        with db_engine.begin() as conn:
+            conn.execute(text("DELETE FROM restraint_type WHERE id = :id"), {"id": own_rejected})

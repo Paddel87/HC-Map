@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { CatalogListing } from "@/components/catalog/catalog-listing";
+import { CatalogFormPage } from "@/components/catalog/catalog-form-page";
 import { KindTabs } from "@/components/catalog/kind-tabs";
 import { getServerMe } from "@/lib/auth-server";
 import {
@@ -13,7 +13,7 @@ function isKnownKind(value: string): value is CatalogKind {
   return (CATALOG_KINDS as readonly string[]).includes(value);
 }
 
-export default async function CatalogKindPage({
+export default async function CatalogCreatePage({
   params,
 }: {
   params: Promise<{ kind: string }>;
@@ -21,20 +21,24 @@ export default async function CatalogKindPage({
   const { kind } = await params;
   if (!isKnownKind(kind)) notFound();
   const user = await getServerMe();
+  // Parent layout already enforces editor-or-admin; we just need
+  // the role flag to switch the submit-button label.
   const isAdmin = user?.role === "admin";
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Katalog-Verwaltung</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {isAdmin ? "Neuer Katalog-Eintrag" : "Neuen Vorschlag einreichen"}
+        </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Aktive Ansicht: <strong>{CATALOG_KIND_LABELS[kind]}</strong>.
           {isAdmin
-            ? " Anlagen werden direkt freigegeben; Bearbeiten ändert alle Felder außer dem Status (Workflow-Aktionen ab M7.4)."
-            : " Eigene Vorschläge bleiben sichtbar — abgelehnte zeigen die Begründung."}
+            ? " Admin-Anlagen werden direkt freigegeben."
+            : " Vorschläge sind sichtbar nur für dich und Admins, bis sie freigegeben werden."}
         </p>
       </header>
       <KindTabs active={kind} />
-      <CatalogListing kind={kind} isAdmin={isAdmin} />
+      <CatalogFormPage kind={kind} entryId={null} isAdmin={isAdmin} />
     </div>
   );
 }

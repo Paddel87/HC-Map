@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
 
 import { CatalogTable } from "@/components/catalog/catalog-table";
 import { StatusFilter, type StatusFilterValue } from "@/components/catalog/status-filter";
+import { Button } from "@/components/ui/button";
 import { useCatalogList } from "@/lib/catalog/api";
 import {
   CATALOG_KIND_LABELS,
@@ -25,7 +27,15 @@ function emptyHint(kind: CatalogKind, status: StatusFilterValue): string {
   return `Keine Einträge mit Status „${STATUS_LABELS[status as CatalogStatus]}" in „${kindLabel}".`;
 }
 
-export function CatalogListing({ kind }: { kind: CatalogKind }) {
+export function CatalogListing({
+  kind,
+  isAdmin,
+}: {
+  kind: CatalogKind;
+  /** Toggles edit-link rendering and the create-button label.
+   *  `false` is the editor view: button submits a proposal. */
+  isAdmin: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const status = parseStatusParam(params.get("status"));
@@ -52,8 +62,15 @@ export function CatalogListing({ kind }: { kind: CatalogKind }) {
     <section className="flex flex-col gap-3" aria-label="Katalog-Einträge">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <StatusFilter value={status} onChange={handleChange} />
-        <div className="text-xs text-slate-500 dark:text-slate-400">
-          {query.isLoading ? "" : `${query.data?.total ?? 0} Einträge`}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {query.isLoading ? "" : `${query.data?.total ?? 0} Einträge`}
+          </span>
+          <Button asChild size="sm">
+            <Link href={`/admin/catalogs/${kind}/new`}>
+              {isAdmin ? "Neuer Eintrag" : "Neuen Vorschlag einreichen"}
+            </Link>
+          </Button>
         </div>
       </div>
       {query.isError ? (
@@ -69,6 +86,7 @@ export function CatalogListing({ kind }: { kind: CatalogKind }) {
           kind={kind}
           isLoading={query.isLoading}
           emptyHint={emptyHint(kind, status)}
+          canEdit={isAdmin}
         />
       )}
     </section>

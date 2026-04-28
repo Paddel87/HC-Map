@@ -27,9 +27,9 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-28
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Steps M7.1 + M7.2 abgeschlossen. **M7.2 [ERLEDIGT] 2026-04-28**: Frontend `/admin/catalogs/[kind]`-Listing mit Tab-Navigation (4 Katalog-Typen), Status-Filter (Alle / Freigegeben / Vorgeschlagen / Abgelehnt) mit URL-Sync, Catalog-Tabelle inklusive Reject-Reason-Anzeige. Route-Group-Refactor: `(admin)/layout.tsx` lockert auf Mindestrolle Editor (`canViewCatalogAdmin`), strikter Admin-Schutz wandert in `(admin-only)/layout.tsx`; bestehende `admin/page.tsx` dorthin verschoben (`git mv`). RBAC-Helper `canApproveCatalog` / `canEditCatalogEntry` / `canWithdrawCatalogEntry` / `canViewCatalogAdmin` in `lib/rbac.ts`. Neuer Nav-Eintrag „Kataloge" für admin+editor. Frontend-Suite **219/219 grün** (+25). Lint, Typecheck und `next build` clean. Browser-Verifikation: Admin sieht 4 Restraint-Einträge, Editor 3 (admin's pending durch RLS verborgen), Viewer wird auf `/` umgeleitet.
-- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug), M6 [ERLEDIGT] 2026-04-28.
-- **Nächster Schritt:** M7.3 — CRUD-Formulare (Admin-Create + Admin-Edit + Editor-Vorschlag) auf `/admin/catalogs/[kind]/new` und `/admin/catalogs/[kind]/[id]/edit`.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Steps M7.1 + M7.2 + M7.3 abgeschlossen. **M7.3 [ERLEDIGT] 2026-04-29**: Backend ergänzt um `auto_approve`-Pfad in `propose_lookup` / `propose_restraint_type` (ADR-043 §F: Admin-POST landet direkt mit `status='approved'` + `approved_by`). Frontend liefert `LookupForm`, `RestraintTypeForm`, `CatalogFormPage`-Wrapper, neue Routes `/admin/catalogs/[kind]/new` (admin+editor) und `/admin/catalogs/[kind]/[id]/edit` (admin-only mit Server-Redirect für Editor). Mutation-Hooks `useCreateCatalogEntry` / `useUpdateCatalogEntry` mit Cache-Invalidation `["catalog", kind]`; UNIQUE-Konflikt → 409 → `describeMutationError`-Helper liefert Toast-Mapping (Sonner-Mount funktioniert seit HOTFIX-001 / ADR-042 wieder). Listing erweitert um „Neuer Eintrag"/„Neuen Vorschlag einreichen"-Button und Edit-Link pro Row (Admin). Frontend-Suite **230/230 grün** (+11), Backend-Suite **174/174 grün** (+2 für Auto-Approve). Lint, Typecheck, `next build` clean. Browser-E2E: Admin-Create → 201 + status=approved, Edit → 200 mit aktualisiertem Listing, Konflikt → 409 (Backend bestätigt).
+- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug).
+- **Nächster Schritt:** M7.4 — Freigabe-Queue + Editor-Withdraw (Approve/Reject-Buttons mit reject_reason-Dialog, Withdraw-Button auf eigenen pending-Rows).
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -78,7 +78,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [IN ARBEIT] |
 | 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [ERLEDIGT] 2026-04-28 |
-| 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [OFFEN]     |
+| 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [OFFEN]     |
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
@@ -1333,9 +1333,54 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M7.3 — CRUD-Formulare
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-29
 
-Admin-Create + Admin-Edit (UNIQUE-Konflikt-Toast); Editor-Vorschlag mit Vorbelegung `status=pending`. Routes `/admin/catalogs/[kind]/new` und `/admin/catalogs/[kind]/[id]/edit`.
+**Status `[ERLEDIGT]` 2026-04-29 (M7.3, CRUD-Formulare + Admin-Auto-Approve):**
+
+- **Backend-Erweiterung (ADR-043 §F):**
+  - `propose_lookup` und `propose_restraint_type` in `app/services/catalog.py` akzeptieren ein `auto_approve: bool = False`-Argument; bei `True` wird `status=APPROVED` und `approved_by=user.id` direkt gesetzt, statt `status=PENDING` + `suggested_by`.
+  - Routes `app/routes/catalog.py` setzen `auto_approve = (user.role == UserRole.ADMIN)` für alle vier `propose_*`-Endpunkte.
+  - Bewusst nur in `propose_*`, nicht in PATCH — PATCH ändert keinen Status (siehe ADR-043 §B, separate `/approve`-/`/reject`-Endpunkte).
+  - Tests: zwei neue Cases in `tests/test_catalog_workflow.py` (`test_admin_create_arm_position_directly_approved`, `test_admin_create_restraint_type_directly_approved`); bestehende „Editor proposed → admin approves"-Tests bleiben grün, weil Editor weiterhin pending erzeugt.
+
+- **Frontend-Routes:**
+  - `/admin/catalogs/[kind]/new` (admin+editor sichtbar): Server-Component, `notFound()` für unbekanntes `kind`, ruft `<CatalogFormPage>` mit `entryId={null}` und Rolle-flag.
+  - `/admin/catalogs/[kind]/[id]/edit` (admin-only): Server-Redirect auf `/admin/catalogs/[kind]` für Non-Admins (zusätzlich zur RLS-Sperre).
+  - Beide Pages mit Header (Kontext-Hinweis) + `<KindTabs>` + Form.
+
+- **Komponenten (`components/catalog/`):**
+  - `lookup-form.tsx` — Form für ArmPosition/HandPosition/HandOrientation (Felder `name` Pflicht + `description`); Submit + Toast, Cancel-Button.
+  - `restraint-type-form.tsx` — Form für RestraintType (Display-Name Pflicht, Kategorie als Select aller `RestraintCategory`-Werte, Mechanik-Select inkl. „— keine —"-Option, Brand, Modell, Note); Submit Trim + null-Coalescing für leere Optional-Felder.
+  - `catalog-form-page.tsx` — Wrapper, der je nach `kind` die richtige Form rendert; im Edit-Mode lädt `useCatalogEntry` via `fetchCatalogPage(limit=200)` (Pfad-A-Größe < 200 Rows, ein Page-Scan reicht), Type-Guard `isRestraintTypeEntry` schützt vor Form-Mismatch.
+  - `describeMutationError`-Helper in `lookup-form.tsx`: Mapping ApiError-Status → Toast-Title/Description (409 „Eintrag existiert bereits", 403 „Keine Berechtigung", 422 „Eingabe ungültig", sonst „Speichern fehlgeschlagen"). `asApiError`-Duck-Type-Fallback gegen `instanceof`-Failures bei RSC-Modul-Splits.
+
+- **Mutation-Hooks (`lib/catalog/api.ts`):**
+  - `useCreateCatalogEntry<K>(kind)` — POST mit Cache-Invalidation `["catalog", kind]`.
+  - `useUpdateCatalogEntry<K>(kind)` — PATCH mit `{ id, body }`-Variant.
+  - `useCatalogEntry<K>(kind, id)` — Einzel-Eintrag-Lookup über die Liste (kein eigener REST-Read-Endpoint).
+  - Generische Payload-Typen `CatalogCreatePayload<K>` / `CatalogUpdatePayload<K>` per `K extends "restraint-types" ? … : …` discriminant.
+
+- **Listing-Integration:**
+  - `<CatalogListing>` erhält `isAdmin`-Prop; rendert „Neuer Eintrag" für Admin, „Neuen Vorschlag einreichen" für Editor; Edit-Link pro Row nur bei Admin.
+  - `<CatalogTable>` mit neuer `canEdit`-Prop, fügt Edit-Spalte (Header + Zeilenlinks zu `/admin/catalogs/[kind]/[id]/edit`) konditional hinzu.
+
+- **Tests:** +13 Cases (Frontend-Suite 219 → 230, Backend 172 → 174).
+  - `tests/catalog-forms.test.tsx` (8 Cases): Lookup-Create-happy-path inkl. Body-Trim, 409-Toast, leerer Name → Client-Side-Block ohne POST, Editor-Variante (Button-Label), Lookup-Edit (PATCH-URL/-Body), RestraintType-Render, RestraintType-Submit (mechanical_type empty → null), RestraintType-Edit-PATCH-Pfad.
+  - `tests/catalog-table.test.tsx`: +2 Cases (Edit-Link bei `canEdit=true`, kein Edit-Link Default).
+  - `tests/catalog-listing.test.tsx`: +1 Case (Admin/Editor-Button-Label).
+  - Backend-Tests: +2 Auto-Approve-Cases.
+
+- **Verifikation:**
+  - Lint, Typecheck und `next build` clean (`/admin/catalogs/[kind]/new` 142 kB, `[id]/edit` 142 kB).
+  - Browser-E2E (Admin gegen echtes Backend + DB):
+    - Listing zeigt `Neuer Eintrag`-Button und Edit-Links pro Row.
+    - Klick auf Edit-Link öffnet Edit-Form mit Pre-Fill (Display-Name + Brand korrekt vorbelegt).
+    - Admin-Create („M7.3 Test-Tape", category=tape, brand=ACME) → Backend 201, Listing zeigt 5 Einträge (statt 4) inkl. neuem Eintrag mit `data-status="approved"` (Auto-Approve aus M7.3-Backend bestätigt).
+    - Edit-Submit (Display-Name → „M7.3 Test-Tape (edited)") → Backend 200, Redirect zur Listing, geänderter Name sichtbar.
+    - Konflikt-Test: zweiter POST mit (tape, ACME, NULL, NULL) → Backend 409 mit Klartext-Detail; catch-Block erreicht und ruft `describeMutationError`. UI-Toast „Eintrag existiert bereits" wird via Sonner sauber gerendert (Sonner-Mount funktioniert seit HOTFIX-001 / ADR-042).
+
+- **Bekannte Folge-Punkte:**
+  - M7.4 baut auf den hier eingeführten Mutation-Hooks und der `describeMutationError`-Helper auf.
 
 **Abhängigkeiten:** M7.1, M7.2.
 

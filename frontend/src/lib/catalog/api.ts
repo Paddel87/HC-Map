@@ -3,17 +3,22 @@
 /**
  * TanStack-Query hooks for the four catalog tables (M7.2 ff.).
  *
- * Cache-Key shape: `["catalog", kind, { status }]` — invalidate via
- * `queryClient.invalidateQueries({ queryKey: ["catalog", kind] })` to
- * cover both filtered and unfiltered lists in one call.
+ * Cache-Key shape: `["catalog", kind, { status }]` — mutations
+ * invalidate `["catalog", kind]` to cover every filter variant.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "@/lib/api";
 import type { Page } from "@/lib/types";
 
-import type { AnyCatalogEntry, CatalogKind, CatalogStatus } from "./types";
+import type {
+  AnyCatalogEntry,
+  CatalogKind,
+  CatalogStatus,
+  LookupCatalogEntry,
+  RestraintTypeEntry,
+} from "./types";
 
 export interface CatalogListParams {
   status?: CatalogStatus;
@@ -49,5 +54,95 @@ export function useCatalogList(kind: CatalogKind, params: CatalogListParams = {}
     queryKey: catalogQueryKey(kind, params),
     queryFn: () => fetchCatalogPage(kind, params),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Lookup-table create body (ArmPosition / HandPosition / HandOrientation).
+ */
+export interface LookupCreatePayload {
+  name: string;
+  description?: string | null;
+}
+
+/**
+ * RestraintType create body. The backend accepts the same body for
+ * both editor proposals and admin direct-approve creates; the route
+ * promotes admin-created entries to `status='approved'` automatically
+ * (ADR-042 §F).
+ */
+export interface RestraintTypeCreatePayload {
+  category: string;
+  brand?: string | null;
+  model?: string | null;
+  mechanical_type?: string | null;
+  display_name: string;
+  note?: string | null;
+}
+
+export type CatalogCreatePayload<K extends CatalogKind> = K extends "restraint-types"
+  ? RestraintTypeCreatePayload
+  : LookupCreatePayload;
+
+export type LookupUpdatePayload = Partial<LookupCreatePayload>;
+export type RestraintTypeUpdatePayload = Partial<RestraintTypeCreatePayload>;
+export type CatalogUpdatePayload<K extends CatalogKind> = K extends "restraint-types"
+  ? RestraintTypeUpdatePayload
+  : LookupUpdatePayload;
+
+export function useCreateCatalogEntry<K extends CatalogKind>(kind: K) {
+  const qc = useQueryClient();
+  return useMutation<AnyCatalogEntry, Error, CatalogCreatePayload<K>>({
+    mutationFn: async (body) =>
+      await apiFetch<AnyCatalogEntry>(`/api/${kind}`, {
+        method: "POST",
+        body,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog", kind] });
+    },
+  });
+}
+
+export function useUpdateCatalogEntry<K extends CatalogKind>(kind: K) {
+  const qc = useQueryClient();
+  return useMutation<
+    AnyCatalogEntry,
+    Error,
+    { id: string; body: CatalogUpdatePayload<K> }
+  >({
+    mutationFn: async ({ id, body }) =>
+      await apiFetch<AnyCatalogEntry>(`/api/${kind}/${id}`, {
+        method: "PATCH",
+        body,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog", kind] });
+    },
+  });
+}
+
+export async function fetchCatalogEntry(
+  kind: CatalogKind,
+  id: string,
+): Promise<LookupCatalogEntry | RestraintTypeEntry> {
+  // The list endpoint is the only read path the API exposes, so we
+  // page-scan with a status-agnostic call and pick the matching row.
+  // Catalog tables are tiny (<200 rows in Pfad A), so a single
+  // page is enough.
+  const page = await fetchCatalogPage(kind, { limit: 200 });
+  const found = page.items.find((entry) => entry.id === id);
+  if (!found) {
+    throw new Error("Eintrag nicht gefunden");
+  }
+  return found;
+}
+
+export function useCatalogEntry<K extends CatalogKind>(kind: K, id: string | null) {
+  return useQuery({
+    queryKey: ["catalog", kind, "entry", id ?? ""] as const,
+    queryFn: () => fetchCatalogEntry(kind, id as string),
+    enabled: id !== null,
+    staleTime: 60 * 1000,
   });
 }

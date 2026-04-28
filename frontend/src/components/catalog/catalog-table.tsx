@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { StatusBadge } from "@/components/catalog/status-badge";
 import {
   entryLabel,
@@ -32,14 +34,17 @@ function metaSubtitle(entry: AnyCatalogEntry): string | null {
 
 export function CatalogTable({
   entries,
-  kind: _kind,
+  kind,
   isLoading,
   emptyHint,
+  canEdit = false,
 }: {
   entries: AnyCatalogEntry[];
   kind: CatalogKind;
   isLoading: boolean;
   emptyHint: string;
+  /** Render an edit link in each row. Admin-only (ADR-042 §B). */
+  canEdit?: boolean;
 }) {
   if (isLoading) {
     return (
@@ -73,6 +78,11 @@ export function CatalogTable({
             <th scope="col" className="hidden px-4 py-2 font-medium md:table-cell">
               Erstellt
             </th>
+            {canEdit ? (
+              <th scope="col" className="px-4 py-2 text-right font-medium">
+                <span className="sr-only">Aktionen</span>
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -105,6 +115,16 @@ export function CatalogTable({
                 <td className="hidden px-4 py-3 align-top text-xs text-slate-500 md:table-cell dark:text-slate-400">
                   {formatDate(entry.created_at)}
                 </td>
+                {canEdit ? (
+                  <td className="px-4 py-3 text-right align-top">
+                    <Link
+                      href={`/admin/catalogs/${kind}/${entry.id}/edit`}
+                      className="text-sm font-medium text-slate-900 underline-offset-4 hover:underline dark:text-slate-100"
+                    >
+                      Bearbeiten
+                    </Link>
+                  </td>
+                ) : null}
               </tr>
             );
           })}

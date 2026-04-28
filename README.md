@@ -68,7 +68,7 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 | Phase | Stand |
 |---|---|
-| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, M5c komplett, M6 komplett, M7.1 erledigt, **M7.2 erledigt** (Frontend `/admin/catalogs/[kind]`-Listing mit Tab-Navigation, Status-Filter mit URL-Sync, Reject-Reason-Anzeige; Route-Group-Refactor `admin/(admin-only)`; RBAC-Helper `canApproveCatalog`/`canEditCatalogEntry`/`canWithdrawCatalogEntry`; Nav-Eintrag „Kataloge" für admin+editor; +25 Tests, Frontend 219/219 grün); M7.3–M7.5 (CRUD-Forms, Freigabe-Queue, Restraint-Picker) als nächstes |
+| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, M5c komplett, M6 komplett, M7.1 erledigt, M7.2 erledigt, **M7.3 erledigt** (Backend `auto_approve`-Pfad für Admin-POST; Frontend-Forms `LookupForm` + `RestraintTypeForm`, neue Routes `[kind]/new` und `[kind]/[id]/edit`, Mutation-Hooks mit Cache-Invalidation, UNIQUE-409-Mapping; +13 Tests, Frontend 230/230 + Backend 174/174 grün); M7.4–M7.5 (Freigabe-Queue, Restraint-Picker) als nächstes |
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 

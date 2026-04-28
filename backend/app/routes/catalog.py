@@ -99,6 +99,7 @@ async def propose_arm_position(
             name=payload.name,
             description=payload.description,
             suggested_by=user.id,
+            auto_approve=user.role == UserRole.ADMIN,
         )
     except CatalogConflictError as exc:
         raise _conflict(exc) from exc
@@ -209,6 +210,7 @@ async def propose_hand_position(
             name=payload.name,
             description=payload.description,
             suggested_by=user.id,
+            auto_approve=user.role == UserRole.ADMIN,
         )
     except CatalogConflictError as exc:
         raise _conflict(exc) from exc
@@ -323,6 +325,7 @@ async def propose_hand_orientation(
             name=payload.name,
             description=payload.description,
             suggested_by=user.id,
+            auto_approve=user.role == UserRole.ADMIN,
         )
     except CatalogConflictError as exc:
         raise _conflict(exc) from exc
@@ -428,7 +431,10 @@ async def propose_restraint_type(
 ) -> RestraintTypeRead:
     try:
         entry = await catalog_svc.propose_restraint_type(
-            session, payload=payload.model_dump(), suggested_by=user.id
+            session,
+            payload=payload.model_dump(),
+            suggested_by=user.id,
+            auto_approve=user.role == UserRole.ADMIN,
         )
     except CatalogConflictError as exc:
         raise _conflict(exc) from exc

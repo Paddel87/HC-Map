@@ -79,13 +79,28 @@ async def propose_lookup(
     name: str,
     description: str | None,
     suggested_by: uuid.UUID,
+    auto_approve: bool = False,
 ) -> LookupModel:
-    entry = model(
-        name=name,
-        description=description,
-        status=CatalogStatus.PENDING,
-        suggested_by=suggested_by,
-    )
+    """Insert a new lookup-table entry.
+
+    Editors create pending suggestions; the route layer passes
+    ``auto_approve=True`` for admins so a fresh admin-created entry
+    is immediately usable in pickers (ADR-042 §F).
+    """
+    if auto_approve:
+        entry = model(
+            name=name,
+            description=description,
+            status=CatalogStatus.APPROVED,
+            approved_by=suggested_by,
+        )
+    else:
+        entry = model(
+            name=name,
+            description=description,
+            status=CatalogStatus.PENDING,
+            suggested_by=suggested_by,
+        )
     session.add(entry)
     try:
         await session.flush()
@@ -100,17 +115,30 @@ async def propose_restraint_type(
     *,
     payload: dict[str, Any],
     suggested_by: uuid.UUID,
+    auto_approve: bool = False,
 ) -> RestraintType:
-    entry = RestraintType(
+    """Insert a new RestraintType. ``auto_approve`` short-circuits the
+    propose-then-approve dance for admin-created entries (ADR-042 §F)."""
+    common = dict(
         category=payload["category"],
         brand=payload.get("brand"),
         model=payload.get("model"),
         mechanical_type=payload.get("mechanical_type"),
         display_name=payload["display_name"],
         note=payload.get("note"),
-        status=CatalogStatus.PENDING,
-        suggested_by=suggested_by,
     )
+    if auto_approve:
+        entry = RestraintType(
+            **common,
+            status=CatalogStatus.APPROVED,
+            approved_by=suggested_by,
+        )
+    else:
+        entry = RestraintType(
+            **common,
+            status=CatalogStatus.PENDING,
+            suggested_by=suggested_by,
+        )
     session.add(entry)
     try:
         await session.flush()

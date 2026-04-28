@@ -38,6 +38,63 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M7.3 — CRUD-Formulare + Admin-Auto-Approve (ADR-043 §F):**
+  Anlegen und Bearbeiten von Katalog-Einträgen inklusive Admin-
+  Direktfreigabe und Editor-Vorschlag.
+  - **Backend** (`app/services/catalog.py` + `app/routes/catalog.py`):
+    - `propose_lookup` / `propose_restraint_type` akzeptieren
+      `auto_approve: bool`. Bei `True` (Admin) wird `status='approved'`
+      und `approved_by=user.id` direkt gesetzt — kein zweiter
+      Approve-Schritt mehr. Editor bleibt bei `status='pending'`.
+    - +2 Tests in
+      [`tests/test_catalog_workflow.py`](backend/tests/test_catalog_workflow.py).
+    - Backend-Suite 172 → 174 grün.
+  - **Frontend-Routes:**
+    - `/admin/catalogs/[kind]/new` (admin+editor, Server-Component
+      mit `notFound()`-Schutz).
+    - `/admin/catalogs/[kind]/[id]/edit` (admin-only,
+      Server-Redirect für Editor zusätzlich zur RLS-Sperre).
+  - **Mutation-Hooks** in
+    [`lib/catalog/api.ts`](frontend/src/lib/catalog/api.ts):
+    - `useCreateCatalogEntry<K>` / `useUpdateCatalogEntry<K>` mit
+      Cache-Invalidation `["catalog", kind]`.
+    - `useCatalogEntry<K>` für Einzel-Lookup via Liste
+      (Pfad-A-Datenmenge < 200 Rows).
+    - Generische Payload-Typen pro `kind`.
+  - **Form-Komponenten** (`components/catalog/`):
+    - `lookup-form.tsx` — Form für ArmPosition / HandPosition /
+      HandOrientation (Name + Beschreibung).
+    - `restraint-type-form.tsx` — Form für RestraintType (Kategorie,
+      Brand, Modell, Mechanik, Display-Name, Note) mit Selects aus
+      Enum-Maps.
+    - `catalog-form-page.tsx` — Wrapper, lädt Edit-Eintrag via
+      `useCatalogEntry`, rendert je nach `kind` die richtige Form.
+    - `describeMutationError`-Helper mit ApiError-Status-Mapping
+      (409 → „Eintrag existiert bereits", 403, 422). Duck-Type-
+      Fallback `asApiError` für RSC-Modul-Split-Robustheit.
+  - **Listing-Integration:**
+    - `<CatalogListing>` rendert „Neuer Eintrag" (Admin) / „Neuen
+      Vorschlag einreichen" (Editor); `<CatalogTable>` zeigt Edit-
+      Links pro Row nur bei `canEdit=true`.
+  - **Tests:** +11 Frontend (Frontend-Suite 219 → 230 grün).
+    - [`tests/catalog-forms.test.tsx`](frontend/tests/catalog-forms.test.tsx):
+      8 Cases (Lookup-Create-Body, 409-Toast, Leer-Validation,
+      Editor-Button-Label, Lookup-Edit, RestraintType-Render +
+      Create-Body + Edit-PATCH).
+    - +2 Cases in `catalog-table.test.tsx` (canEdit-Toggle).
+    - +1 Case in `catalog-listing.test.tsx` (Admin/Editor-Button-
+      Label).
+  - **Verifikation:** Lint/Typecheck/Build clean
+    (`/admin/catalogs/[kind]/new` 142 kB, `[id]/edit` 142 kB).
+    Browser-E2E gegen echtes Backend + DB:
+    - Admin-Create eines Restraint-Types → 201 mit `status="approved"`
+      direkt im Listing (Auto-Approve verifiziert).
+    - Edit-Submit → 200, Listing zeigt geänderten Display-Name.
+    - Konflikt: Re-POST gleicher (category, brand, model)-Kombi →
+      Backend 409 + Klartext-Detail; `describeMutationError`-catch-
+      Block läuft mit Toast-Render (`<ol data-sonner-toaster>` aktiv
+      seit HOTFIX-001 / ADR-042).
+
 - **M7.2 — Frontend Catalog-Übersicht `/admin/catalogs` (ADR-043 §F):**
   Erste Read-Only-UI für die vier Katalog-Typen, baut auf den
   M7.1-Backend-Endpunkten auf.

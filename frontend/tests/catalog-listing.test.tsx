@@ -76,7 +76,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" />
+        <CatalogListing kind="restraint-types" isAdmin />
       </Wrapper>,
     );
     await waitFor(() => expect(calledUrl).not.toBeNull());
@@ -92,7 +92,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="arm-positions" />
+        <CatalogListing kind="arm-positions" isAdmin />
       </Wrapper>,
     );
     await waitFor(() => expect(calledUrl).not.toBeNull());
@@ -125,7 +125,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" />
+        <CatalogListing kind="restraint-types" isAdmin />
       </Wrapper>,
     );
     expect(await screen.findByText("Hanfseil")).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" />
+        <CatalogListing kind="restraint-types" isAdmin />
       </Wrapper>,
     );
     fireEvent.click(screen.getByRole("radio", { name: "Vorgeschlagen" }));
@@ -161,13 +161,40 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" />
+        <CatalogListing kind="restraint-types" isAdmin />
       </Wrapper>,
     );
     fireEvent.click(screen.getByRole("radio", { name: "Alle" }));
     expect(replaceMock).toHaveBeenCalledWith(
       "/admin/catalogs/restraint-types",
       { scroll: false },
+    );
+  });
+
+  it("renders 'Neuer Eintrag' for admins, 'Neuen Vorschlag einreichen' for editors", async () => {
+    mockListResponse([], () => {});
+    const Wrapper = withQuery();
+    const { rerender } = render(
+      <Wrapper>
+        <CatalogListing kind="restraint-types" isAdmin />
+      </Wrapper>,
+    );
+    const adminLink = await screen.findByRole("link", { name: "Neuer Eintrag" });
+    expect(adminLink).toHaveAttribute(
+      "href",
+      "/admin/catalogs/restraint-types/new",
+    );
+    rerender(
+      <Wrapper>
+        <CatalogListing kind="restraint-types" isAdmin={false} />
+      </Wrapper>,
+    );
+    const editorLink = await screen.findByRole("link", {
+      name: "Neuen Vorschlag einreichen",
+    });
+    expect(editorLink).toHaveAttribute(
+      "href",
+      "/admin/catalogs/restraint-types/new",
     );
   });
 
@@ -178,7 +205,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" />
+        <CatalogListing kind="restraint-types" isAdmin />
       </Wrapper>,
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(/nicht laden/i);

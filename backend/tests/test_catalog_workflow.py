@@ -74,6 +74,45 @@ async def _propose_restraint_type(
     return resp.json()["id"]
 
 
+# --- Admin auto-approve on create -----------------------------------------
+
+
+async def test_admin_create_arm_position_directly_approved(
+    client: AsyncClient,
+    async_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """ADR-042 §F: Admin-POST creates an entry with status='approved'."""
+    _, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
+    resp = await post_with_csrf(
+        client,
+        csrf_admin,
+        "/api/arm-positions",
+        json={"name": "M7-AdminAutoApprove"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "approved"
+    assert body["approved_by"] is not None
+    assert body["suggested_by"] is None
+
+
+async def test_admin_create_restraint_type_directly_approved(
+    client: AsyncClient,
+    async_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    _, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
+    resp = await post_with_csrf(
+        client,
+        csrf_admin,
+        "/api/restraint-types",
+        json={"category": "rope", "display_name": "M7-AdminRT-Approved"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "approved"
+    assert body["approved_by"] is not None
+
+
 # --- Reject ---------------------------------------------------------------
 
 

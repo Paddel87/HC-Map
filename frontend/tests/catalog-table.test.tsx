@@ -103,6 +103,35 @@ describe("CatalogTable", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders edit links per row when canEdit is true", () => {
+    render(
+      <CatalogTable
+        entries={[RT_APPROVED]}
+        kind="restraint-types"
+        isLoading={false}
+        emptyHint="leer"
+        canEdit
+      />,
+    );
+    const link = screen.getByRole("link", { name: "Bearbeiten" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/admin/catalogs/restraint-types/rt-1/edit",
+    );
+  });
+
+  it("hides edit links when canEdit is false (default)", () => {
+    render(
+      <CatalogTable
+        entries={[RT_APPROVED]}
+        kind="restraint-types"
+        isLoading={false}
+        emptyHint="leer"
+      />,
+    );
+    expect(screen.queryByRole("link", { name: "Bearbeiten" })).toBeNull();
+  });
+
   it("emits one row per entry with status data-attribute", () => {
     render(
       <CatalogTable

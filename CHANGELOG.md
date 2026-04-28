@@ -7,6 +7,35 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **HOTFIX-001 — Sonner-Toasts unter React 19 wieder sichtbar (ADR-042):**
+  Toasts (`toast.error`, `toast.success` aus `sonner`) wurden im Browser
+  nicht angezeigt — der `<Toaster />`-Container in
+  [providers.tsx](frontend/src/components/providers.tsx) blieb als leeres
+  `<section aria-label="Notifications alt+T">` ohne den inneren
+  `<ol data-sonner-toaster>`-Child stehen. Ursache: `sonner@^1.7.4`
+  ist nicht React-19-kompatibel; der `useLayoutEffect(setMounted(true))`-
+  Branch von Sonner v1 mountet unter React 19 nicht zuverlässig.
+  - `frontend/package.json`: `sonner` `^1.7.4` → `^2.0.7` (offizielle
+    React-19-Unterstützung ab v2.x).
+  - Toaster-Wrapper [components/ui/sonner.tsx](frontend/src/components/ui/sonner.tsx)
+    und Provider [components/providers.tsx](frontend/src/components/providers.tsx)
+    bleiben unverändert — die in v1 genutzten Props (`richColors`,
+    `closeButton`, `position`, `theme`, `toastOptions.classNames`) sind in
+    v2 erhalten.
+  - Frontend-Tests bleiben grün (194/194); alle bestehenden
+    `vi.mock("sonner", …)`-Mocks tragen unverändert.
+  - Browser-Verifikation Login-Fail-Pfad: `/login` mit ungültigem
+    Passwort → Toast „Login fehlgeschlagen — E-Mail oder Passwort
+    ungültig." mit Close-Button erscheint. Verifikations-Scope siehe
+    `docs/fahrplan.md` HOTFIX-001 (eingeloggte Toast-Sites bleiben für
+    Re-Verify in nächster Session).
+  - ADR-042 dokumentiert das Upgrade samt Lessons Learned: künftige
+    Frontend-Library-ADRs prüfen explizit React-Major-Kompatibilität,
+    Komponenten mit gemocktem Mount-Verhalten erhalten Browser-Smoke
+    als DoD-Bestandteil.
+
 ### Added
 
 - **M6.5 — Geocoding-Suchbox in `MapView` (ADR-041 §J):**

@@ -3354,4 +3354,64 @@ M6 nutzt nur bestehende Collections (`events`, `event_participant`, `application
 
 ---
 
+## ADR-042 — Sonner-Major-Upgrade (v1.7.4 → v2.x) für React-19-Kompatibilität
+
+**Status:** Accepted
+**Datum:** 2026-04-29
+**Kategorie:** Externe Abhängigkeit, Major-Version-Update mit Breaking Changes (CLAUDE.md §4.3)
+
+### Kontext
+Im laufenden Betrieb wurde festgestellt, dass keiner der `toast.error` / `toast.success`-Aufrufe im Browser sichtbar wird. Reproduktion: `/login` mit falschem Passwort → kein Toast trotz `toast.error(...)`-Aufruf in `login-form.tsx:51`. DOM-Inspektion zeigt, dass der `<Toaster />`-Container in `frontend/src/components/providers.tsx` nur das nackte Wrapper-Element `<section aria-label="Notifications alt+T">` rendert, ohne den `<ol data-sonner-toaster>`-Child. Der `useLayoutEffect(() => setMounted(true))`-Branch von Sonner v1 mountet unter React 19 nicht zuverlässig.
+
+`sonner@^1.7.4` ist im `frontend/package.json` festgelegt (M4-Setup, ADR-021). React steht auf 19.0.0 (Next.js 15). Sonner v1 wurde vor React 19 veröffentlicht; v2 (Januar 2025) ist die offizielle React-19-kompatible Version.
+
+### Entscheidungen
+
+**A. Sonner auf neueste 2.x upgraden.**
+- `sonner` von `^1.7.4` auf `^2.x` heben.
+- Aufrufmuster im Repo sind ausschließlich `toast.error(title, { description })` und `toast.success(title, { description })` (zwölf Komponenten, alle mit `grep "toast\."` inventarisiert). Diese Signatur ist in v2 unverändert.
+- `<Toaster richColors closeButton position="top-right" />`-Props bleiben in v2 erhalten.
+- `toastOptions.classNames`-Mapping (siehe `components/ui/sonner.tsx`) bleibt erhalten; nur ein Style-Smoke-Check beim Browser-Verify.
+- Kein Aufruf von `toast.promise()` im Repo — die in v2 angepasste Signatur trifft uns nicht.
+
+**B. Verifikations-Scope.**
+Verifiziert wird an den existierenden Toast-Aufrufstellen:
+- `login-form.tsx` (Auth-Fehler).
+- `logout-button.tsx` und `user-menu.tsx` (Logout-Fehler).
+- `pin-settings.tsx` (PIN-Validierung, Erfolg, Fehler).
+- `geocode-search-box.tsx` (429 / 503 / 502).
+- `event-create-form.tsx`, `event-edit-form.tsx`, `event-backfill-form.tsx`, `event-detail-view.tsx`, `application-start-sheet.tsx`, `person-quick-sheet.tsx`.
+
+Die in der ursprünglichen Repro genannten M7.3-Komponenten (`lookup-form.tsx`, `restraint-type-form.tsx`) und die Admin-Catalog-Routen existieren im aktuellen Repo-Stand noch nicht (M7 ist `[OFFEN]`). Verifikation der Catalog-409-Toasts erfolgt mit M7 selbst.
+
+**C. Tests.**
+Alle Vitest-Suites mocken `sonner` per `vi.mock("sonner", ...)`. Das Major-Update am realen Modul ändert die Mocks nicht. Erwartung: alle bestehenden Tests bleiben grün.
+
+**D. ADR-021-Konsistenz.**
+ADR-021 nennt Sonner als gewählte Toast-Lib (M4-Frontend-Grundgerüst). Die Wahl bleibt; nur die Major-Version wird gehoben. Kein neuer ADR-Konflikt.
+
+### Verworfene Alternativen
+- **Eigene Toast-Implementierung auf Radix-Toast aufbauen:** zu viel Code für ein Versions-Inkompatibilitätsproblem.
+- **React 18 Downgrade:** verstößt gegen `project-context.md` (Next.js 15 + React 19 fixiert).
+- **Bei Sonner 1.x bleiben:** Toasts würden weiterhin nicht angezeigt — Symptom unverändert.
+
+### Lessons Learned
+
+**Beobachtung:** Die Sonner-/React-19-Inkompatibilität wurde erst beim manuellen UI-Test im Browser entdeckt — nicht bei der ursprünglichen Auswahl in M4 (ADR-021). Tests konnten den Defekt nicht aufzeigen, weil Sonner in allen Vitest-Suites per `vi.mock("sonner", …)` gemockt ist; die reale `<Toaster />`-Mount-Pipeline lief deshalb in keinem automatisierten Lauf durch.
+
+**Ableitung:**
+1. Bei der initialen Auswahl externer Abhängigkeiten in M4 wurde die React-19-Kompatibilität von `sonner` nicht explizit gegen die Stable-Version geprüft. Die zum Zeitpunkt aktuelle 1.7.4 deckte React 19 nicht ab.
+2. Frontend-Komponenten, die auf clientseitige Effekte angewiesen sind und im Test-Setup gemockt werden, brauchen mindestens einen End-to-End-Smoke (Browser-Run) als DoD-Bestandteil. Ein „grünes" Vitest-Ergebnis ist für diese Komponenten kein hinreichender Funktionsnachweis.
+
+**Abgeleitete Regeln (gelten ab dieser ADR):**
+- **Regel 1 — Abhängigkeits-Vorprüfung:** Bei der Aufnahme einer Frontend-Library, die ein React-Mount-Verhalten implementiert (Toast-, Modal-, Tooltip-, Animation-Libs), wird in der zugehörigen ADR explizit die Kompatibilität zur fixierten React-Major-Version festgehalten. Quelle: README / Changelog der Library, nicht Annahme.
+- **Regel 2 — Browser-Smoke als DoD-Eintrag:** Komponenten mit gemocktem Mount-Verhalten (Toaster, Drawer, Map, RxDB) bekommen in der Implementierungs-ADR einen Browser-Verify-Schritt als DoD-Punkt — analog wie ADR-021 §M (Browser-Smoke-Test) für die Login-Flow-Verifikation, aber auch für UX-Feedback-Pfade.
+
+### Folge-Arbeit
+- README-Badges: keine Änderung notwendig (Sonner taucht in README nicht als Badge auf).
+- M7 (`[OFFEN]`) verifiziert die Catalog-409-Toasts beim Bauen der Forms.
+- ADR-021 und ADR-026 bleiben inhaltlich gültig; das ergänzte Lessons-Learned-Regelwerk gilt für künftige ADRs (M7 ff.).
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

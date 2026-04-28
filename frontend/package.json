@@ -35,7 +35,7 @@
     "react-map-gl": "^7.1.9",
     "rxdb": "^17.1.0",
     "rxjs": "^7.8.2",
-    "sonner": "^1.7.4",
+    "sonner": "^2.0.7",
     "tailwind-merge": "2.5.5",
     "zod": "^3.25.76"
   },

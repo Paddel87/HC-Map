@@ -73,6 +73,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6.3        | └─ Clustering (native MapLibre-Cluster)          | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
+| 1 MVP   | HOTFIX-001  | Sonner v1 → v2 (React-19-Kompatibilität, ADR-042) | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
@@ -1144,6 +1145,41 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Frontend-Suite grün (194/194). ✓
 
 **Abhängigkeiten:** M6.1 (Endpoint), M6.4 (URL-Sync).
+
+---
+
+### HOTFIX-001 — Sonner-Major-Upgrade (v1.7.4 → v2.x)
+
+**Ziel:** Toasts unter React 19 wieder sichtbar machen. Siehe ADR-042.
+
+**Deliverables:**
+- `frontend/package.json`: `sonner` von `^1.7.4` auf neueste 2.x.
+- `frontend/pnpm-lock.yaml` aktualisiert.
+- `components/ui/sonner.tsx` und `components/providers.tsx` API-konform zu v2 (Props-Mapping geprüft).
+- `frontend/__tests__/**`: vitest-Suiten bleiben grün (Mocks via `vi.mock("sonner", …)` unverändert tragend).
+- Browser-Verifikation an existierenden Toast-Sites: Login-Fehler, Logout-Fehler, PIN-Settings (Erfolg + Fehler), Geocoding-Fehler (429/503/502), Event-Create / Event-Edit / Event-Backfill / Application-Start.
+- CHANGELOG-Eintrag.
+
+**Out of Scope:**
+- M7-Catalog-Toasts (Forms existieren noch nicht; verifiziert mit M7).
+
+**Akzeptanzkriterien:**
+- Im Browser erscheinen Sonner-Toasts an mindestens drei verifizierten Stellen.
+- `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` grün.
+- ADR-042 in `decisions.md` (erledigt).
+
+**Abhängigkeiten:** keine (cross-cutting Bugfix auf M4-Stack).
+
+**Status `[ERLEDIGT]` 2026-04-29:**
+- `frontend/package.json`: `sonner` `^1.7.4` → `^2.0.7`. Lockfile aktualisiert.
+- `components/ui/sonner.tsx` und `components/providers.tsx` API-kompatibel ohne Code-Änderung — `richColors`, `closeButton`, `position`, `theme`, `toastOptions.classNames` (`toast`, `description`, `actionButton`, `cancelButton`) alle in v2 erhalten.
+- Frontend-Suite 194/194 grün (`pnpm test`).
+- `pnpm lint` (No ESLint warnings or errors), `pnpm typecheck` (clean), `pnpm build` (Next.js 15.0.4, alle Routen kompilieren).
+- Browser-Verifikation **Login-Fail** in Headless-Vorschau: `/login` mit ungültigem Passwort → 400 vom Backend → DOM-Snapshot zeigt `<ol data-sonner-toaster="true">` mit Toast-Inhalt „Login fehlgeschlagen — E-Mail oder Passwort ungültig.", Close-Button sichtbar (Screenshot dokumentiert).
+- **Verifikations-Scope-Limitation:** Die anderen zehn Toast-Sites (Logout, PIN-Settings, Geocoding-Fehler, Event-Create/Edit/Backfill/Detail, Application-Start, Person-Quick) sind alle eingeloggte Pfade; das lokale Admin-Passwort lag nicht vor, eine Re-Login-Verifikation erfolgte nicht. Argument für deren Funktion: identisches `toast.error(title, { description })`/`toast.success(...)`-Aufrufmuster wie der verifizierte Login-Fail-Toast — derselbe Mount-Pfad, derselbe `<Toaster />`-Wrapper. Vor Live-Einsatz bzw. mit nächster Session: manueller Re-Verify dieser Sites empfohlen.
+- Die in der ursprünglichen Repro genannten M7.3-Komponenten (`lookup-form.tsx`, `restraint-type-form.tsx`) und Admin-Catalog-Routen existieren im Repo nicht; M7 ist `[OFFEN]`. Catalog-409-Toast wird mit M7 selbst verifiziert.
+- ADR-042 angelegt (Lessons Learned: Abhängigkeits-Vorprüfung auf React-Major + Browser-Smoke als DoD-Bestandteil bei mock-abhängigen Komponenten).
+- CHANGELOG-Eintrag.
 
 ---
 

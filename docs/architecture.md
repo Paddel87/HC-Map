@@ -765,14 +765,20 @@ Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{e
 /events/[id]               → Detail
 /events/[id]/edit          → Bearbeiten
 /map                       → Kartenansicht
-/admin                     → Admin-Übersicht (admin-only)
-/admin/users               → User-Verwaltung
-/admin/catalogs            → Katalog-Verwaltung + Freigabe-Queue
-/admin/persons             → Personen-Verwaltung
+/admin                     → Admin-Übersicht (admin-only, in Route-Group `(admin-only)`)
+/admin/users               → User-Verwaltung (admin-only, M8)
+/admin/catalogs            → Katalog-Verwaltung — sichtbar für admin und editor (M7.2 ff.).
+                             Server-Redirect → /admin/catalogs/restraint-types.
+/admin/catalogs/[kind]     → Listing pro Katalog-Typ mit Status-Filter (URL `?status=`).
+/admin/persons             → Personen-Verwaltung (admin-only, M8)
 /profile                   → Eigenes Profil, Passwort ändern
 ```
 
-Schutz via Middleware (Next.js `middleware.ts`): prüft Session-Cookie + Rolle pro Pfad.
+Schutz via Middleware (Next.js `middleware.ts`): prüft Session-Cookie. RBAC-Gates pro Route im jeweiligen Server-Layout:
+
+- `(protected)/admin/layout.tsx` lockert auf Mindestrolle Editor (`canViewCatalogAdmin`); damit erreichen Editoren `/admin/catalogs/...`.
+- `(protected)/admin/(admin-only)/layout.tsx` strafft auf admin (für Admin-Übersicht und alles, was M8 hier ergänzt).
+- `(protected)/events/[id]/edit/page.tsx` nutzt den `canEditEvent`-Helper (M5c.4, ADR-040).
 
 ### Daten-Fetching
 

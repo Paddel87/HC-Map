@@ -38,7 +38,74 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
-- **M7.1 — Backend Catalog-Workflow (ADR-042):**
+- **M7.2 — Frontend Catalog-Übersicht `/admin/catalogs` (ADR-043 §F):**
+  Erste Read-Only-UI für die vier Katalog-Typen, baut auf den
+  M7.1-Backend-Endpunkten auf.
+  - **Routing:**
+    - `/admin/catalogs` (Server-Redirect → `/admin/catalogs/restraint-types`).
+    - `/admin/catalogs/[kind]` mit `notFound()` für unbekannte
+      `[kind]`-Werte (Server-Component, akzeptiert
+      `Promise<{ kind: string }>` per Next.js 15-Konvention).
+    - **Route-Group-Refactor**: `admin/layout.tsx` lockert auf
+      Mindestrolle Editor (Editoren brauchen Zugriff für eigene
+      Vorschläge); strikter Admin-Schutz wandert in
+      `admin/(admin-only)/layout.tsx`. Bestehende `admin/page.tsx`
+      per `git mv` in die Sub-Group verschoben — externe URLs
+      bleiben gleich.
+  - **RBAC** (`lib/rbac.ts`): vier neue Helper —
+    `canApproveCatalog`, `canEditCatalogEntry`,
+    `canWithdrawCatalogEntry`, `canViewCatalogAdmin`. Pure functions,
+    spiegeln M7.1-Backend-Logik exakt (Withdraw nur für `pending`,
+    Editor nur eigene; Approve/Patch admin-only).
+  - **Daten-Layer** (`lib/catalog/`): `types.ts` mit allen Enums,
+    Type-Guards (`isRestraintTypeEntry`) und Display-Labels;
+    `api.ts` mit `useCatalogList`-Hook (TanStack-Query, `staleTime:
+    5 min`, Cache-Key `["catalog", kind, params]`). Catalog-Daten
+    werden bewusst NICHT in RxDB synchronisiert (ADR-043 §E).
+  - **Komponenten** (`components/catalog/`):
+    - `kind-tabs.tsx` — Tab-Navigation für 4 Katalog-Typen mit
+      `aria-current="page"`.
+    - `status-filter.tsx` — Radio-Group „Alle / Freigegeben /
+      Vorgeschlagen / Abgelehnt" mit `aria-checked`.
+    - `status-badge.tsx` — farb-codierter Badge pro Status
+      (emerald/amber/rose im Light + Dark Mode).
+    - `catalog-table.tsx` — Tabelle mit Subtitle (Restraint:
+      Kategorie · Brand · Model · Mechanik; Lookups: Description),
+      Reject-Reason-Callout für rejected-Rows, Loading- und
+      Empty-States.
+    - `catalog-listing.tsx` — Client-Wrapper, liest `?status=` aus
+      URL, schreibt URL via `router.replace({ scroll: false })`,
+      forwarded an `useCatalogList`. Pure Helper
+      `parseStatusParam` separat exportiert.
+  - **Navigation** (`components/layout/nav.ts`): Nav-Eintrag
+    „Kataloge" mit Icon `BookMarked`, sichtbar für admin und
+    editor.
+  - **Tests:** +25 Cases.
+    - [`tests/rbac-catalog.test.ts`](frontend/tests/rbac-catalog.test.ts)
+      — 7 Cases pro RBAC-Helper.
+    - [`tests/catalog-kind-tabs.test.tsx`](frontend/tests/catalog-kind-tabs.test.tsx)
+      — 2 Cases.
+    - [`tests/catalog-status-filter.test.tsx`](frontend/tests/catalog-status-filter.test.tsx)
+      — 3 Cases.
+    - [`tests/catalog-table.test.tsx`](frontend/tests/catalog-table.test.tsx)
+      — 5 Cases (Render-Zweige + data-status-Attribut).
+    - [`tests/catalog-listing.test.tsx`](frontend/tests/catalog-listing.test.tsx)
+      — 8 Cases (parseStatusParam, fetch-Aufruf, URL-Write/Clear,
+      Error-Alert, Loading, Render).
+  - **Frontend-Suite:** 219/219 grün (+25). Lint/Typecheck/Build
+    clean.
+  - **End-to-End-Verifikation** im Browser gegen echtes Backend +
+    DB:
+    - Admin sieht alle Einträge inkl. fremder pending.
+    - Editor sieht approved + eigene pending/rejected (admin's
+      pending durch RLS verborgen).
+    - Viewer wird von `/admin/catalogs` auf `/` umgeleitet; Nav-
+      Eintrag „Kataloge" für Viewer nicht sichtbar.
+    - Status-Filter setzt/entfernt URL-Parameter, Tab-Navigation
+      wechselt Katalog-Typ, rejected-Rows zeigen Begründung.
+    - Console clean.
+
+- **M7.1 — Backend Catalog-Workflow (ADR-043):**
   Vollständiger Reject-/Withdraw-Workflow auf den vier Katalog-Tabellen
   (RestraintType, ArmPosition, HandPosition, HandOrientation).
   - **Migration
@@ -72,7 +139,7 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
     - `POST /<kind>/{id}/reject` — pending → rejected; Body
       `{ "reason": str (1..2000) }` Pflicht; setzt `rejected_by`,
       `rejected_at`, `reject_reason`.
-  - **Frontend-Strategie (ADR-042 §E):** Katalog-Daten werden bewusst
+  - **Frontend-Strategie (ADR-043 §E):** Katalog-Daten werden bewusst
     nicht in RxDB synchronisiert; Frontend (M7.2 ff.) liest sie via
     TanStack-Query mit `staleTime: 5 min` und Cache-Key
     `['catalog', kind, { status }]`.

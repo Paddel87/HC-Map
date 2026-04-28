@@ -1,4 +1,5 @@
 import {
+  BookMarked,
   Calendar,
   LayoutDashboard,
   Map as MapIcon,
@@ -35,6 +36,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: "Karte",
     icon: MapIcon,
     showInBottomNav: true,
+  },
+  {
+    href: "/admin/catalogs",
+    label: "Kataloge",
+    icon: BookMarked,
+    roles: ["admin", "editor"],
+    showInBottomNav: false,
   },
   {
     href: "/admin",

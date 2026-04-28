@@ -27,9 +27,9 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-04-28
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 angelegt (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Step M7.1 abgeschlossen. **M7.1 [ERLEDIGT] 2026-04-28**: Migration `20260428_1200_m7_1_catalog_workflow` (Enum-Wert `rejected` via `autocommit_block`, Audit-Spalten `rejected_by`/`rejected_at`/`reject_reason` auf allen vier Katalog-Tabellen, RLS-Policy-Erweiterung `<table>_select` für eigene rejected, neue Policy `<table>_owner_withdraw` für Editor-Withdraw); Models/Schemas/Services/Routes mit `PATCH /<kind>/{id}`, `DELETE /<kind>/{id}`, `POST /<kind>/{id}/reject`; UNIQUE-Konflikte → 409 mit Klartext-Detail; Status-Transition-Guards via `CatalogStateError` → 409. Backend-Suite **172/172 grün** (+17 catalog_workflow-Tests, +5 RLS-Tests für rejected-Sichtbarkeit und Owner-Withdraw); Migration up/down/up/down/up Roundtrip sauber; `ruff check` und `mypy --strict` clean.
-- **Vorläufer:** **M6 (Kartenansicht) [ERLEDIGT] 2026-04-28** — alle fünf Sub-Schritte abgeschlossen.
-- **Nächster Schritt:** M7.2 — Frontend-Übersichtsseite `/admin/catalogs` mit Tab-Navigation und Status-Filter.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Steps M7.1 + M7.2 abgeschlossen. **M7.2 [ERLEDIGT] 2026-04-28**: Frontend `/admin/catalogs/[kind]`-Listing mit Tab-Navigation (4 Katalog-Typen), Status-Filter (Alle / Freigegeben / Vorgeschlagen / Abgelehnt) mit URL-Sync, Catalog-Tabelle inklusive Reject-Reason-Anzeige. Route-Group-Refactor: `(admin)/layout.tsx` lockert auf Mindestrolle Editor (`canViewCatalogAdmin`), strikter Admin-Schutz wandert in `(admin-only)/layout.tsx`; bestehende `admin/page.tsx` dorthin verschoben (`git mv`). RBAC-Helper `canApproveCatalog` / `canEditCatalogEntry` / `canWithdrawCatalogEntry` / `canViewCatalogAdmin` in `lib/rbac.ts`. Neuer Nav-Eintrag „Kataloge" für admin+editor. Frontend-Suite **219/219 grün** (+25). Lint, Typecheck und `next build` clean. Browser-Verifikation: Admin sieht 4 Restraint-Einträge, Editor 3 (admin's pending durch RLS verborgen), Viewer wird auf `/` umgeleitet.
+- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug), M6 [ERLEDIGT] 2026-04-28.
+- **Nächster Schritt:** M7.3 — CRUD-Formulare (Admin-Create + Admin-Edit + Editor-Vorschlag) auf `/admin/catalogs/[kind]/new` und `/admin/catalogs/[kind]/[id]/edit`.
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
 
@@ -77,7 +77,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | HOTFIX-001  | Sonner v1 → v2 (React-19-Kompatibilität, ADR-042) | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [IN ARBEIT] |
 | 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
-| 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [OFFEN]     |
+| 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [OFFEN]     |
 | 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [OFFEN]     |
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [OFFEN]     |
@@ -1288,11 +1288,46 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M7.2 — Frontend Übersicht `/admin/catalogs`
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-28
 
-Liefert Tab-Navigation für die vier Katalog-Typen, Listing mit Status-Filter und Sortierung. Tests: Listing, Filter-Wechsel, RBAC-Gate.
+**Status `[ERLEDIGT]` 2026-04-28 (M7.2, Frontend Catalog-Übersicht + RBAC-Refactor):**
+
+- **Routing:** Neue Routen `/admin/catalogs` (Server-Redirect → `/admin/catalogs/restraint-types`) und `/admin/catalogs/[kind]/page.tsx` (Server-Component mit Header, `<KindTabs>`, `<CatalogListing>`). `notFound()` für unbekannte `[kind]`-Werte. Route-Group-Refactor: `admin/layout.tsx` lockert auf Mindestrolle Editor (`canViewCatalogAdmin`), strikter Admin-Gate wandert nach `admin/(admin-only)/layout.tsx`; bestehende `admin/page.tsx` per `git mv` in die Sub-Group verschoben.
+- **Komponenten:**
+  - `components/catalog/kind-tabs.tsx` — vier Tab-Links (Restraints / Armhaltung / Handhaltung / Handausrichtung) mit `aria-current="page"` für aktiven Tab.
+  - `components/catalog/status-filter.tsx` — Radio-Group „Alle / Freigegeben / Vorgeschlagen / Abgelehnt" mit `aria-checked`.
+  - `components/catalog/status-badge.tsx` — farb-codierter Badge pro Status (emerald/amber/rose).
+  - `components/catalog/catalog-table.tsx` — Tabelle mit Subtitle (Restraint: Kategorie · Brand · Model · Mechanik; Lookups: Description), Reject-Reason-Callout für rejected-Rows, Loading- und Empty-States, `data-testid="catalog-row"` für Tests.
+  - `components/catalog/catalog-listing.tsx` — Client-Wrapper, liest `?status` aus URL, `useCatalogList`, schreibt URL via `router.replace({ scroll: false })`. Pure Helper `parseStatusParam` separat exportiert.
+- **lib:** `lib/catalog/types.ts` (alle Enums + Type-Guards + Display-Labels), `lib/catalog/api.ts` (`useCatalogList`-Hook mit `staleTime: 5 min`, Cache-Key `["catalog", kind, { status, limit, offset }]`).
+- **RBAC:** `lib/rbac.ts` um `canApproveCatalog`, `canEditCatalogEntry`, `canWithdrawCatalogEntry`, `canViewCatalogAdmin` erweitert (alle pure functions; spiegeln M7.1-Backend-Logik exakt).
+- **Navigation:** `components/layout/nav.ts` ergänzt einen Nav-Eintrag „Kataloge" mit Icon `BookMarked`, sichtbar für admin und editor (`roles: ["admin", "editor"]`).
+- **Tests:** +25 Cases (Frontend-Suite 194 → 219).
+  - `tests/rbac-catalog.test.ts` — 7 Cases pro RBAC-Helper.
+  - `tests/catalog-kind-tabs.test.tsx` — 2 Cases (4 Links, aria-current).
+  - `tests/catalog-status-filter.test.tsx` — 3 Cases (Render, Klick, Toggle zurück zu Alle).
+  - `tests/catalog-table.test.tsx` — 5 Cases (Loading, Empty, Restraint-Subtitle, Reject-Reason, data-status-Attribute).
+  - `tests/catalog-listing.test.tsx` — 8 Cases (parseStatusParam, fetch ohne/mit Status, Render, URL-Write, URL-Clear, Error-Alert).
+- **Verifikation:** Production-Build grün (`/admin/catalogs/[kind]` 3.44 kB / 128 kB). Browser-End-to-End mit echtem Backend + DB:
+  - Admin: 4 Restraint-Einträge sichtbar (3 approved + 1 pending).
+  - Editor: 3 Einträge sichtbar (admin's pending durch RLS verborgen, eigene würden sichtbar bleiben).
+  - Viewer: `/admin/catalogs` redirected nach `/`; Nav-Eintrag „Kataloge" nicht sichtbar.
+  - Status-Filter „Vorgeschlagen" → URL `?status=pending`, nur pending-Einträge.
+  - Tab-Wechsel auf Armhaltung mit `?status=rejected` zeigt Strappado-Beta inkl. „Begründung: Duplikat von Strappado".
+  - Console clean.
+
+**Akzeptanzkriterien (alle erfüllt):**
+- [x] Admin sieht alle Einträge.
+- [x] Editor sieht approved + eigene pending/rejected (RLS).
+- [x] Viewer kann die UI nicht öffnen.
+- [x] Status-Filter funktioniert (URL-Sync + API-Forward).
+- [x] Tab-Navigation springt zwischen Katalog-Typen.
 
 **Abhängigkeiten:** M7.1.
+
+**Bekannte Folge-Punkte:**
+- Sidebar-Active-Highlighting: `pathname.startsWith("/admin/")` markiert sowohl `/admin` als auch `/admin/catalogs` als aktiv, wenn beide sichtbar sind. Niedrige Priorität — wird bei Bedarf in M8 angepasst.
+- M7.3 baut die Create/Edit-Formulare auf den hier eingeführten Routes.
 
 ---
 

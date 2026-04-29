@@ -25,7 +25,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-29 (Sessionende, M7.5 + Followups + M5a-Drift-Fix auf `origin/main` gepusht)
+- **Stand vom:** 2026-04-29 (Sessionende, M7.5 + Followups + M5a-Drift-Fix auf `origin/main` gepusht; spät-session Aktualitätsprüfung Frontend-Stack ergab Versions-Drift — Blocker #001 dokumentiert, vor M8-Start zu klären)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
 - **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [ERLEDIGT] 2026-04-29.** Alle Sub-Steps (M7.1–M7.5) plus die zwei M7.5-Followups (Restraint-Picker im Edit-Form, generischer LookupPicker für ArmPosition/HandPosition/HandOrientation in Live+Backfill+Edit) sind verifiziert. Backend-Sicherheitsfix `_position_fks_allowed` schließt das Editor-Exposure auf dem Sync-Update-Path. Doku-Drift M5a → `[ERLEDIGT] 2026-04-26` ebenfalls behoben.
 - **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29.
@@ -33,6 +33,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 - **Nächster Schritt:** **M8 (Admin-Bereich)** — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-047 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
 - **Offene STOPP-Situationen:** keine.
 - **Offene STOPP-Situationen:** keine.
+- **Offene Freigabe-Entscheidungen:**
+  - **Blocker #001 (`docs/blockers.md`) — Stack-Drift Frontend-Abhängigkeiten:** Aktualitätsprüfung am 2026-04-29 hat ergeben, dass `frontend/package.json` mit Versionen aus Dezember 2024 gepinnt ist (Next.js 15.0.4 statt aktuell 16.2.4, React 19.0.0 statt 19.2.5). Drei trennbare Entscheidungen offen: (1) Next.js-Update-Pfad A/B/C, (2) CLAUDE.md-Methodik-Härtung gegen künftigen Drift, (3) Audit-Ausweitung auf Backend/Container/Runtimes. Empfehlung KI vor M8: Option C (Next.js 16.2.4) + CLAUDE.md-Annahme A. Vor Start M8 zu klären.
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
   - **`/events/[id]`** rendert Live-/Ended-View über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c (vorhanden, aber Edge-Case bleibt).

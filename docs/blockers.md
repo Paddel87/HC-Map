@@ -22,7 +22,52 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
 
 ## Aktive Blocker
 
-Keine aktiven Blocker.
+### Blocker #001: Stack-Drift Frontend-Abhängigkeiten — Setup mit veralteten Versionen
+
+- **Datum:** 2026-04-29
+- **Fahrplan-Referenz:** M0 (Initial-Setup `frontend/package.json` im Commit `3e30a0c` vom 2026-04-25); querschnittlich gegen alle Folge-Meilensteine, die auf demselben Pin-Stand aufbauen.
+- **Modul:** Frontend (primär); methodisch projektübergreifend (CLAUDE.md).
+- **Blocker-Typ:** Freigabebedarf (CLAUDE.md §4.3 — Major-Update; §4.1 — Methodik-Änderung an CLAUDE.md).
+- **Beschreibung:**
+  Bei einer Aktualitätsprüfung am 2026-04-29 zeigte sich, dass `frontend/package.json` mit Versionen aus Dezember 2024 gepinnt wurde, obwohl das Setup am 2026-04-25 erfolgte. Konkret: `next` `15.0.4` (Release 2024-12-05), `react`/`react-dom` `19.0.0` (Dezember 2024), `eslint-config-next` `15.0.4`. Aktueller Stand auf npm zum Zeitpunkt der Prüfung: `next` `16.2.4` (Release 2026-04-15), `react` `19.2.5`. Damit liegen ein Major-Release (Next 15 → 16, stable seit 2025-10-22) und ~17 Monate Patch-Lag unbemerkt im Tree.
+
+  ADR-007 (2026-04-22) hatte „Next.js (App Router, **aktuelle stabile Major-Version**)" festgelegt — ohne konkrete Versionsbasis. Die Pins im M0-Setup wurden vermutlich aus KI-Modell-Trainingsdaten übernommen, ohne aktiven Registry-Lookup. CLAUDE.md §6 verbietet stille Annahmen abstrakt, fordert jedoch keinen expliziten Lookup-Schritt beim Pinnen. CLAUDE.md §9 (DoD) listet keinen entsprechenden Check.
+
+  Folge-Hinweis (gleiches Muster): HOTFIX-001 (`sonner` v1.7.4 → v2.0.7) am 2026-04-29 musste nachträglich gefahren werden, weil eine veraltete Toast-Bibliothek unter React 19 nicht mehr funktionierte — ebenfalls Drift-Symptom, ebenfalls erst durch konkretes Symptom entdeckt.
+- **Reproduktion:**
+  ```
+  $ grep '"next":' frontend/package.json
+      "next": "15.0.4",
+  $ curl -s https://registry.npmjs.org/next | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['dist-tags']['latest'], d['time'][d['dist-tags']['latest']])"
+  16.2.4 2026-04-15T22:33:47.905Z
+  $ curl -s https://registry.npmjs.org/next | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['time']['15.0.4'])"
+  2024-12-05T23:46:32.312Z
+  ```
+  Lookup-Datum: 2026-04-29. Differenz Setup-Commit ↔ damals aktuelle Stable: ~5 Monate (16.0 stable seit 2025-10-22).
+- **Offene Hypothesen:**
+  - Backend-Pins (`backend/pyproject.toml`: FastAPI, SQLAlchemy, Pydantic, Alembic, fastapi-users etc.) zeigen vermutlich dasselbe Muster, sind aber **nicht geprüft**. Audit-Bedarf cross-cutting.
+  - Container-Image-Tags (`docker-compose.yml`, Dockerfiles) und Sprach-Runtimes (Node 22, Python 3.12) ebenfalls nicht geprüft.
+  - Weitere Frontend-Pins (TanStack Query, Tailwind, Radix, MapLibre, RxDB) ebenfalls aus Dezember-2024-Wissensstand, ohne Aktualitätsprüfung.
+- **Benötigt zur Auflösung:**
+  Drei voneinander trennbare Entscheidungen — alle freigabepflichtig:
+  1. **Next.js-Update-Pfad für HC-Map** (Major-Version-Änderung, §4.3).
+  2. **CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift** (Methodik-Änderung an projektübergreifender Vorlage, §4.1).
+  3. **Audit-Ausweitung auf Backend, Container, Runtimes** als eigenständiger Folgeschritt — Freigabe, ob und wann ausgeführt.
+- **Vorgeschlagene Entscheidungsfrage:**
+  1. *Welcher Update-Pfad für Next.js?*
+     - **A —** Patch innerhalb 15.0.x (15.0.4 → 15.0.8). Freigabefrei (Patch). Schließt 15.0-Bugs, lässt 15.1+/16.x Lag bestehen.
+     - **B —** Minor-Sprung auf 15.5.15 (LTS-artige 15-Linie, Release 2026-04-08). Bleibt im 15-Major, geringeres Migrationsrisiko, kauft ~12 Monate.
+     - **C —** Major-Sprung auf 16.2.4 (`latest`, Release 2026-04-15). Aktuelle Stable-Linie. Erfordert vorab Migrations-Audit (Async-Request-APIs, Caching-Defaults, Turbopack-Verhalten, Codemods). Empfehlung **vor** M8, solange Frontend-Code klein und Test-Suite (261 Tests grün) eng ist.
+
+     Die Optionen sind in der Session vom 2026-04-29 (Conversation-Verlauf) ausführlich begründet. Empfehlung der KI: **C** vor M8.
+  2. *Wird die CLAUDE.md-Härtung übernommen — und wenn ja, in welchem Umfang?*
+     Konkreter Vorschlag mit fünf Änderungen liegt im Conversation-Verlauf vom 2026-04-29 (§6 Lookup-Pflicht, §4 Versionsbasis im Vorschlag, §9 DoD-Check, neuer §15 „Stack-Aktualität" inkl. CI-Audit-Skript, §2 Audit nach Sessionpause >30 Tage).
+     - **Annahme A —** alle fünf Änderungen plus Audit-Skript.
+     - **Annahme B —** nur §6+§9 (minimal-invasiv, ohne CI-Logik).
+     - **Ablehnung —** Status quo, dann ist die Drift-Erkennung weiter ad-hoc.
+  3. *Wird ein eigenständiger Audit-Schritt auf Backend/Container/Runtimes freigegeben?*
+     - **Ja** — als Querschnitts-Aufgabe vor M8, Ergebnis ggf. weitere Update-Anträge.
+     - **Nein** — auf Symptom-Basis bleiben (heutiges Verhalten).
 
 <!-- Bei neuem Blocker: Eintrag nach folgendem Format anlegen.
      Format ist NICHT optional (siehe CLAUDE.md Abschnitt 10). Nummerierung durchgehend.

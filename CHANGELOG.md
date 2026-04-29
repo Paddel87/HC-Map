@@ -9,6 +9,56 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M7.5 Followups — Edit-Form-Restraint-Picker + Position-Picker (ADR-046 Followup-Sektion):**
+  Direkte Anschluss-Arbeit an M7.5 in derselben Session. Beides war
+  in M7.5 explizit aus Scope (ADR-046 §H, ADR-040 §K), wird jetzt
+  produktiv.
+  - **FU1 — Restraint-Picker im Edit-Form**:
+    [`event-edit-form.tsx`](frontend/src/components/event/event-edit-form.tsx)
+    bekommt pro Application-Row die `<RestraintPicker>`-Komponente
+    mit Diff-Patch. `restraintTypeIds` + `initial.restraintTypeIds`
+    Snapshot; Patch enthält `restraint_type_ids` nur, wenn das Set
+    sich gegenüber dem Initial-Stand unterscheidet (set-equals).
+    RxDB `doc.patch` triggert Sync-Push, Set-Replace-LWW im Backend
+    (M7.5-ADR-046 §C) gilt unverändert.
+  - **FU2 — Generischer LookupPicker (Single-Select) für ArmPosition / HandPosition / HandOrientation**:
+    Neue Komponente
+    [`<LookupPicker>`](frontend/src/components/catalog/lookup-picker.tsx)
+    (Schwester der `<RestraintPicker>`): Single-Select mit „— keine —"-
+    Option und inline Quick-Propose. Eingehängt in
+    [`<ApplicationStartSheet>`](frontend/src/components/event/application-start-sheet.tsx)
+    (Live, 3-Spalten-Grid unter Restraints), in
+    [`<EventBackfillForm>`](frontend/src/components/event/event-backfill-form.tsx)
+    (pro Row) und in
+    [`<EventEditForm>`](frontend/src/components/event/event-edit-form.tsx)
+    (pro Row mit Diff-Patch je FK). Damit hebt sich die
+    ADR-040-§K-Beschränkung auf — der Scope-Cut war nur UI-seitig,
+    Backend-LWW war von Anfang an dafür ausgelegt.
+  - **Backend-Sicherheitsfix**:
+    `_apply_application_update` (Update-Path in
+    [`backend/app/sync/services.py`](backend/app/sync/services.py))
+    übernahm Position-FKs ohne Approved-Check. Mit dem neuen
+    Edit-Picker wäre das ein Editor-Exposure geworden (Editor sieht
+    via RLS eigene pending Position-FKs; Push hätte sie auf eine
+    bestehende Application setzen können). Neuer
+    `_position_fks_allowed`-Helper extrahiert die existierende
+    Insert-Path-Logik und wird jetzt auf beiden Pfaden aufgerufen
+    (Konflikt-Tombstone-Antwort bei pending/unbekannten FKs).
+  - **Tests**: Backend-Suite 181 → 182 (+1
+    [`test_editor_update_with_pending_arm_position_returns_conflict`](backend/tests/test_sync_application_restraints.py)),
+    Frontend-Suite 252 → 261 (+8
+    [`tests/lookup-picker.test.tsx`](frontend/tests/lookup-picker.test.tsx),
+    +3 in
+    [`tests/event-edit-form.test.tsx`](frontend/tests/event-edit-form.test.tsx)
+    für Restraint-Set-Diff, No-Change-Skip und Position-FK-Diff;
+    `tests/event-backfill-form.test.tsx` mocked `<LookupPicker>`).
+    Lint, Typecheck, `next build` clean.
+  - **Browser-E2E** (Admin gegen echtes Backend + Postgres) bestätigt:
+    Backfill-Application-Row zeigt 1 RestraintPicker + 3 LookupPicker;
+    Arm-Select listet 8 Seeds + „— keine —"; Sync-Roundtrip persistiert
+    `arm_position_id` + `hand_position_id` korrekt; Edit-Form lädt
+    Picker mit pre-populated Werten aus dem RxDB-Doc.
+
 - **M7.5 — Restraint-Picker in Application-Erfassung (ADR-043 §D, ADR-046):**
   Live-Modus + Backfill bekommen einen Multi-Select-Picker für
   approved RestraintTypes mit Typeahead-Filter und einer inline

@@ -26,6 +26,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { LookupPicker } from "@/components/catalog/lookup-picker";
+import { RestraintPicker } from "@/components/catalog/restraint-picker";
 import { RecipientPicker } from "@/components/person/recipient-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +61,10 @@ interface EditableApplication {
   recipientId: string;
   recipientName: string;
   note: string;
+  restraintTypeIds: string[];
+  armPositionId: string | null;
+  handPositionId: string | null;
+  handOrientationId: string | null;
   // Cached so the diff knows whether `ended_at` was originally null.
   endedAtWasLocked: boolean;
   // Snapshot for diff.
@@ -66,21 +72,25 @@ interface EditableApplication {
     endedAt: string;
     recipientId: string;
     note: string;
+    restraintTypeIds: string[];
+    armPositionId: string | null;
+    handPositionId: string | null;
+    handOrientationId: string | null;
   };
 }
 
 export interface EventEditFormProps {
   /**
-   * Current user — accepted for symmetry with the other form
-   * components and reserved for a future audit field, but the
-   * authoritative RBAC gate already lives in the page wrapper
-   * (server-side `canEditEvent` redirect).
+   * Current user — used for the embedded Picker quick-propose copy
+   * (Editor → pending vs Admin → auto-approve). The authoritative
+   * RBAC gate for the page itself still lives in the server wrapper
+   * (`canEditEvent` redirect).
    */
   user: AuthUser;
   initialEvent: EventDetail;
 }
 
-export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps) {
+export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
   const router = useRouter();
   const database = useDatabase();
   const [event, setEvent] = useState<EditableEvent | null>(null);
@@ -119,6 +129,7 @@ export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps)
         const matchingPerson = initialEvent.participants.find(
           (p) => p.id === json.recipient_id,
         );
+        const restraintIds = [...(json.restraint_type_ids ?? [])];
         return {
           id: json.id,
           startedAt: isoToLocal(json.started_at),
@@ -126,11 +137,19 @@ export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps)
           recipientId: json.recipient_id,
           recipientName: matchingPerson?.name ?? json.recipient_id,
           note: json.note ?? "",
+          restraintTypeIds: restraintIds,
+          armPositionId: json.arm_position_id,
+          handPositionId: json.hand_position_id,
+          handOrientationId: json.hand_orientation_id,
           endedAtWasLocked: json.ended_at !== null,
           initial: {
             endedAt: isoToLocal(json.ended_at),
             recipientId: json.recipient_id,
             note: json.note ?? "",
+            restraintTypeIds: [...restraintIds],
+            armPositionId: json.arm_position_id,
+            handPositionId: json.hand_position_id,
+            handOrientationId: json.hand_orientation_id,
           },
         };
       });
@@ -255,6 +274,18 @@ export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps)
         ) {
           patch.ended_at = localToIso(app.endedAt);
         }
+        if (!setEquals(app.restraintTypeIds, app.initial.restraintTypeIds)) {
+          patch.restraint_type_ids = [...app.restraintTypeIds];
+        }
+        if (app.armPositionId !== app.initial.armPositionId) {
+          patch.arm_position_id = app.armPositionId;
+        }
+        if (app.handPositionId !== app.initial.handPositionId) {
+          patch.hand_position_id = app.handPositionId;
+        }
+        if (app.handOrientationId !== app.initial.handOrientationId) {
+          patch.hand_orientation_id = app.handOrientationId;
+        }
         if (Object.keys(patch).length > 0) {
           patch.updated_at = new Date().toISOString();
           await doc.patch(patch);
@@ -362,8 +393,9 @@ export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps)
         <CardHeader>
           <CardTitle className="text-base">Applications</CardTitle>
           <CardDescription>
-            Start-Zeitstempel und Performer sind fixiert. Korrekturen erfolgen über
-            Soft-Delete + neue Erfassung (ADR-040 §K).
+            Start-Zeitstempel und Performer sind fixiert. Restraints und Positionen
+            sind über die Picker editierbar (LWW-Set-Replace bzw. LWW pro FK,
+            ADR-046-Followup).
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -442,6 +474,49 @@ export function EventEditForm({ user: _user, initialEvent }: EventEditFormProps)
                   />
                 </div>
                 <div className="flex flex-col gap-1">
+                  <Label>Restraints (optional)</Label>
+                  <RestraintPicker
+                    value={app.restraintTypeIds}
+                    onChange={(next) =>
+                      patchApplication(app.id, { restraintTypeIds: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-edit-${app.id}-restraints`}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <LookupPicker
+                    kind="arm-positions"
+                    label="Armhaltung"
+                    value={app.armPositionId}
+                    onChange={(next) =>
+                      patchApplication(app.id, { armPositionId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-edit-${app.id}-arm-position`}
+                  />
+                  <LookupPicker
+                    kind="hand-positions"
+                    label="Handhaltung"
+                    value={app.handPositionId}
+                    onChange={(next) =>
+                      patchApplication(app.id, { handPositionId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-edit-${app.id}-hand-position`}
+                  />
+                  <LookupPicker
+                    kind="hand-orientations"
+                    label="Handausrichtung"
+                    value={app.handOrientationId}
+                    onChange={(next) =>
+                      patchApplication(app.id, { handOrientationId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-edit-${app.id}-hand-orientation`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
                   <Label htmlFor={`app-edit-${app.id}-note`}>Notiz</Label>
                   <Input
                     id={`app-edit-${app.id}-note`}
@@ -512,4 +587,13 @@ function hasFieldError(errors: BackfillError[], field: string): boolean {
 
 function fieldErrorMessage(errors: BackfillError[], field: string): string {
   return errors.find((e) => e.kind === "event" && e.field === field)?.message ?? "";
+}
+
+function setEquals(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  for (const item of b) {
+    if (!set.has(item)) return false;
+  }
+  return true;
 }

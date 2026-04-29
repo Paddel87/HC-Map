@@ -25,11 +25,11 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-29 (Sessionende, M7.5 abgeschlossen, M7 vollständig)
+- **Stand vom:** 2026-04-29 (Sessionende, M7.5 + Followups abgeschlossen, M7 vollständig)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [ERLEDIGT] 2026-04-29.** Alle Sub-Steps (M7.1–M7.5) im Frontend produktiv und gegen das echte Backend verifiziert. Restraint-Picker (Live + Backfill) inkl. Quick-Propose, Set-Replace-LWW im Sync-Push, Pull-Bulk-Load auf `application_restraint`, Schema v0 → v1 mit Migration-Strategy.
-- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046).
-- **Nächster Schritt:** **M8 (Admin-Bereich)** — SQLAdmin-Schicht unter `/admin` und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung, User-Anlage, Anonymisierung, Admin-Export). Vorab-Followups aus M7-Stack: Edit-Form-Restraint-Picker (`event-edit-form.tsx`) + Position-Picker können als kleine Folge-Sub-Steps vor M8 nachgezogen werden, bauen auf der M7.5-Picker-Komponente auf.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [ERLEDIGT] 2026-04-29.** Alle Sub-Steps (M7.1–M7.5) plus die zwei M7.5-Followups (Restraint-Picker im Edit-Form, generischer LookupPicker für ArmPosition/HandPosition/HandOrientation in Live+Backfill+Edit) sind verifiziert. Backend-Sicherheitsfix `_position_fks_allowed` schließt das Editor-Exposure auf dem Sync-Update-Path.
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion).
+- **Nächster Schritt:** **M8 (Admin-Bereich)** — SQLAdmin-Schicht unter `/admin` und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung, User-Anlage, Anonymisierung, Admin-Export).
 - **Offene STOPP-Situationen:** keine.
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).

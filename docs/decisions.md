@@ -3744,9 +3744,29 @@ ADR-043 §E entscheidet nur den **Read-Path** des Picker-Dropdowns (TanStack-Que
 
 ### Folge-Arbeit
 
-- **Position-Picker im Edit-Form** (M5c.4-Followup): kann nach M7.5 als kleiner Folge-Sub-Step nachgezogen werden; baut auf der `RestraintPicker`-Komponente und der LWW-Set-Replace-Mechanik auf.
-- **Restraint-Picker im Edit-Form**: analoges Followup für M7.5 — gleiche Komponente in `event-edit-form.tsx` einklinken, Diff-basiert in den RxDB-Patch geben.
+- ~~**Position-Picker im Edit-Form**~~ → erledigt im M7.5-FU2 (2026-04-29).
+- ~~**Restraint-Picker im Edit-Form**~~ → erledigt im M7.5-FU1 (2026-04-29).
 - **Pfad B**: bei Audit-Bedarf für Restraint-Set-Änderungen wird ADR-046 §C (Set-Replace) durch Pro-Element-LWW ersetzt; Schema-Migration auf `application_restraint` notwendig.
+
+### Followups (2026-04-29)
+
+**M7.5-FU1 — Restraint-Picker im Edit-Form:**
+`event-edit-form.tsx` öffnet `<RestraintPicker>` pro Application-Row. `EditableApplication.restraintTypeIds` + `initial.restraintTypeIds` als Snapshot für den Diff; Submit-Loop ergänzt `patch.restraint_type_ids` nur, wenn das Set sich gegenüber dem Initial-Stand unterscheidet (set-equals via Helper). RxDB-`doc.patch({ restraint_type_ids: […] })` triggert Sync-Push, Set-Replace-LWW (ADR-046 §C) im Backend gilt unverändert.
+
+**M7.5-FU2 — Position-Picker (ArmPosition / HandPosition / HandOrientation) in Live + Backfill + Edit:**
+Neue generische Komponente `components/catalog/lookup-picker.tsx` (Single-Select mit „— keine —"-Option, Quick-Propose-Inline-Form analog zum Restraint-Picker). Eingehängt in `ApplicationStartSheet` (3-Spalten-Grid unter Restraints), `EventBackfillForm` (pro Row) und `EventEditForm` (pro Row mit Diff-Patch je FK). `EditableApplication.{armPositionId,handPositionId,handOrientationId}` + entsprechende `initial.*`-Snapshots; Patch enthält pro FK genau dann den Eintrag, wenn er sich geändert hat. ADR-040 §K-Beschränkung (Position-FKs aus Edit-Scope) ist damit aufgehoben — die Backend-Mechanik (LWW pro FK in `_apply_application_update`) hat das von Anfang an erlaubt, der Scope-Cut war nur UI-seitig.
+
+**Backend-Sicherheitsfix (FU2):**
+`_apply_application_update` (Update-Path) übernahm Position-FKs ohne Approved-Check. Mit dem Edit-Form-Position-Picker wäre das ein Editor-Exposure geworden (Editor sieht via RLS eigene pending; Push hätte sie auf eine bestehende Application setzen können). `_position_fks_allowed`-Helper extrahiert die existierende Insert-Path-Logik und wird jetzt auch im Update-Path aufgerufen (Konflikt-Tombstone-Antwort bei pending/unbekannten FKs). Insert-Path nutzt denselben Helper — kein Verhalten verändert, nur DRY.
+
+**Tests:**
+Backend **+1** in `tests/test_sync_application_restraints.py` (`test_editor_update_with_pending_arm_position_returns_conflict`) — 181 → 182. Frontend **+9**: `tests/lookup-picker.test.tsx` (8 Cases: list filtering pending hidden, single-select onChange, "— keine —"-clear, empty-submit-block, editor pending POST + no auto-select, admin auto-approve + auto-select), `tests/event-edit-form.test.tsx` (3 Cases: restraint-set-change patch, no-change skip, position-FK patch). 252 → 261.
+
+**Browser-E2E (Admin gegen echtes Backend + Postgres):**
+- Backfill: Application-Row zeigt 1 RestraintPicker + 3 LookupPicker (arm/hand/orientation); Arm-Select listet 8 Seeds + „— keine —".
+- Sync-Roundtrip via Console: Push-App mit `arm_position_id` + `hand_position_id` (approved) → Pull liefert beide FKs zurück, `hand_orientation_id` bleibt null.
+- Edit-Form für die so erzeugte Application: alle drei Picker pre-populated mit den Sync-pulled Werten (`armSelectValue` matcht den geseedeten Wert, `handSelectValue` ebenso, `orientation` = leer).
+- Lint + Typecheck + `next build` clean. Bundle: `/events/[id]/edit` 263 → 274 kB, `/events/new/backfill` 271 → 277 kB, Live-Sheet vom `/events/[id]` Bundle 279 → 285 kB.
 
 ---
 

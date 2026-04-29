@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { LookupPicker } from "@/components/catalog/lookup-picker";
 import { RestraintPicker } from "@/components/catalog/restraint-picker";
 import { RecipientPicker } from "@/components/person/recipient-picker";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,9 @@ export function ApplicationStartSheet({
   const [recipient, setRecipient] = useState<PersonRead | null>(defaultRecipient);
   const [note, setNote] = useState("");
   const [restraintTypeIds, setRestraintTypeIds] = useState<string[]>([]);
+  const [armPositionId, setArmPositionId] = useState<string | null>(null);
+  const [handPositionId, setHandPositionId] = useState<string | null>(null);
+  const [handOrientationId, setHandOrientationId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -62,6 +66,9 @@ export function ApplicationStartSheet({
       setRecipient(defaultRecipient);
       setNote("");
       setRestraintTypeIds([]);
+      setArmPositionId(null);
+      setHandPositionId(null);
+      setHandOrientationId(null);
     }
   }, [open, defaultRecipient]);
 
@@ -85,9 +92,9 @@ export function ApplicationStartSheet({
         event_id: eventId,
         performer_id: performerPersonId,
         recipient_id: recipientId,
-        arm_position_id: null,
-        hand_position_id: null,
-        hand_orientation_id: null,
+        arm_position_id: armPositionId,
+        hand_position_id: handPositionId,
+        hand_orientation_id: handOrientationId,
         sequence_no: localSeq,
         started_at: now,
         ended_at: null,
@@ -119,7 +126,7 @@ export function ApplicationStartSheet({
         <SheetHeader>
           <SheetTitle>Neue Application starten</SheetTitle>
           <SheetDescription>
-            Performer = du. Recipient ohne Auswahl = Self-Bondage. Positionen pflegst du später nach.
+            Performer = du. Recipient ohne Auswahl = Self-Bondage. Restraints und Positionen sind optional.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-4">
@@ -137,6 +144,32 @@ export function ApplicationStartSheet({
               value={restraintTypeIds}
               onChange={setRestraintTypeIds}
               isAdmin={currentUserRole === "admin"}
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <LookupPicker
+              kind="arm-positions"
+              label="Armhaltung"
+              value={armPositionId}
+              onChange={setArmPositionId}
+              isAdmin={currentUserRole === "admin"}
+              id="application-arm-position"
+            />
+            <LookupPicker
+              kind="hand-positions"
+              label="Handhaltung"
+              value={handPositionId}
+              onChange={setHandPositionId}
+              isAdmin={currentUserRole === "admin"}
+              id="application-hand-position"
+            />
+            <LookupPicker
+              kind="hand-orientations"
+              label="Handausrichtung"
+              value={handOrientationId}
+              onChange={setHandOrientationId}
+              isAdmin={currentUserRole === "admin"}
+              id="application-hand-orientation"
             />
           </div>
           <div className="flex flex-col gap-2">

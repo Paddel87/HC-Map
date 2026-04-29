@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { LookupPicker } from "@/components/catalog/lookup-picker";
 import { RestraintPicker } from "@/components/catalog/restraint-picker";
 import { RecipientPicker } from "@/components/person/recipient-picker";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,9 @@ interface ApplicationRow {
   recipient: PersonRead | null;
   note: string;
   restraintTypeIds: string[];
+  armPositionId: string | null;
+  handPositionId: string | null;
+  handOrientationId: string | null;
 }
 
 export interface EventBackfillFormProps {
@@ -91,6 +95,9 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         recipient: null,
         note: "",
         restraintTypeIds: [],
+        armPositionId: null,
+        handPositionId: null,
+        handOrientationId: null,
       },
     ]);
   }
@@ -174,9 +181,9 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
           event_id: eventId,
           performer_id: user.person_id,
           recipient_id: original.recipient?.id ?? user.person_id,
-          arm_position_id: null,
-          hand_position_id: null,
-          hand_orientation_id: null,
+          arm_position_id: original.armPositionId,
+          hand_position_id: original.handPositionId,
+          hand_orientation_id: original.handOrientationId,
           sequence_no: i + 1,
           started_at: sorted.startedAt,
           ended_at: sorted.endedAt,
@@ -407,6 +414,38 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                     }
                     isAdmin={user.role === "admin"}
                     id={`app-${row.uiId}-restraints`}
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <LookupPicker
+                    kind="arm-positions"
+                    label="Armhaltung"
+                    value={row.armPositionId}
+                    onChange={(next) =>
+                      updateApplication(row.uiId, { armPositionId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-${row.uiId}-arm-position`}
+                  />
+                  <LookupPicker
+                    kind="hand-positions"
+                    label="Handhaltung"
+                    value={row.handPositionId}
+                    onChange={(next) =>
+                      updateApplication(row.uiId, { handPositionId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-${row.uiId}-hand-position`}
+                  />
+                  <LookupPicker
+                    kind="hand-orientations"
+                    label="Handausrichtung"
+                    value={row.handOrientationId}
+                    onChange={(next) =>
+                      updateApplication(row.uiId, { handOrientationId: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-${row.uiId}-hand-orientation`}
                   />
                 </div>
                 <div className="flex flex-col gap-1">

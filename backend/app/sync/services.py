@@ -344,6 +344,9 @@ async def push_applications(
         if not await _restraints_allowed(session, new_doc.restraint_type_ids, user):
             conflicts.append(await _application_conflict_doc(session, existing))
             continue
+        if not await _position_fks_allowed(session, new_doc, user):
+            conflicts.append(await _application_conflict_doc(session, existing))
+            continue
         _apply_application_update(existing, new_doc)
         try:
             async with session.begin_nested():
@@ -362,20 +365,8 @@ async def _insert_application_or_conflict(
     new_doc: ApplicationDoc,
     user: User,
 ) -> Application | None:
-    # Catalog refs must be approved (admins exempt).
-    if user.role != UserRole.ADMIN:
-        if new_doc.arm_position_id is not None:
-            ap = await session.get(ArmPosition, new_doc.arm_position_id)
-            if ap is None or ap.status != CatalogStatus.APPROVED:
-                return None
-        if new_doc.hand_position_id is not None:
-            hp = await session.get(HandPosition, new_doc.hand_position_id)
-            if hp is None or hp.status != CatalogStatus.APPROVED:
-                return None
-        if new_doc.hand_orientation_id is not None:
-            ho = await session.get(HandOrientation, new_doc.hand_orientation_id)
-            if ho is None or ho.status != CatalogStatus.APPROVED:
-                return None
+    if not await _position_fks_allowed(session, new_doc, user):
+        return None
 
     # Server-authoritative sequence_no.
     next_seq = await _next_sequence_no(session, new_doc.event_id)
@@ -589,6 +580,55 @@ async def _load_restraint_sets(
     for app_id in result:
         result[app_id].sort()
     return result
+
+
+async def _position_fks_allowed(
+    session: AsyncSession,
+    new_doc: ApplicationDoc,
+    user: User,
+) -> bool:
+    """Editor may only link approved Arm/Hand/Orientation rows.
+
+    Admin pushes bypass status (mirrors the existing Insert-Path
+    behaviour). Unknown ids fail too — they would FK-violate later in
+    the ORM apply step and surface as opaque ``IntegrityError``.
+
+    Called from both ``_insert_application_or_conflict`` and
+    ``push_applications`` (Update-Path) — the latter previously
+    skipped the approved-check entirely, which the M7.5-FU2 Position-
+    Picker on the Edit-Form would have promoted into a real exposure
+    (Editor sees own pending via RLS; without the check, an Editor
+    push could attach a pending FK to an existing Application).
+    """
+    if user.role == UserRole.ADMIN:
+        # Admin still needs the row to exist so the FK insert succeeds.
+        if (
+            new_doc.arm_position_id is not None
+            and (await session.get(ArmPosition, new_doc.arm_position_id)) is None
+        ):
+            return False
+        if (
+            new_doc.hand_position_id is not None
+            and (await session.get(HandPosition, new_doc.hand_position_id)) is None
+        ):
+            return False
+        return not (
+            new_doc.hand_orientation_id is not None
+            and (await session.get(HandOrientation, new_doc.hand_orientation_id)) is None
+        )
+    if new_doc.arm_position_id is not None:
+        ap = await session.get(ArmPosition, new_doc.arm_position_id)
+        if ap is None or ap.status != CatalogStatus.APPROVED:
+            return False
+    if new_doc.hand_position_id is not None:
+        hp = await session.get(HandPosition, new_doc.hand_position_id)
+        if hp is None or hp.status != CatalogStatus.APPROVED:
+            return False
+    if new_doc.hand_orientation_id is not None:
+        ho = await session.get(HandOrientation, new_doc.hand_orientation_id)
+        if ho is None or ho.status != CatalogStatus.APPROVED:
+            return False
+    return True
 
 
 async def _restraints_allowed(

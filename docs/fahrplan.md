@@ -25,13 +25,16 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-28
+- **Stand vom:** 2026-04-29 (Sessionende)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Steps M7.1 + M7.2 + M7.3 abgeschlossen. **M7.3 [ERLEDIGT] 2026-04-29**: Backend ergänzt um `auto_approve`-Pfad in `propose_lookup` / `propose_restraint_type` (ADR-043 §F: Admin-POST landet direkt mit `status='approved'` + `approved_by`). Frontend liefert `LookupForm`, `RestraintTypeForm`, `CatalogFormPage`-Wrapper, neue Routes `/admin/catalogs/[kind]/new` (admin+editor) und `/admin/catalogs/[kind]/[id]/edit` (admin-only mit Server-Redirect für Editor). Mutation-Hooks `useCreateCatalogEntry` / `useUpdateCatalogEntry` mit Cache-Invalidation `["catalog", kind]`; UNIQUE-Konflikt → 409 → `describeMutationError`-Helper liefert Toast-Mapping (Sonner-Mount funktioniert seit HOTFIX-001 / ADR-042 wieder). Listing erweitert um „Neuer Eintrag"/„Neuen Vorschlag einreichen"-Button und Edit-Link pro Row (Admin). Frontend-Suite **230/230 grün** (+11), Backend-Suite **174/174 grün** (+2 für Auto-Approve). Lint, Typecheck, `next build` clean. Browser-E2E: Admin-Create → 201 + status=approved, Edit → 200 mit aktualisiertem Listing, Konflikt → 409 (Backend bestätigt).
-- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD-Härtung Glyph + RxDB).
-- **Nächster Schritt:** M7.4 — Freigabe-Queue + Editor-Withdraw (Approve/Reject-Buttons mit reject_reason-Dialog, Withdraw-Button auf eigenen pending-Rows).
-- **Offene STOPP-Situationen:** keine
-- **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043. Sub-Steps M7.1, M7.2, M7.3 abgeschlossen. Letztes Sessionende: HOTFIX-002 (Karten-DoD-Härtung) → main, Karten-Pipeline produktiv (Glyph-Proxy + RxDB-v17-Strict-Checks). Auf `origin/main`: `01215e2` (HOTFIX-002).
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044).
+- **Nächster Schritt:** **M7.4** — Freigabe-Queue + Editor-Withdraw (Approve/Reject-Buttons mit reject_reason-Dialog auf `/admin/catalogs/[kind]?status=pending`, Withdraw-Button auf eigenen pending-Rows). Baut auf bestehender `useCreateCatalogEntry` / `useUpdateCatalogEntry` aus M7.3 auf — neue Mutation-Hooks `useApproveCatalogEntry` / `useRejectCatalogEntry` / `useWithdrawCatalogEntry` ergänzen, Modal/Dialog-Component für reject_reason-Input.
+- **Offene STOPP-Situationen:** keine.
+- **Offene Beobachtungen:**
+  - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
+  - **`/events/[id]`** rendert Live-/Ended-View über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c (vorhanden, aber Edge-Case bleibt).
+  - **`HCMAP_BOOTSTRAP_*`-Mechanik** verweigert Re-Bootstrap, wenn bereits ein User existiert. Lokales Admin-Passwort kann via SQL-PATCH zurückgesetzt werden, Beispiel im Conversation-Verlauf.
 
 ## Überblick
 

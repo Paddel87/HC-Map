@@ -1,19 +1,17 @@
 /**
- * Component test for `CatalogTable` (M7.2).
+ * Component test for `CatalogTable` (M7.2 + M7.4).
  *
  * Covers loading + empty hint + RestraintType rendering (with
  * brand/model/mechanical_type subtitle) + lookup-row rendering and the
- * reject-reason callout for rejected rows.
+ * reject-reason callout for rejected rows. The action column is opt-in
+ * via the `renderRowActions` render-prop introduced in M7.4.
  */
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CatalogTable } from "@/components/catalog/catalog-table";
-import type {
-  LookupCatalogEntry,
-  RestraintTypeEntry,
-} from "@/lib/catalog/types";
+import type { LookupCatalogEntry, RestraintTypeEntry } from "@/lib/catalog/types";
 
 const RT_APPROVED: RestraintTypeEntry = {
   id: "rt-1",
@@ -49,14 +47,7 @@ const ARM_REJECTED: LookupCatalogEntry = {
 
 describe("CatalogTable", () => {
   it("renders a loading state while isLoading", () => {
-    render(
-      <CatalogTable
-        entries={[]}
-        kind="restraint-types"
-        isLoading
-        emptyHint="leer"
-      />,
-    );
+    render(<CatalogTable entries={[]} kind="restraint-types" isLoading emptyHint="leer" />);
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
@@ -98,29 +89,26 @@ describe("CatalogTable", () => {
     );
     expect(screen.getByText("Strappado")).toBeInTheDocument();
     expect(screen.getByText("Abgelehnt")).toBeInTheDocument();
-    expect(
-      screen.getByText("Begründung: Duplikat von 'Strappado-A'"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Begründung: Duplikat von 'Strappado-A'")).toBeInTheDocument();
   });
 
-  it("renders edit links per row when canEdit is true", () => {
+  it("renders renderRowActions output per row when provided", () => {
     render(
       <CatalogTable
         entries={[RT_APPROVED]}
         kind="restraint-types"
         isLoading={false}
         emptyHint="leer"
-        canEdit
+        renderRowActions={(entry) => (
+          <a href={`/admin/catalogs/restraint-types/${entry.id}/edit`}>Bearbeiten</a>
+        )}
       />,
     );
     const link = screen.getByRole("link", { name: "Bearbeiten" });
-    expect(link).toHaveAttribute(
-      "href",
-      "/admin/catalogs/restraint-types/rt-1/edit",
-    );
+    expect(link).toHaveAttribute("href", "/admin/catalogs/restraint-types/rt-1/edit");
   });
 
-  it("hides edit links when canEdit is false (default)", () => {
+  it("hides the action column when renderRowActions is omitted", () => {
     render(
       <CatalogTable
         entries={[RT_APPROVED]}

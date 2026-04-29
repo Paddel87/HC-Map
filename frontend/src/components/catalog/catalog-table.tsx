@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { StatusBadge } from "@/components/catalog/status-badge";
 import {
@@ -37,14 +37,19 @@ export function CatalogTable({
   kind,
   isLoading,
   emptyHint,
-  canEdit = false,
+  renderRowActions,
 }: {
   entries: AnyCatalogEntry[];
   kind: CatalogKind;
   isLoading: boolean;
   emptyHint: string;
-  /** Render an edit link in each row. Admin-only (ADR-042 §B). */
-  canEdit?: boolean;
+  /**
+   * Render-prop for the right-aligned action cell. Return `null` to
+   * skip a row's actions (e.g. for an editor's foreign-row view) and
+   * `null` for the whole prop to skip the action column entirely
+   * (read-only viewers). Caller owns RBAC checks (M7.4 / ADR-043 §G).
+   */
+  renderRowActions?: (entry: AnyCatalogEntry) => ReactNode;
 }) {
   if (isLoading) {
     return (
@@ -64,6 +69,7 @@ export function CatalogTable({
       </div>
     );
   }
+  const showActions = Boolean(renderRowActions);
   return (
     <div className="overflow-hidden rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
       <table className="w-full text-sm">
@@ -78,7 +84,7 @@ export function CatalogTable({
             <th scope="col" className="hidden px-4 py-2 font-medium md:table-cell">
               Erstellt
             </th>
-            {canEdit ? (
+            {showActions ? (
               <th scope="col" className="px-4 py-2 text-right font-medium">
                 <span className="sr-only">Aktionen</span>
               </th>
@@ -88,12 +94,14 @@ export function CatalogTable({
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
           {entries.map((entry) => {
             const subtitle = metaSubtitle(entry);
+            const actions = renderRowActions ? renderRowActions(entry) : null;
             return (
               <tr
                 key={entry.id}
                 data-testid="catalog-row"
                 data-entry-id={entry.id}
                 data-status={entry.status}
+                data-kind={kind}
                 className="hover:bg-slate-50 dark:hover:bg-slate-900/40"
               >
                 <td className="px-4 py-3 align-top">
@@ -112,17 +120,12 @@ export function CatalogTable({
                 <td className="px-4 py-3 align-top">
                   <StatusBadge status={entry.status} />
                 </td>
-                <td className="hidden px-4 py-3 align-top text-xs text-slate-500 md:table-cell dark:text-slate-400">
+                <td className="hidden px-4 py-3 align-top text-xs text-slate-500 dark:text-slate-400 md:table-cell">
                   {formatDate(entry.created_at)}
                 </td>
-                {canEdit ? (
-                  <td className="px-4 py-3 text-right align-top">
-                    <Link
-                      href={`/admin/catalogs/${kind}/${entry.id}/edit`}
-                      className="text-sm font-medium text-slate-900 underline-offset-4 hover:underline dark:text-slate-100"
-                    >
-                      Bearbeiten
-                    </Link>
+                {showActions ? (
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>
                   </td>
                 ) : null}
               </tr>

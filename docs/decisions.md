@@ -3596,4 +3596,75 @@ Unsere Setup aus M5b.3 erfüllt keine der drei Vorgaben. `createRxDatabase` resp
 
 ---
 
+## ADR-045 — Implementierungsstrategie M7.4 (Freigabe-Queue + Editor-Withdraw)
+
+**Status:** Accepted
+**Datum:** 2026-04-29
+**Vorgänger:** ADR-043 (M7-Strategie, §A/§B/§C/§G).
+**Bezug:** Fahrplan M7.4. Reine Frontend-Erweiterung — Backend-Endpoints (`POST /<kind>/<id>/approve`, `POST /<kind>/<id>/reject`, `DELETE /<kind>/<id>`) waren bereits in M7.1 inklusive Tests vorhanden.
+
+### Kontext
+
+ADR-043 §A/§C hat den Reject-Workflow (Status-Erweiterung mit `reject_reason`) und den Editor-Withdraw (eigene pending hard-delete) als Backend-Mechanik definiert; M7.4 zieht das ins Frontend nach. Die offenen Designfragen waren: (1) wo lebt der Reject-Reason-Dialog, (2) wie modelliert die `<CatalogTable>` mehrere unterschiedliche Aktionen pro Row sauber, (3) wie kommt die `currentUser.id` für die Editor-Eigentümer-Prüfung in das Client-Component, (4) welche UX-Validierung greift im Reason-Dialog.
+
+### Entscheidung
+
+**A. `<CatalogTable>` von Boolean auf Render-Prop umgebaut.**
+- Statt `canEdit: boolean` führt der Caller jetzt `renderRowActions: (entry) => ReactNode | undefined`. Action-Spalte mit Header rendert genau dann, wenn die Prop gesetzt ist.
+- Begründung: M7.4 mischt vier verschiedene Aktionen abhängig von Status × Rolle × Eigentümer. Eine Erweiterung der bestehenden `canEdit`-Logik um drei weitere Boolean-Props (`canApprove`, `canReject`, `canWithdraw`) hätte zu kombinatorischer Prop-Inflation geführt. Die Render-Prop verschiebt die RBAC-Logik einmalig in den Caller (`<CatalogListing>`) und hält die Tabelle UI-neutral.
+- Folgekosten: `tests/catalog-table.test.tsx` testet nicht mehr Edit-Sichtbarkeit pro Boolean, sondern dass die Render-Prop pro Row einmal aufgerufen wird; das ist ohnehin die robustere Schnittstelle.
+
+**B. `<RejectReasonDialog>` als eigenständige Komponente, Submit-only-Validation.**
+- `<Dialog>` als shadcn-Stil-Wrapper um `@radix-ui/react-dialog` neu in `components/ui/` (analog zum existierenden `<Sheet>`); zentriertes Modal mit Overlay, Close-Button.
+- `<RejectReasonDialog>` als spezialisierter Use-Case darüber: controlled (`open` + `onOpenChange`), Reason-State + reset-on-close (via `useEffect`).
+- **Validierungs-Trigger ausschließlich beim Submit** (`attemptedSubmit`-State, kein `onBlur`-Handler). Erstversion mit `onBlur`-`touched`-State produzierte unter Radix' Focus-Management einen sofortigen Inline-Error-Flash beim ersten Öffnen — beim Mount des Dialogs verschiebt Radix den Focus, der `onBlur`-Handler des autofokussierten Textareas feuert, `touched=true`, der Trimm leer → Alert sofort sichtbar. Submit-only beseitigt diesen Pfad und ist UX-seitig die quietere Variante (keine Error-Anzeige, bevor der User es überhaupt versucht hat).
+- **Bug wurde nur im Browser-E2E sichtbar**, nicht im jsdom-Test (Radix' Focus-Manipulation läuft in jsdom anders). Lessons Learned: Bei Modal-Komponenten, die Radix-Focus-Management nutzen, sind die jsdom-Tests blind für Focus-Reihenfolge-Effekte; Browser-E2E pro Sub-Step bleibt obligatorisch. Regression-Test (`tests/reject-reason-dialog.test.tsx`: „does not show inline error on first open") schließt das ab.
+
+**C. `<CatalogListing>`-Prop von `isAdmin` auf `currentUser` erweitert.**
+- Editor-Withdraw braucht `entry.suggested_by === currentUser.id` als Eigentümer-Prüfung (Mirror der `<table>_owner_modify`-RLS-Policy aus M7.1). Eine Boolean-Prop reicht dafür nicht; `currentUser: { id, role }` kommt aus der Server-Component (`getServerMe()` in `page.tsx`) und wird als Prop durchgereicht.
+- Damit fällt auch die `useMe()`-Client-Side-Race weg, die bei einer Hydratation-basierten Lösung möglich gewesen wäre. Page reicht den vom Server bereits geladenen User durch.
+- `lib/rbac.ts`-Helpers aus M7.3 (`canApproveCatalog`, `canEditCatalogEntry`, `canWithdrawCatalogEntry`) bleiben unverändert; sie nehmen jetzt direkt `currentUser` entgegen, nicht mehr nur einen abgeleiteten `isAdmin`-Boolean.
+
+**D. Reject-Dialog-State im Listing geliftet, nicht in der Table-Row.**
+- `const [rejectingEntry, setRejectingEntry] = useState<AnyCatalogEntry | null>(null)` lebt im `<CatalogListing>`. Reject-Button auf einer Row setzt `rejectingEntry`, das Dialog beobachtet `rejectingEntry !== null` als `open`.
+- Begründung: Eine Reject-Operation gleichzeitig ist genug; ein einzelner Dialog-Mount ist günstiger als pro-Row-Dialog-Instanzen (besonders bei 100+ pending-Rows). `<RejectReasonDialog>` ist damit always-mounted in `<CatalogListing>`, sein Reset-Effekt läuft beim Schließen.
+
+**E. Toast-Pfad reused.**
+- Erfolgs-Toasts: `„<Label>" freigegeben/abgelehnt/zurückgezogen` (Sonner).
+- Fehler-Pfad nutzt den `describeMutationError`-Helper aus M7.3 (`lookup-form.tsx` exportiert ihn). Damit gleiche Status-Behandlung wie bei Create/Update: 409 → „Eintrag existiert bereits", 403 → „Keine Berechtigung", 422 → „Eingabe ungültig", default → „Speichern fehlgeschlagen". Der Helper bleibt in `lookup-form.tsx`; eine Extraktion nach `lib/catalog/errors.ts` wäre Scope-Creep für M7.4.
+
+**F. Cache-Invalidation ungeändert.**
+- Alle drei neuen Mutation-Hooks invalidieren `["catalog", kind]`, identisch zu M7.3-Hooks. Damit re-fetched die Listing nach jedem Workflow-Schritt automatisch und der StatusFilter-Tab spiegelt den neuen Status korrekt.
+
+### Tests
+
+- `tests/catalog-actions.test.tsx` — 8 Cases (Admin Approve+Reject+Edit-Sichtbarkeit; Editor own/foreign-Sichtbarkeit; Approve POST-URL; Reject Dialog-Open + Empty-Block + getrimmter Reason POST; Withdraw DELETE).
+- `tests/reject-reason-dialog.test.tsx` — 7 Cases (Header/Description, kein Inline-Error auf erstem Open [Regression], Empty-Block, getrimmter Reason, Cancel, isPending-Disable, State-Reset auf Re-Open).
+- `tests/catalog-table.test.tsx`, `tests/catalog-listing.test.tsx` — Refactor-Anpassungen, kein Verlust an Coverage.
+- Backend: keine neuen Tests, weil keine Backend-Änderungen — `tests/test_catalog_workflow.py` aus M7.1 deckt die Endpoints bereits ab.
+
+### Konsequenzen
+
+- **`<CatalogTable>` ist UI-neutraler**, was M8 (Admin-Bereich) vereinfacht: dort kommen weitere Workflow-Aktionen (z. B. Re-Pend rejected → pending) ohne neue Boolean-Props oben drauf.
+- **`<Dialog>`-Primitive ist jetzt verfügbar** für künftige Confirm-Modals (Anonymisierungs-Bestätigung in M8, Hard-Delete-Bestätigung im Catalog-Edit, etc.).
+- **Lessons Learned (Defense-in-Depth):** jsdom-Tests sind für Radix-Focus-/Portal-Effekte blind. Pro Sub-Step mit Modal- oder Focus-relevanter UI bleibt Browser-E2E Pflicht-Bestandteil der DoD (siehe HOTFIX-002 / ADR-044 Konsequenzen, identische Lektion in einem anderen Kontext).
+- **`<CatalogListing>`'s neue Prop-Form** ist Breaking gegenüber M7.3, aber alle Aufrufer in der App sind die Server-Page; eine externer Konsument existiert nicht.
+- **Editor-PATCH auf eigene pending** bleibt explizit aus dem Scope (siehe ADR-043 §C). Editor mit Tippfehler im eigenen Vorschlag muss Withdraw + Neuvorschlag wählen — wenn das im realen Pfad-A-Betrieb stört, kann es als M7-Followup nachgezogen werden.
+
+### Verworfene Alternativen
+
+- **Reject-Dialog als pro-Row-Komponente:** dupliziert Modal-Mounts unnötig; bei einer Operation gleichzeitig ist ein einzelnes Dialog-Modal richtig.
+- **`canEdit: boolean` plus weitere Boolean-Props (`canApprove`, …):** kombinatorische Prop-Inflation; Render-Prop ist die saubere Lösung.
+- **`useMe()` im Client-Component statt `currentUser` per Prop:** zusätzliche Hydration-Race + zweiter API-Roundtrip pro Page-View — die Server-Page hat den User bereits geladen, durchreichen ist der direkte Pfad.
+- **`onBlur`-getriebene `touched`-Validierung mit Workaround (z. B. `requestAnimationFrame`-Verzögerung):** Bug-Symptom-Therapie statt Ursache; Submit-only ist die einfachere und korrektere Lösung.
+- **Approve/Reject-Status-Übergänge per generischem PATCH `/<id>` mit `status`-Feld:** war bereits in ADR-043 §B verworfen — Audit-Felder müssen serverseitig konsistent gesetzt werden, dedizierte Endpunkte sind hier präzise (Body-Validierung des Pflicht-Reason-Felds).
+
+### Folge-Arbeit
+
+- **M7.5** kann den `useCatalogList(kind, { status: "approved" })`-Cache aus M7.x direkt wiederverwenden; die approved-RestraintTypes sind dann nur ein zweiter Subscriber auf demselben Query-Key.
+- **M8 SQLAdmin-Modelview** für Catalog kann ergänzend dieselben Endpoints nutzen, ist aber nicht der primäre Pfad (siehe ADR-043 Konsequenzen).
+- **Reject-Reason-Inhalte bei Pfad-B-Aktivierung**: ADR-043 Folge-Arbeit hatte das bereits notiert; ADR-045 ändert daran nichts.
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

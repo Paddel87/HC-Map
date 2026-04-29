@@ -1,9 +1,12 @@
 /**
- * Integration test for `CatalogListing` (M7.2).
+ * Integration test for `CatalogListing` (M7.2 + M7.4).
  *
  * Verifies the listing reads `?status=` from the URL, calls the right
- * `/api/<kind>` endpoint, and writes back to the URL via
- * `router.replace` when the StatusFilter changes.
+ * `/api/<kind>` endpoint, writes back to the URL via `router.replace`
+ * when the StatusFilter changes, and renders the correct
+ * call-to-action button per role. M7.4 broadened the prop from
+ * `isAdmin` to a full `currentUser` so editor-withdraw can compare
+ * `entry.suggested_by` against the viewer's id.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +15,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CatalogListing, parseStatusParam } from "@/components/catalog/catalog-listing";
+import type { RbacUser } from "@/lib/rbac";
 
 const replaceMock = vi.fn();
 let searchParams = new URLSearchParams();
@@ -21,13 +25,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => searchParams,
 }));
 
+const ADMIN: RbacUser = { id: "u-admin", role: "admin" };
+const EDITOR: RbacUser = { id: "u-editor", role: "editor" };
+
 function withQuery(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
   });
-  return ({ children }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
+  return ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 beforeEach(() => {
@@ -47,10 +52,10 @@ afterEach(() => {
 function mockListResponse(items: unknown[], expectedQuery: (url: string) => void) {
   (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
     expectedQuery(url);
-    return new Response(
-      JSON.stringify({ items, total: items.length, limit: 50, offset: 0 }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ items, total: items.length, limit: 50, offset: 0 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   });
 }
 
@@ -76,7 +81,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     await waitFor(() => expect(calledUrl).not.toBeNull());
@@ -92,7 +97,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="arm-positions" isAdmin />
+        <CatalogListing kind="arm-positions" currentUser={ADMIN} />
       </Wrapper>,
     );
     await waitFor(() => expect(calledUrl).not.toBeNull());
@@ -125,7 +130,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     expect(await screen.findByText("Hanfseil")).toBeInTheDocument();
@@ -137,15 +142,14 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     fireEvent.click(screen.getByRole("radio", { name: "Vorgeschlagen" }));
     expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(replaceMock).toHaveBeenCalledWith(
-      "/admin/catalogs/restraint-types?status=pending",
-      { scroll: false },
-    );
+    expect(replaceMock).toHaveBeenCalledWith("/admin/catalogs/restraint-types?status=pending", {
+      scroll: false,
+    });
   });
 
   it("removes the URL param when switching back to 'all'", async () => {
@@ -161,14 +165,11 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     fireEvent.click(screen.getByRole("radio", { name: "Alle" }));
-    expect(replaceMock).toHaveBeenCalledWith(
-      "/admin/catalogs/restraint-types",
-      { scroll: false },
-    );
+    expect(replaceMock).toHaveBeenCalledWith("/admin/catalogs/restraint-types", { scroll: false });
   });
 
   it("renders 'Neuer Eintrag' for admins, 'Neuen Vorschlag einreichen' for editors", async () => {
@@ -176,26 +177,20 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     const { rerender } = render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     const adminLink = await screen.findByRole("link", { name: "Neuer Eintrag" });
-    expect(adminLink).toHaveAttribute(
-      "href",
-      "/admin/catalogs/restraint-types/new",
-    );
+    expect(adminLink).toHaveAttribute("href", "/admin/catalogs/restraint-types/new");
     rerender(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin={false} />
+        <CatalogListing kind="restraint-types" currentUser={EDITOR} />
       </Wrapper>,
     );
     const editorLink = await screen.findByRole("link", {
       name: "Neuen Vorschlag einreichen",
     });
-    expect(editorLink).toHaveAttribute(
-      "href",
-      "/admin/catalogs/restraint-types/new",
-    );
+    expect(editorLink).toHaveAttribute("href", "/admin/catalogs/restraint-types/new");
   });
 
   it("shows an error alert when the API rejects", async () => {
@@ -205,7 +200,7 @@ describe("CatalogListing (M7.2)", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <CatalogListing kind="restraint-types" isAdmin />
+        <CatalogListing kind="restraint-types" currentUser={ADMIN} />
       </Wrapper>,
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(/nicht laden/i);

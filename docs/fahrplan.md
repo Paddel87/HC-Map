@@ -25,11 +25,11 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-29 (Sessionende)
+- **Stand vom:** 2026-04-29 (Sessionende, M7.4 abgeschlossen)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043. Sub-Steps M7.1, M7.2, M7.3 abgeschlossen. Letztes Sessionende: HOTFIX-002 (Karten-DoD-Härtung) → main, Karten-Pipeline produktiv (Glyph-Proxy + RxDB-v17-Strict-Checks). Auf `origin/main`: `01215e2` (HOTFIX-002).
-- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044).
-- **Nächster Schritt:** **M7.4** — Freigabe-Queue + Editor-Withdraw (Approve/Reject-Buttons mit reject_reason-Dialog auf `/admin/catalogs/[kind]?status=pending`, Withdraw-Button auf eigenen pending-Rows). Baut auf bestehender `useCreateCatalogEntry` / `useUpdateCatalogEntry` aus M7.3 auf — neue Mutation-Hooks `useApproveCatalogEntry` / `useRejectCatalogEntry` / `useWithdrawCatalogEntry` ergänzen, Modal/Dialog-Component für reject_reason-Input.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043. Sub-Steps M7.1, M7.2, M7.3, M7.4 abgeschlossen. Workflow-Aktionen (Approve/Reject mit Begründung/Editor-Withdraw) sind im Frontend produktiv und gegen das echte Backend verifiziert.
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045).
+- **Nächster Schritt:** **M7.5** — Restraint-Picker (Multi-Select mit Typeahead) im Application-Erfassen-Pfad (Live + Backfill). Lädt approved-RestraintTypes via TanStack-Query (Cache aus M7.x reuse), Quick-Propose-Mini-Form für spontane Editor-Vorschläge. Position-Picker bleibt explizit aus Scope.
 - **Offene STOPP-Situationen:** keine.
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
@@ -83,7 +83,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [ERLEDIGT] 2026-04-29 |
-| 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [OFFEN]     |
+| 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [OFFEN]     |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
@@ -1420,9 +1420,62 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M7.4 — Freigabe-Queue + Editor-Withdraw
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-29
 
-Pending-Tab mit Approve-Button und Reject-Button + reject_reason-Dialog (Pflichtfeld). Editor-Self-Service: Withdraw-Button auf eigenen pending; eigene rejected werden als read-only mit Begründung angezeigt.
+**Status `[ERLEDIGT]` 2026-04-29 (M7.4, Freigabe-Queue + Editor-Withdraw):**
+
+- **Mutation-Hooks (`lib/catalog/api.ts`):**
+  - `useApproveCatalogEntry<K>(kind)` — POST `/api/<kind>/<id>/approve`, invalidiert `["catalog", kind]`.
+  - `useRejectCatalogEntry<K>(kind)` — POST `/api/<kind>/<id>/reject` mit `{ reason }`-Body.
+  - `useWithdrawCatalogEntry<K>(kind)` — DELETE `/api/<kind>/<id>` (apiFetch handled 204 bereits korrekt).
+  - Alle drei nutzen das in M7.3 etablierte `["catalog", kind]`-Cache-Schema; Erfolgsfälle invalidieren denselben Tree wie Create/Update, sodass die Listing-Refetch-Logik unverändert bleibt.
+
+- **UI-Primitive `<Dialog>` (`components/ui/dialog.tsx`):**
+  - Shadcn-Stil-Wrapper um `@radix-ui/react-dialog` (analog zum existierenden `<Sheet>`); zentriertes Modal mit Overlay, Close-Button (`Schließen`-Label), Title/Description/Header/Footer-Slots.
+  - Wieder verwendbar für künftige Confirm-Modals (z. B. M8 Anonymisierungs-Bestätigung).
+
+- **`<RejectReasonDialog>` (`components/catalog/reject-reason-dialog.tsx`):**
+  - Controlled (`open` + `onOpenChange`), zeigt Eintrags-Label im Header, `Begründung *`-Pflicht-Textarea (max 500 Zeichen), Submit-Button mit `destructive`-Variante.
+  - Validierung **ausschließlich beim Submit** (`attemptedSubmit`-State). Frühere `onBlur`-basierte Validierung führte unter Radix' Focus-Management zum sofortigen Inline-Error beim ersten Öffnen — siehe ADR-045 §B Lessons Learned, neuer Regression-Test in `tests/reject-reason-dialog.test.tsx` deckt diesen Pfad ab.
+  - Reason wird beim Schließen via `useEffect` zurückgesetzt; Re-Open zeigt frisches Form.
+
+- **`<CatalogTable>`-Refactor:**
+  - Boolean-Prop `canEdit` durch Render-Prop `renderRowActions: (entry) => ReactNode` ersetzt. Der Caller besitzt jetzt die volle Kontrolle über Aktionen pro Row inkl. RBAC-Logik. Action-Spalte mit Header erscheint genau dann, wenn `renderRowActions` gesetzt ist.
+  - `data-kind`-Attribut neu auf der Row für Test- und CSS-Selektion.
+
+- **`<CatalogListing>`-Refactor:**
+  - Prop-Änderung: `isAdmin: boolean` → `currentUser: { id, role }` (RbacUser). Notwendig, weil Editor-Withdraw die Eigentümer-Prüfung `entry.suggested_by === currentUser.id` braucht.
+  - Lifted state `rejectingEntry: AnyCatalogEntry | null` für das Dialog-Lifecycle (eine Reject-Operation gleichzeitig).
+  - Render-Prop liefert pro Row: Approve+Reject (Admin auf pending), Withdraw (`canWithdrawCatalogEntry`-Helper aus M7.3), Bearbeiten-Link (Admin auf approved/rejected). RBAC-Sichtbarkeit aus `lib/rbac.ts`-Helpers, Backend-RLS bleibt finale Instanz.
+  - Toasts: `„<Label>" freigegeben/abgelehnt/zurückgezogen` bei Erfolg, `describeMutationError` bei Fehler (übernommen aus M7.3).
+
+- **Page-Update (`/admin/catalogs/[kind]/page.tsx`):**
+  - Statt `isAdmin: boolean` reicht die Page jetzt `currentUser={ id, role }` durch. Auth + Role-Gate bleibt bei `app/(protected)/admin/layout.tsx` (Editor und Admin sehen die Seite).
+  - Header-Hilfetext aktualisiert: Admin-Hinweis nennt Approve/Reject mit Begründung; Editor-Hinweis nennt Withdraw und das read-only-Verhalten für rejected-Rows.
+
+- **Backend:** keine Änderungen — Endpoints `POST /<kind>/<id>/approve`, `POST /<kind>/<id>/reject` und `DELETE /<kind>/<id>` waren bereits in M7.1 inklusive Tests vorhanden (`tests/test_catalog_workflow.py`).
+
+- **Tests:** Frontend-Suite **230 → 244** (+14), 35/35 Files grün.
+  - `tests/catalog-actions.test.tsx` (8 Cases): Admin sieht Freigeben+Ablehnen+Bearbeiten je nach Status; Editor sieht Withdraw nur auf eigener pending-Row, gar nichts auf fremder; Approve POSTet `/<kind>/<id>/approve`; Reject öffnet Dialog → blockiert empty submit → POSTet getrimmten Reason; Withdraw DELETEd `/<kind>/<id>`.
+  - `tests/reject-reason-dialog.test.tsx` (7 Cases): Header/Description mit Eintrags-Label, Empty-Submit blockt, getrimmter Reason wird übergeben, Cancel ruft `onOpenChange(false)`, beide Buttons disabled bei `isPending`, Reset bei Re-Open, **kein Inline-Error auf erstem Open** (Regression-Guard).
+  - `tests/catalog-table.test.tsx` (refactored): `canEdit` → `renderRowActions` umgestellt; selber Funktionsumfang.
+  - `tests/catalog-listing.test.tsx` (refactored): `isAdmin` → `currentUser` umgestellt; alle Assertions identisch.
+
+- **Verifikation:**
+  - `pnpm typecheck`, `pnpm lint`, `pnpm test --run` clean (244/244).
+  - `pnpm build` clean: `/admin/catalogs/[kind]` 4.04 kB / First-Load 158 kB.
+  - **Browser-E2E** (Admin + Editor gegen echtes Backend + Postgres):
+    - Admin auf `/admin/catalogs/restraint-types?status=pending`: zwei pending-Rows mit korrektem `data-status="pending"` + drei Buttons (Freigeben, Ablehnen, Zurückziehen).
+    - Approve-Klick: Hanfseil A wandert auf `approved`, `approved_by` gesetzt, Listing aktualisiert sich automatisch.
+    - Reject-Klick: Dialog öffnet mit Eintrags-Label im Header, leer-submit-Blockade mit Inline-Error verifiziert, Reason mit typografischen Anführungszeichen + em-dash → DB persistiert exakt das Eingegebene, Status `rejected`, `rejected_by` gesetzt.
+    - Logout Admin → Login Editor → eigene pending-Row zeigt nur Withdraw, fremde Rows unsichtbar (RLS aus M7.1).
+    - Withdraw-Klick: Hard-Delete (Row ist 0× in DB präsent danach).
+    - Reload nach Reject zeigt rejected-Row in `?status=rejected`-Tab mit Inline-Begründung.
+  - **Bug während E2E gefunden + behoben:** Beim Re-Öffnen des Reject-Dialogs zeigte der Inline-Error sofort. Ursache: textarea `onBlur` setzte `touched=true`, weil Radix' Focus-Management beim Mount blur+refocus auslöst. Fix: Submit-only-Validation (`attemptedSubmit`-State, kein `onBlur`-Trigger). Regression-Test ergänzt.
+
+- **Bekannte Folge-Punkte:**
+  - M7.5 (Restraint-Picker) kann den `useCatalogList(kind, { status: "approved" })`-Cache aus M7.x direkt wiederverwenden.
+  - Bei Aktivierung von Pfad B muss der `reject_reason`-Inhalt ins Anonymisierungs-Konzept aufgenommen werden (siehe ADR-043 Folge-Arbeit).
 
 **Abhängigkeiten:** M7.2, M7.3.
 

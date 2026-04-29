@@ -7,6 +7,32 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M7.4 — Freigabe-Queue + Editor-Withdraw (ADR-043 §A/§C, ADR-045):**
+  Auf `/admin/catalogs/[kind]` haben pending-Vorschläge jetzt
+  Workflow-Buttons direkt in der Tabelle. Admin kann **Freigeben**
+  (POST `/<kind>/<id>/approve`) und **Ablehnen** (POST
+  `/<kind>/<id>/reject` mit Pflicht-Begründung über einen Modal-Dialog).
+  Editor sieht **Zurückziehen** auf eigenen pending-Rows
+  (DELETE `/<kind>/<id>`); abgelehnte eigene Vorschläge bleiben
+  read-only sichtbar mit Begründung. Backend-Endpoints aus M7.1
+  unverändert; reine Frontend-Erweiterung.
+  - Neue Mutation-Hooks `useApproveCatalogEntry`,
+    `useRejectCatalogEntry`, `useWithdrawCatalogEntry` in
+    [`lib/catalog/api.ts`](frontend/src/lib/catalog/api.ts).
+  - Neues UI-Primitive [`<Dialog>`](frontend/src/components/ui/dialog.tsx)
+    (shadcn-Stil über `@radix-ui/react-dialog`) und
+    [`<RejectReasonDialog>`](frontend/src/components/catalog/reject-reason-dialog.tsx)
+    mit Submit-only-Validation.
+  - `<CatalogTable>` von Boolean-`canEdit` auf Render-Prop
+    `renderRowActions` umgebaut; `<CatalogListing>` von
+    `isAdmin: boolean` auf `currentUser: { id, role }` umgestellt
+    (für Editor-Eigentümer-Prüfung beim Withdraw).
+  - Tests: Frontend-Suite 230 → 244 (+14, davon 7 für die Action-Flows
+    und 7 für den Dialog inkl. Regression-Guard gegen den Radix-Focus-
+    Inline-Error-Flash, siehe ADR-045 §B).
+
 ### Fixed
 
 - **HOTFIX-002 — Karten-DoD-Härtung (ADR-044):**

@@ -28,7 +28,11 @@ export interface CatalogListParams {
 
 export function catalogQueryKey(kind: CatalogKind, params: CatalogListParams = {}) {
   const { status, limit, offset } = params;
-  return ["catalog", kind, { status: status ?? null, limit: limit ?? null, offset: offset ?? null }] as const;
+  return [
+    "catalog",
+    kind,
+    { status: status ?? null, limit: limit ?? null, offset: offset ?? null },
+  ] as const;
 }
 
 export async function fetchCatalogPage(
@@ -106,16 +110,65 @@ export function useCreateCatalogEntry<K extends CatalogKind>(kind: K) {
 
 export function useUpdateCatalogEntry<K extends CatalogKind>(kind: K) {
   const qc = useQueryClient();
-  return useMutation<
-    AnyCatalogEntry,
-    Error,
-    { id: string; body: CatalogUpdatePayload<K> }
-  >({
+  return useMutation<AnyCatalogEntry, Error, { id: string; body: CatalogUpdatePayload<K> }>({
     mutationFn: async ({ id, body }) =>
       await apiFetch<AnyCatalogEntry>(`/api/${kind}/${id}`, {
         method: "PATCH",
         body,
       }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog", kind] });
+    },
+  });
+}
+
+/**
+ * Admin-only: promote a pending entry to `approved`. Backend sets
+ * `approved_by` / `approved_at` server-side (ADR-043 §B).
+ */
+export function useApproveCatalogEntry<K extends CatalogKind>(kind: K) {
+  const qc = useQueryClient();
+  return useMutation<AnyCatalogEntry, Error, { id: string }>({
+    mutationFn: async ({ id }) =>
+      await apiFetch<AnyCatalogEntry>(`/api/${kind}/${id}/approve`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog", kind] });
+    },
+  });
+}
+
+/**
+ * Admin-only: reject a pending entry with a mandatory reason. The
+ * proposing editor will continue to see the row with the reason
+ * attached (RLS lets `suggested_by = self` see own rejected rows).
+ */
+export function useRejectCatalogEntry<K extends CatalogKind>(kind: K) {
+  const qc = useQueryClient();
+  return useMutation<AnyCatalogEntry, Error, { id: string; reason: string }>({
+    mutationFn: async ({ id, reason }) =>
+      await apiFetch<AnyCatalogEntry>(`/api/${kind}/${id}/reject`, {
+        method: "POST",
+        body: { reason },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog", kind] });
+    },
+  });
+}
+
+/**
+ * Hard-delete a pending entry. Admin: any pending row. Editor: own
+ * pending only — RLS enforces both. Approved/rejected rows are not
+ * deletable by either (backend returns 409 CatalogStateError).
+ */
+export function useWithdrawCatalogEntry<K extends CatalogKind>(kind: K) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { id: string }>({
+    mutationFn: async ({ id }) => {
+      await apiFetch<void>(`/api/${kind}/${id}`, { method: "DELETE" });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["catalog", kind] });
     },

@@ -1,7 +1,7 @@
 {
   "title": "Application",
-  "description": "Application document replicated via /api/sync/applications. Wire-format contract shared with backend Pydantic ApplicationDoc (ADR-031).",
-  "version": 0,
+  "description": "Application document replicated via /api/sync/applications. Wire-format contract shared with backend Pydantic ApplicationDoc (ADR-031). v1 added restraint_type_ids[] (M7.5, ADR-046).",
+  "version": 1,
   "primaryKey": "id",
   "type": "object",
   "properties": {
@@ -71,6 +71,15 @@
     },
     "_deleted": {
       "type": "boolean"
+    },
+    "restraint_type_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "maxLength": 36
+      },
+      "default": []
     }
   },
   "required": [

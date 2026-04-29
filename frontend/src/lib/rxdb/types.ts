@@ -63,6 +63,12 @@ export interface ApplicationDocType {
   updated_at: string;
   deleted_at: string | null;
   _deleted: boolean;
+  /**
+   * Denormalised n:m link to ``application_restraint`` (ADR-046).
+   * Wire-format default is ``[]``; the backend stores rows separately
+   * and replaces the set on push (LWW).
+   */
+  restraint_type_ids: string[];
 }
 
 /** Cursor for the pull endpoint — `(updated_at, id)` per ADR-030. */

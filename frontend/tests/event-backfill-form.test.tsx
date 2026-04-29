@@ -114,6 +114,25 @@ vi.mock("@/components/person/recipient-picker", () => ({
   ),
 }));
 
+vi.mock("@/components/catalog/restraint-picker", () => ({
+  RestraintPicker: ({
+    value,
+    onChange,
+  }: {
+    value: readonly string[];
+    onChange: (ids: string[]) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="restraint-picker-stub"
+      data-restraints={value.join(",")}
+      onClick={() => onChange(["00000000-0000-0000-0000-0000000000ff"])}
+    >
+      pick-restraint
+    </button>
+  ),
+}));
+
 const USER: AuthUser = {
   id: "00000000-0000-0000-0000-000000000099",
   email: "self@example.com",

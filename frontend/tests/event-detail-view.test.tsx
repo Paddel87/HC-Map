@@ -18,7 +18,9 @@
 
 import "fake-indexeddb/auto";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BehaviorSubject } from "rxjs";
 
@@ -27,6 +29,15 @@ import { MASK_PLACEHOLDER } from "@/lib/masking";
 import type { ApplicationDocType, EventDocType } from "@/lib/rxdb/types";
 import type { AuthUser } from "@/lib/auth";
 import type { EventDetail, PersonRead } from "@/lib/types";
+
+function renderWithProviders(ui: ReactNode) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
 
 const useDatabaseMock = vi.fn();
 
@@ -109,6 +120,7 @@ function makeApplication(seq: number, overrides: Partial<ApplicationDocType> = {
     updated_at: startedAt,
     deleted_at: null,
     _deleted: false,
+    restraint_type_ids: [],
     ...overrides,
   };
 }
@@ -142,15 +154,14 @@ afterEach(() => {
 describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
   it("shows live-action buttons while the event is running", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(<EventDetailView user={USER} initialEvent={makeEvent()} />);
+    renderWithProviders(<EventDetailView user={USER} initialEvent={makeEvent()} />);
     expect(screen.getByRole("button", { name: /Neue Application/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Event beenden/ })).toBeInTheDocument();
   });
 
   it("hides live-action buttons once the event has ended", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({ ended_at: "2026-04-27T13:30:00Z" })}
       />,
@@ -172,8 +183,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
       ended_at: "2026-04-27T12:15:00Z",
     });
     useDatabaseMock.mockReturnValue(makeDatabase([app1, app2]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({ ended_at: "2026-04-27T12:15:00Z" })}
       />,
@@ -190,14 +200,13 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
     });
     const app2 = makeApplication(2, { started_at: "2026-04-27T12:10:00Z" });
     useDatabaseMock.mockReturnValue(makeDatabase([app1, app2]));
-    render(<EventDetailView user={USER} initialEvent={makeEvent()} />);
+    renderWithProviders(<EventDetailView user={USER} initialEvent={makeEvent()} />);
     expect(screen.queryAllByTestId("applications-timeline-gap")).toHaveLength(0);
   });
 
   it("masks non-self participants when reveal_participants is false", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({
           reveal_participants: false,
@@ -227,8 +236,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
   it("shows the Edit-button when the user can edit (admin)", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     const admin: AuthUser = { ...USER, role: "admin" };
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={admin}
         initialEvent={makeEvent({ created_by: "someone-else" })}
       />,
@@ -238,8 +246,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
 
   it("shows the Edit-button when the editor created the event", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({ created_by: USER.id })}
       />,
@@ -249,8 +256,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
 
   it("hides the Edit-button when the editor did not create the event", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({ created_by: "someone-else" })}
       />,
@@ -261,8 +267,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
   it("hides the Edit-button for viewers", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     const viewer: AuthUser = { ...USER, role: "viewer" };
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={viewer}
         initialEvent={makeEvent({ created_by: viewer.id })}
       />,
@@ -272,8 +277,7 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
 
   it("shows real names when reveal_participants is true", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
-    render(
-      <EventDetailView
+    renderWithProviders(      <EventDetailView
         user={USER}
         initialEvent={makeEvent({
           reveal_participants: true,

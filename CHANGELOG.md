@@ -9,6 +9,47 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M7.5 — Restraint-Picker in Application-Erfassung (ADR-043 §D, ADR-046):**
+  Live-Modus + Backfill bekommen einen Multi-Select-Picker für
+  approved RestraintTypes mit Typeahead-Filter und einer inline
+  Quick-Propose-Mini-Form. Editor-Vorschlag landet als pending,
+  Admin-Submit auto-approved und auto-selektiert (M7.3-Auto-Approve
+  reused).
+  - Neue Komponente
+    [`<RestraintPicker>`](frontend/src/components/catalog/restraint-picker.tsx)
+    teilt sich den `useCatalogList("restraint-types", { status: "approved" })`-
+    Cache mit der Catalog-Verwaltung. Filtert client-seitig zusätzlich auf
+    approved (eigene pending würden via Sync-Push 409'en).
+  - Integriert in
+    [`<ApplicationStartSheet>`](frontend/src/components/event/application-start-sheet.tsx)
+    (Live) und
+    [`<EventBackfillForm>`](frontend/src/components/event/event-backfill-form.tsx)
+    (pro Application-Row); Auswahl wird zusammen mit dem Application-
+    Insert in RxDB gespeichert und über den Sync-Push zum Server
+    transportiert.
+  - Application-Detail (`EventDetailView` →
+    [`ApplicationsTimeline`](frontend/src/components/event/event-detail-view.tsx))
+    zeigt die Restraints pro Application als Badge unter dem Status.
+  - **Sync-Vertrag erweitert (ADR-046):**
+    `ApplicationDoc.restraint_type_ids: uuid[]` in
+    [`application.schema.json`](frontend/src/lib/rxdb/schemas/application.schema.json)
+    (v0 → v1, Migration-Strategy `restraint_type_ids = []`) und
+    [`backend/app/sync/schemas.py`](backend/app/sync/schemas.py).
+    `RxDBMigrationSchemaPlugin` registriert in
+    [`lib/rxdb/database.ts`](frontend/src/lib/rxdb/database.ts).
+    Pull macht eine Bulk-IN-Query auf `application_restraint`,
+    Push diff't das Set (LWW Set-Replace), Konflikt-Antworten
+    enthalten das Server-Set; Editor-Push mit non-approved
+    RestraintType-IDs → Konflikt (Synthetic-Tombstone).
+  - Tests: Backend-Suite 174 → 181 (+7
+    [`test_sync_application_restraints.py`](backend/tests/test_sync_application_restraints.py)),
+    Frontend-Suite 244 → 252 (+8
+    [`tests/restraint-picker.test.tsx`](frontend/tests/restraint-picker.test.tsx)).
+    `test_rxdb_schema_drift.py` bleibt grün.
+  - Out of Scope für M7.5: Edit-Form-Restraint-Picker
+    (`event-edit-form.tsx`) und Position-Picker — beide bleiben als
+    M5c.4-Followups nach M7.5 offen (siehe ADR-046 §H).
+
 - **M7.4 — Freigabe-Queue + Editor-Withdraw (ADR-043 §A/§C, ADR-045):**
   Auf `/admin/catalogs/[kind]` haben pending-Vorschläge jetzt
   Workflow-Buttons direkt in der Tabelle. Admin kann **Freigeben**

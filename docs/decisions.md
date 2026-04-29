@@ -70,6 +70,8 @@ Status-Legende:
 | ADR-042 | Sonner-Major-Upgrade (v1.7.4 → v2.x) für React-19-Kompatibilität | Accepted | 2026-04-29 |
 | ADR-043 | Implementierungsstrategie M7 (Katalog-Verwaltung, Vorschlags-Workflow, Reject-Status) | Accepted | 2026-04-29 |
 | ADR-044 | Karten-DoD-Härtung (HOTFIX-002): Glyph-Proxy + RxDB-v17-Strict-Checks | Accepted | 2026-04-29 |
+| ADR-045 | Implementierungsstrategie M7.4 (Freigabe-Queue + Editor-Withdraw)        | Accepted | 2026-04-29 |
+| ADR-046 | Restraint-IDs als Array auf ApplicationDoc (M7.5 Sync-Erweiterung)       | Accepted | 2026-04-29 |
 
 ---
 
@@ -3664,6 +3666,87 @@ ADR-043 §A/§C hat den Reject-Workflow (Status-Erweiterung mit `reject_reason`)
 - **M7.5** kann den `useCatalogList(kind, { status: "approved" })`-Cache aus M7.x direkt wiederverwenden; die approved-RestraintTypes sind dann nur ein zweiter Subscriber auf demselben Query-Key.
 - **M8 SQLAdmin-Modelview** für Catalog kann ergänzend dieselben Endpoints nutzen, ist aber nicht der primäre Pfad (siehe ADR-043 Konsequenzen).
 - **Reject-Reason-Inhalte bei Pfad-B-Aktivierung**: ADR-043 Folge-Arbeit hatte das bereits notiert; ADR-045 ändert daran nichts.
+
+---
+
+## ADR-046 — Restraint-IDs als Array auf ApplicationDoc (M7.5 Sync-Erweiterung)
+
+**Status:** Accepted
+**Datum:** 2026-04-29
+**Vorgänger:** ADR-029 (Conflict-Resolution), ADR-030 (Soft-Delete + Cursor), ADR-031 (Schema-Source-of-Truth + Drift-Test), ADR-037 (Participants als Sync-Collection), ADR-043 (M7-Strategie).
+**Bezug:** Fahrplan M7.5.
+
+### Kontext
+
+ADR-043 §D sieht für M7.5 einen Restraint-Picker (Multi-Select mit Typeahead, Quick-Propose) im Application-Erfassen-Pfad (Live + Backfill) vor. Beide Pfade schreiben Applications seit M5b/M5c ausschließlich über RxDB (`application-start-sheet.tsx`, `event-backfill-form.tsx`). Die heutige Sync-Pipeline transportiert aber **keine** Restraint-Verknüpfungen: weder das RxDB-`Application`-Schema (`frontend/src/lib/rxdb/schemas/application.schema.json`) noch der Backend-`ApplicationDoc` (`backend/app/sync/schemas.py`) noch `app/sync/services.py` kennt `application_restraint`-Rows. Die alten REST-Pfade (`POST /api/events/{id}/applications`, `PUT /api/applications/{id}/restraints`) werden vom Frontend seit M5b/M5c nicht mehr genutzt (ADR-029, ADR-040 §B). RLS auf `application_restraint` existiert seit M2 (`application_restraint_member_select`, `application_restraint_editor_modify`) — dort ist nichts zu erweitern.
+
+ADR-043 §E entscheidet nur den **Read-Path** des Picker-Dropdowns (TanStack-Query-Cache der RestraintType-Liste). Der **Write-Path** für die n:m-Verknüpfung war offen.
+
+### Entscheidung
+
+**A. `restraint_type_ids: uuid[]` als denormalisiertes Array auf `ApplicationDoc`.**
+- Sowohl `frontend/src/lib/rxdb/schemas/application.schema.json` als auch `backend/app/sync/schemas.py:ApplicationDoc` bekommen ein neues Feld `restraint_type_ids` vom Typ `array<string format=uuid>`. Default `[]`. Nicht in `required` — pre-existing Documents ohne das Feld bleiben gültig (RxDB-v17-strict-Verhalten beachtet: kein `maxLength`-Bedarf für UUID-Arrays, aber Item-`maxLength: 36` wird gesetzt, um SC34 nicht zu triggern, falls das Feld später indexiert würde).
+- Drift-Test (`backend/tests/test_rxdb_schema_drift.py`) bleibt grün, weil beide Schemas synchron wachsen. Test-Helper, der Property-Listen vergleicht, sieht das Feld auf beiden Seiten und akzeptiert es.
+
+**B. Pull: lädt `application_restraint`-Set pro Application und materialisiert es ins Array.**
+- `pull_applications` macht **eine** zusätzliche Abfrage nach den Cursor-Walks: `SELECT application_id, restraint_type_id FROM application_restraint WHERE application_id IN (:ids)` (RLS filtert weiterhin pro Application, weil `application_restraint_member_select` an die Sichtbarkeit der Application gekoppelt ist).
+- Ergebnis wird in eine `dict[application_id, list[uuid]]` gruppiert; `_application_to_doc` nimmt das Set als optionalen Parameter und schreibt es ins Doc. Helper-Aufrufer ohne Set (z. B. Push-Conflict-Antworten) liefern leeres Array — Konflikt-Master-Doc darf das alte Set explizit überschreiben, das ist die LWW-Semantik.
+
+**C. Push: diff't das eingehende Array gegen die DB-Tabelle, INSERT/DELETE pro Element.**
+- `_apply_application_update` und `_insert_application_or_conflict` rufen einen neuen Helper `_sync_application_restraints(session, application_id, target_ids)`, der die aktuelle Set per `SELECT` lädt, die Differenzmengen bildet, fehlende Rows einfügt und überflüssige löscht.
+- Approved-Catalog-Check für Editor analog zu Position-FKs: Nicht-Admin darf nur approved-RestraintTypes verlinken; pending/rejected → Konflikt (gesamte Application-Push wird mit Server-Master als Konflikt zurückgegeben, Set-Diff wird **nicht** angewendet).
+- LWW: bei Konflikt überschreibt das Server-Set das Client-Set komplett (Set-Replace, kein Pro-Element-Merge). Begründung: kein Audit-Bedarf für „wer hat welchen Restraint wann gesetzt", und ein Pro-Element-LWW würde ein zusätzliches `updated_at` auf `application_restraint` erzwingen — Overengineering.
+
+**D. Konflikt-Antworten geben aktuelles Set zurück.**
+- `_application_to_doc` für Konflikt-Pfade lädt das Set explizit (eine Abfrage pro Konflikt). Damit lernt der Client beim Konflikt die Server-Wahrheit für Restraints und nicht nur für die Application-Felder.
+
+**E. Auto-Participant-Trigger für Recipient bleibt unverändert.**
+- Der Performer/Recipient-Auto-Participant-Pfad (ADR-012, ADR-033 §F) läuft unabhängig vom Restraint-Set; keine Änderung an `_ensure_participant`.
+
+**F. Drift-Test um neues Feld erweitert.**
+- Der Test in `backend/tests/test_rxdb_schema_drift.py` vergleicht Property-Listen aus beiden Schemas. Das neue Feld erscheint in beiden, der Test bleibt grün ohne Anpassung — sofern das Mapping symmetrisch ist. Falls der Test eine explizite Allowlist führt, wird sie um `restraint_type_ids` ergänzt.
+
+**G. Frontend-Picker als eigenständige Komponente.**
+- `components/catalog/restraint-picker.tsx` (Multi-Select-Combobox mit Typeahead-Filter über `display_name` und `category`/`brand`/`model`).
+- Datenquelle: `useCatalogList("restraint-types", { status: "approved" })` aus M7.x. Cache wird mit Catalog-Listing geteilt (Pfad-A-Datenmenge < 200 Rows passt in eine Page).
+- Quick-Propose-Mini-Form als inline-Footer-Card im Picker-Sheet: Kategorie + Display-Name (Pflicht), Brand/Modell/Mechanik optional. Submit ruft `useCreateCatalogEntry("restraint-types")` aus M7.3; Editor erzeugt pending, Admin auto-approve. Erfolg → invalidiert den Cache, Picker zeigt automatisch den neuen Eintrag (sofern approved); pending bleibt für Editor in der Liste sichtbar (RLS aus M7.1: eigene pending sehen).
+- Picker selbst trägt keine Auswahl von pending/rejected — er filtert client-seitig zusätzlich auf `status='approved'`, weil der Backend-Approved-Check sonst auf einem Editor-Push hart 409'en würde.
+
+**H. Integration in Live + Backfill.**
+- `ApplicationStartSheet` (Live): zusätzliches Feld unter Recipient/Notiz, schreibt Auswahl ins RxDB-Insert.
+- `EventBackfillForm`: pro Application-Row ein Picker zwischen Recipient und Notiz; Auswahl in der Row-State-Struktur, beim Submit ins RxDB-Insert übergeben.
+- Edit-Form (`event-edit-form.tsx`) bleibt **explizit aus dem Scope** — analog zur Position-Picker-Beschränkung in ADR-043 §D / ADR-040 §K. Edit-Restraint-Picker ist ein eigenes M5c.4-Followup nach M7.5.
+
+### Tests
+
+**Backend (zusätzlich zu bestehenden 174 Cases):**
+- `tests/test_sync_replication.py` (oder bestehender Sync-Roundtrip-Test): Push-Pull-Roundtrip mit `restraint_type_ids` setzt das Set; nochmaliger Push mit reduziertem Set löscht; Push-Konflikt liefert Server-Set.
+- Editor pushed Application mit pending RestraintType → Konflikt (Server-Master zurück, Set bleibt unverändert).
+- `test_rxdb_schema_drift.py` bleibt grün (oder wird minimal um Allowlist erweitert).
+- `test_sync_idempotency.py` Drei-Push-Test überträgt `restraint_type_ids` korrekt: 3× gleicher Push → 1 Application-Row + N `application_restraint`-Rows, kein Duplikat.
+
+**Frontend (zusätzlich zu bestehenden 244 Cases):**
+- `tests/restraint-picker.test.tsx`: Default-State (leerer Picker, leeres Set), Typeahead-Filter (Suche nach „cuff" filtert auf Handcuffs-Kategorie), Auswahl/Deselect, Quick-Propose-Submit (Mini-Form öffnet, leerer Display-Name → Block, gültiger Submit ruft `apiFetch` und re-fetched Cache).
+- `tests/application-start-sheet.test.tsx` ergänzt um Picker-Pfad: Auswahl überlebt Submit, RxDB-Insert enthält Set.
+
+### Konsequenzen
+
+- Sync-Wire-Format wächst um **ein** optionales Array-Feld auf `ApplicationDoc`. Kein Schema-Migration auf `application_restraint`-Tabelle nötig (existiert seit M2).
+- Pull macht eine zusätzliche Query pro Pull-Batch (n+1 vermeidet das, durch Bulk-`IN`-Query). Bei Pfad-A-Datenmenge irrelevant; bei Pfad B muss bei großen Pulls geprüft werden, ob ein JOIN-Lift effizienter ist.
+- Konflikt-Pfad lädt das Set zusätzlich pro Konflikt-Application (selten genug, Performance unkritisch).
+- Pfad B: Set-Replace-Semantik bleibt; falls dort Audit-Trail für „wer hat welchen Restraint wann hinzugefügt" gebraucht wird, ist das eine eigene Schema-Migration (`updated_at` + `created_by` auf `application_restraint`) — orthogonal zu M7.5.
+
+### Verworfene Alternativen
+
+- **Eigene Sync-Collection `application_restraints` (analog `event_participants` / ADR-037)**: aufwendiger (Surrogate `id`-PK, eigene Pull-/Push-Endpoints, eigene RxDB-Collection, eigene Drift-Schicht) für eine reine Set-Semantik ohne weitere Felder. Erst sinnvoll, wenn `application_restraint` zusätzliche Spalten bekommt (z. B. „Reihenfolge"). Dann lässt sich von A nach B migrieren, ohne den Wire-Vertrag von Application-Doc selbst zu brechen — das Array bleibt rückwärtskompatibel.
+- **Hybrid REST-PUT nach Sync**: bricht Offline-First, Live-Modus mit instabilem Netz verliert die Restraint-Wahl. Widerspricht ADR-029.
+- **`restraint_type_ids` mit Pro-Element-LWW** (Element-`updated_at`): Audit-Wert in Pfad A nicht erkennbar, Schema-Erweiterung auf `application_restraint`-Tabelle nötig, Konflikt-Auflösung wird komplex. Set-Replace ist die einfachere und für Pfad A korrekte Semantik.
+
+### Folge-Arbeit
+
+- **Position-Picker im Edit-Form** (M5c.4-Followup): kann nach M7.5 als kleiner Folge-Sub-Step nachgezogen werden; baut auf der `RestraintPicker`-Komponente und der LWW-Set-Replace-Mechanik auf.
+- **Restraint-Picker im Edit-Form**: analoges Followup für M7.5 — gleiche Komponente in `event-edit-form.tsx` einklinken, Diff-basiert in den RxDB-Patch geben.
+- **Pfad B**: bei Audit-Bedarf für Restraint-Set-Änderungen wird ADR-046 §C (Set-Replace) durch Pro-Element-LWW ersetzt; Schema-Migration auf `application_restraint` notwendig.
 
 ---
 

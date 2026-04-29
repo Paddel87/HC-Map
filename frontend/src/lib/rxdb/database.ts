@@ -12,10 +12,16 @@
  */
 
 import { addRxPlugin, createRxDatabase, type RxDatabase, type RxCollection } from "rxdb";
+import { RxDBMigrationSchemaPlugin } from "rxdb/plugins/migration-schema";
 import { getRxStorageDexie } from "rxdb/plugins/storage-dexie";
 
 import { applicationSchema, eventParticipantSchema, eventSchema } from "./schemas";
 import type { ApplicationDocType, EventDocType, EventParticipantDocType } from "./types";
+
+// Schema migrations are required for any version bump on a collection
+// (M7.5 / ADR-046 introduces v1 of the application schema). Always
+// loaded — strips down to a single small chunk.
+addRxPlugin(RxDBMigrationSchemaPlugin);
 
 export type EventCollection = RxCollection<EventDocType>;
 export type ApplicationCollection = RxCollection<ApplicationDocType>;
@@ -69,7 +75,16 @@ async function buildDatabase(): Promise<HCMapDatabase> {
   });
   await db.addCollections({
     events: { schema: eventSchema },
-    applications: { schema: applicationSchema },
+    applications: {
+      schema: applicationSchema,
+      // Schema v0 → v1 (M7.5, ADR-046): add the optional
+      // `restraint_type_ids` array. Existing local docs default to an
+      // empty set so the next push doesn't accidentally drop server
+      // restraints (LWW would replace them with []).
+      migrationStrategies: {
+        1: (doc: Record<string, unknown>) => ({ ...doc, restraint_type_ids: [] }),
+      },
+    },
     event_participants: { schema: eventParticipantSchema },
   });
   return db;

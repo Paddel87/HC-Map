@@ -646,7 +646,7 @@ Vollständige OpenAPI-Doku ist generiert (`/api/docs`). Hier die wichtigsten Rou
 | POST    | `/api/applications/{id}/end`                   | admin / Eigentümer | Live: Application beenden (`ended_at = now()`)   |
 | PATCH   | `/api/applications/{id}`                       | admin / Eigentümer | Update                      |
 | DELETE  | `/api/applications/{id}`                       | admin / Eigentümer | Löschen                     |
-| PUT     | `/api/applications/{id}/restraints`            | admin / Eigentümer | n:m-Set ersetzen            |
+| PUT     | `/api/applications/{id}/restraints`            | admin / Eigentümer | n:m-Set ersetzen (Legacy-REST; Live + Backfill nutzen seit M7.5 stattdessen das Sync-Push mit `restraint_type_ids[]` auf der Application-Doc, siehe ADR-046) |
 
 ### Personen
 
@@ -717,6 +717,8 @@ Pro Collection ein eigener Endpoint-Pfad (RxDB-Replication arbeitet pro Collecti
 | POST    | `/api/sync/applications/push`     | alle (RLS) | wie events/push; `sequence_no` ist server-vergeben (ADR-029); Auto-Participant für Performer/Recipient (ADR-012). |
 
 Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{event,application}.schema.json`) und Backend-Pydantic-Schemas (`backend/app/sync/schemas.py`) werden manuell parallel gepflegt; Drift-Test in `backend/tests/test_rxdb_schema_drift.py` schlägt bei Abweichungen fehl (ADR-031).
+
+**Application n:m-Restraints (M7.5, ADR-046):** `ApplicationDoc.restraint_type_ids: uuid[]` ist ein denormalisiertes Set auf der Application-Sync-Doc; Schema-Version wurde dafür auf v1 bewegt mit einer Migration-Strategy `restraint_type_ids = []` für vorhandene v0-Docs (`frontend/src/lib/rxdb/database.ts`). `RxDBMigrationSchemaPlugin` ist zwingend registriert. Pull-Pfad lädt `application_restraint`-Rows in einer Bulk-IN-Query und materialisiert das Array; Push-Pfad diff't das eingehende Array gegen die DB-Tabelle (Set-Replace LWW), inkl. Approved-Catalog-Check für Editor (analog Position-FKs). Konflikt-Antworten enthalten das aktuelle Server-Set.
 
 **RLS-Erweiterung in M5b.2:** `event_editor_select_own` und `application_editor_select_own` (Migration `20260426_1830_m5b2_owner_select`) lassen einen Editor seine eigenen Rows sehen, unabhängig von Participant-Mitgliedschaft. Notwendig, weil `INSERT … RETURNING` die SELECT-Policy auf der frisch eingefügten Zeile auswertet, bevor der Auto-Participant-Insert stattfindet (siehe ADR-033 §E).
 

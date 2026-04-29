@@ -25,11 +25,11 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-29 (Sessionende, M7.4 abgeschlossen)
+- **Stand vom:** 2026-04-29 (Sessionende, M7.5 abgeschlossen, M7 vollständig)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043. Sub-Steps M7.1, M7.2, M7.3, M7.4 abgeschlossen. Workflow-Aktionen (Approve/Reject mit Begründung/Editor-Withdraw) sind im Frontend produktiv und gegen das echte Backend verifiziert.
-- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045).
-- **Nächster Schritt:** **M7.5** — Restraint-Picker (Multi-Select mit Typeahead) im Application-Erfassen-Pfad (Live + Backfill). Lädt approved-RestraintTypes via TanStack-Query (Cache aus M7.x reuse), Quick-Propose-Mini-Form für spontane Editor-Vorschläge. Position-Picker bleibt explizit aus Scope.
+- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [ERLEDIGT] 2026-04-29.** Alle Sub-Steps (M7.1–M7.5) im Frontend produktiv und gegen das echte Backend verifiziert. Restraint-Picker (Live + Backfill) inkl. Quick-Propose, Set-Replace-LWW im Sync-Push, Pull-Bulk-Load auf `application_restraint`, Schema v0 → v1 mit Migration-Strategy.
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046).
+- **Nächster Schritt:** **M8 (Admin-Bereich)** — SQLAdmin-Schicht unter `/admin` und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung, User-Anlage, Anonymisierung, Admin-Export). Vorab-Followups aus M7-Stack: Edit-Form-Restraint-Picker (`event-edit-form.tsx`) + Position-Picker können als kleine Folge-Sub-Steps vor M8 nachgezogen werden, bauen auf der M7.5-Picker-Komponente auf.
 - **Offene STOPP-Situationen:** keine.
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
@@ -79,12 +79,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | HOTFIX-001  | Sonner v1 → v2 (React-19-Kompatibilität, ADR-042) | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | HOTFIX-002  | Karten-DoD-Härtung: Glyph-Proxy + RxDB-v17-Strict (ADR-044) | [ERLEDIGT] 2026-04-29 |
-| 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [IN ARBEIT] |
+| 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [ERLEDIGT] 2026-04-29 |
-| 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [OFFEN]     |
+| 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
@@ -1483,11 +1483,55 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 #### M7.5 — Restraint-Picker in Application-Erfassung
 
-**Status:** [OFFEN]
+**Status:** [ERLEDIGT] 2026-04-29
 
-Multi-Select-Picker mit Typeahead, lädt approved-RestraintTypes via TanStack-Query, integriert in Live-Modus + Backfill-Form. Quick-Propose-Mini-Form für spontane Editor-Vorschläge. Position-Picker bleibt explizit aus Scope (M5c.4-Followup).
+**Status `[ERLEDIGT]` 2026-04-29 (M7.5, Restraint-Picker + Sync-Erweiterung):**
 
-**Abhängigkeiten:** M7.1 (POST-Endpoint vorhanden), M5a.3 (Live-Form), M5c.3 (Backfill-Form).
+- **ADR-046 angelegt** für die Sync-Vertragserweiterung (Set-Replace-LWW, denormalisiertes Array auf `ApplicationDoc`); Option A aus dem Freigabeblock vom 2026-04-29 angenommen.
+
+- **Backend (`backend/`):**
+  - `app/sync/schemas.py:ApplicationDoc` um `restraint_type_ids: list[uuid.UUID] = Field(default_factory=list)` erweitert.
+  - `app/sync/services.py:pull_applications` lädt das Set per Bulk-IN-Query (`_load_restraint_sets`); `_application_to_doc` nimmt es als optionales Argument; Tombstone-Path liefert weiterhin `[]`.
+  - `push_applications` ruft neue Helper:
+    - `_restraints_allowed` — Editor darf nur approved RestraintTypes verlinken; unbekannte/pending/rejected → Synthetic-Tombstone-Konflikt. Admin darf alle existierenden, unbekannte → Konflikt (FK-Verletzung würde sonst den Push silently kippen).
+    - `_sync_application_restraints` — Set-Diff gegen `application_restraint`-Tabelle, Bulk-DELETE für entfernte, Per-Row INSERT mit Savepoint für Race-Resolution.
+    - `_application_conflict_doc` (async) — lädt Server-Set für jede Konflikt-Antwort, damit der Client beim Konflikt auch das Restraint-Set-Truth lernt (ADR-046 §D).
+  - Imports: `delete` (sqlalchemy core), `ApplicationRestraint`, `RestraintType`.
+
+- **Frontend (`frontend/`):**
+  - JSON-Schema `lib/rxdb/schemas/application.schema.json` v0 → **v1** mit `restraint_type_ids: array<string format=uuid maxLength=36>` (default `[]`, nicht required).
+  - `lib/rxdb/types.ts:ApplicationDocType.restraint_type_ids: string[]`.
+  - **`lib/rxdb/database.ts`** registriert `RxDBMigrationSchemaPlugin` (Pflicht für jede Schema-Version-Bump in RxDB v17) und definiert eine `migrationStrategies[1]`, die existierende v0-Docs auf `restraint_type_ids: []` migriert.
+  - Neue Komponente `components/catalog/restraint-picker.tsx`: Multi-Select-Combobox mit Typeahead-Filter über `display_name` + `category` + `brand` + `model`; Selektion als entfernbare Chips; inline Quick-Propose-Form (Display-Name Pflicht, Kategorie Select, Mechanik/Brand/Modell optional). Editor-Submit erzeugt pending (Toast „Vorschlag eingereicht"), Admin-Submit auto-approved und auto-selektiert (Toast „freigegeben"). Pending-Entries werden client-seitig herausgefiltert, weil Backend-Approved-Check sonst beim nächsten Push 409'en würde.
+  - `ApplicationStartSheet` (Live, `components/event/application-start-sheet.tsx`): neuer `currentUserRole`-Prop, `restraintTypeIds`-State, Picker zwischen Recipient und Notiz, RxDB-Insert reicht das Set durch.
+  - `EventBackfillForm` (`components/event/event-backfill-form.tsx`): pro Application-Row eigener Picker; Row-State um `restraintTypeIds` erweitert.
+  - `EventDetailView`-Timeline (`components/event/event-detail-view.tsx`): zeigt Restraint-Badges pro Application unter dem Status; nutzt denselben `useCatalogList`-Cache wie der Picker, um IDs in Display-Names aufzulösen.
+  - `event-detail-view.tsx`-Aufruf von `<ApplicationStartSheet>` reicht `currentUserRole={user.role}` durch.
+
+- **Tests:**
+  - Backend: **+7** in neuer Datei `tests/test_sync_application_restraints.py` (Insert mit Set, leerer Set Insert, Set-Replace, Push-Idempotenz, Editor pending → Konflikt, Editor pending in Update → Server-Set bleibt, Konflikt-Antwort enthält Server-Set). Backend-Suite **174 → 181 grün.** `test_rxdb_schema_drift.py` bleibt grün (beide Seiten haben `restraint_type_ids` nicht required).
+  - Frontend: **+8** in neuer Datei `tests/restraint-picker.test.tsx` (Typeahead-Filter Display-Name, Typeahead über Kategorie-Label, pending-Entries unsichtbar, Toggle multi-select, Chip-Remove, Quick-Propose Empty-Submit-Block, Editor-Submit POST-Body + kein Auto-Select, Admin-Submit auto-selektiert). `tests/event-backfill-form.test.tsx` mocked Picker. `tests/event-detail-view.test.tsx` ergänzt einen `QueryClientProvider`-Wrapper + `restraint_type_ids: []` im Default-Fixture. Frontend-Suite **244 → 252 grün.**
+  - Lint, Typecheck und `next build` clean. Bundle-Größen: `/events/[id]` 273 → 279 kB, `/events/new/backfill` 265 → 271 kB.
+
+- **Browser-E2E (Admin gegen echtes Backend + Postgres):**
+  - Picker auf `/events/new/backfill` lädt 17 approved Seeds; Suche „Clejuso" filtert auf 3 Treffer; Suche „Handschellen" filtert auf alle Cuffs-Kategorie-Einträge.
+  - Multi-Select: zwei Restraints anklicken erzeugt zwei Chips, Liste zeigt `data-selected="true"` synchron.
+  - Quick-Propose (Admin): „M7.5 Browser-Test Tape", Kategorie tape → POST 201, Auto-Approve, neuer Entry sofort sichtbar (17 → 18) und auto-selektiert. Toast „Restraint-Type freigegeben".
+  - Sync-Roundtrip via Browser-Console:
+    - Push App mit zwei Restraint-IDs → Pull liefert exakt die zwei zurück (sortiert).
+    - Push Update mit reduziertem Set (1 statt 2) → Pull bestätigt das Set-Replace.
+    - Push Application mit unbekannter Restraint-UUID → Synthetic-Tombstone-Konflikt, App nicht in DB.
+  - Live-Modus auf `/events/[id]`: „Neue Application"-Button öffnet Sheet mit Picker; Auswahl „ASP Chain" + Submit erzeugt Application; Pull bestätigt `restraint_type_ids` enthält den richtigen UUID; Timeline zeigt Badge „ASP Chain (chain)" unter Status.
+
+- **Bug während E2E gefunden + behoben (im selben Sub-Step):**
+  - Schema-Version-Bump alleine reicht in RxDB v17 nicht — `RxDBMigrationSchemaPlugin` muss explizit registriert sein, sonst wirft `addCollections` mit „You are using a function which must be overwritten by a plugin" und der Provider bleibt im Default-State (alle Live-Buttons disabled, kein UI-Hinweis). Behoben in `database.ts`. Lessons Learned: jede Schema-Migration verlangt zwei Schritte — Plugin registrieren **und** `migrationStrategies[N]` definieren.
+
+- **Bekannte Folge-Punkte:**
+  - **Edit-Form-Restraint-Picker** (`components/event/event-edit-form.tsx`): in M7.5 explizit aus Scope (ADR-046 §H). Kann als kleines M5c.4-Followup nach M7.5 nachgezogen werden — gleiche Komponente, Diff-basierte Patch-Logik.
+  - **Position-Picker** (M5c.4-Followup): unverändert aus Scope (ADR-040 §K, ADR-043 §D). Nach M7.5-Refactor lässt sich derselbe Combobox-Stil leicht für ArmPosition/HandPosition/HandOrientation duplizieren.
+  - **Pfad B**: Set-Replace-Semantik bleibt; bei Audit-Bedarf für Restraint-Set-Änderungen wird ADR-046 §C durch Pro-Element-LWW abgelöst (Schema-Migration auf `application_restraint` mit `updated_at` + `created_by`).
+
+**Abhängigkeiten:** M7.1 (POST-Endpoint), M7.3 (Mutation-Hooks für Quick-Propose), M5a.3 (Live-Form), M5c.3 (Backfill-Form).
 
 ---
 

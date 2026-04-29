@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { RestraintPicker } from "@/components/catalog/restraint-picker";
 import { RecipientPicker } from "@/components/person/recipient-picker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +54,7 @@ interface ApplicationRow {
   endedAt: string;
   recipient: PersonRead | null;
   note: string;
+  restraintTypeIds: string[];
 }
 
 export interface EventBackfillFormProps {
@@ -88,6 +90,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         endedAt: "",
         recipient: null,
         note: "",
+        restraintTypeIds: [],
       },
     ]);
   }
@@ -183,6 +186,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
           updated_at: now,
           deleted_at: null,
           _deleted: false,
+          restraint_type_ids: original.restraintTypeIds,
         });
       }
       toast.success("Event erfasst", {
@@ -395,12 +399,23 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
+                  <Label>Restraints (optional)</Label>
+                  <RestraintPicker
+                    value={row.restraintTypeIds}
+                    onChange={(next) =>
+                      updateApplication(row.uiId, { restraintTypeIds: next })
+                    }
+                    isAdmin={user.role === "admin"}
+                    id={`app-${row.uiId}-restraints`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
                   <Label htmlFor={`app-${row.uiId}-note`}>Notiz (optional)</Label>
                   <Input
                     id={`app-${row.uiId}-note`}
                     value={row.note}
                     onChange={(e) => updateApplication(row.uiId, { note: e.target.value })}
-                    placeholder="Restraint, Position, Bemerkung…"
+                    placeholder="Position, Bemerkung…"
                   />
                 </div>
                 {rowErrors.length > 0 ? (

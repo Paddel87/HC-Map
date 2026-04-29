@@ -66,7 +66,14 @@ class EventParticipantDoc(BaseModel):
 
 
 class ApplicationDoc(BaseModel):
-    """Application document in the RxDB replication shape."""
+    """Application document in the RxDB replication shape.
+
+    ``restraint_type_ids`` is the denormalised n:m link to
+    ``application_restraint`` (ADR-046, M7.5). Set-Replace LWW: the
+    server stores the union as separate rows, the wire format
+    materialises it as an unordered UUID array. Default ``[]`` so
+    pre-existing pulls without the field stay valid.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -86,6 +93,7 @@ class ApplicationDoc(BaseModel):
     updated_at: datetime
     deleted_at: datetime | None = None
     deleted: bool = Field(default=False, alias="_deleted")
+    restraint_type_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class SyncCheckpoint(BaseModel):

@@ -38,16 +38,17 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.application import Application
+from app.models.application import Application, ApplicationRestraint
 from app.models.catalog import (
     ArmPosition,
     CatalogStatus,
     HandOrientation,
     HandPosition,
+    RestraintType,
 )
 from app.models.event import Event, EventParticipant
 from app.models.user import User, UserRole
@@ -119,7 +120,10 @@ async def pull_applications(
         )
     stmt = stmt.order_by(Application.updated_at, Application.id).limit(limit)
     rows = list((await session.execute(stmt)).scalars().all())
-    docs = [_application_to_doc(r) for r in rows]
+    # Bulk-load the n:m set in one query so /pull stays O(N+1) bounded
+    # rather than firing one query per application (ADR-046 §B).
+    restraint_sets = await _load_restraint_sets(session, [r.id for r in rows])
+    docs = [_application_to_doc(r, restraint_sets.get(r.id, [])) for r in rows]
     new_cp: SyncCheckpoint | None
     if rows:
         last = rows[-1]
@@ -307,24 +311,38 @@ async def push_applications(
         existing = await session.get(Application, new_doc.id)
 
         if existing is not None and item.assumed_master_state is None:
-            conflicts.append(_application_to_doc(existing))
+            conflicts.append(await _application_conflict_doc(session, existing))
             continue
         if existing is None and item.assumed_master_state is not None:
             conflicts.append(_synthetic_application_tombstone(new_doc.id, new_doc.event_id))
             continue
 
         if existing is None:
+            # Editor must only link approved restraints; a pending or
+            # unknown id is a hard conflict (ADR-046 §C). Catalog FK
+            # validation runs before the row insert so we don't have to
+            # roll back partial state.
+            if not await _restraints_allowed(session, new_doc.restraint_type_ids, user):
+                conflicts.append(
+                    _synthetic_application_tombstone(new_doc.id, new_doc.event_id)
+                )
+                continue
             inserted = await _insert_application_or_conflict(session, new_doc, user)
             if inserted is None:
                 conflicts.append(
                     _synthetic_application_tombstone(new_doc.id, new_doc.event_id)
                 )
+                continue
+            await _sync_application_restraints(session, inserted.id, new_doc.restraint_type_ids)
             continue
 
         # Update path.
         conflict = _check_application_update(existing, new_doc, user.role)
         if conflict is not None:
-            conflicts.append(conflict)
+            conflicts.append(await _application_conflict_doc(session, existing))
+            continue
+        if not await _restraints_allowed(session, new_doc.restraint_type_ids, user):
+            conflicts.append(await _application_conflict_doc(session, existing))
             continue
         _apply_application_update(existing, new_doc)
         try:
@@ -332,7 +350,9 @@ async def push_applications(
                 await session.flush()
         except (IntegrityError, ProgrammingError):
             await session.refresh(existing)
-            conflicts.append(_application_to_doc(existing))
+            conflicts.append(await _application_conflict_doc(session, existing))
+            continue
+        await _sync_application_restraints(session, existing.id, new_doc.restraint_type_ids)
 
     return conflicts
 
@@ -506,7 +526,10 @@ def _event_participant_to_doc(row: EventParticipant) -> EventParticipantDoc:
     )
 
 
-def _application_to_doc(row: Application) -> ApplicationDoc:
+def _application_to_doc(
+    row: Application,
+    restraint_type_ids: list[uuid.UUID] | None = None,
+) -> ApplicationDoc:
     return ApplicationDoc(
         id=row.id,
         event_id=row.event_id,
@@ -524,7 +547,142 @@ def _application_to_doc(row: Application) -> ApplicationDoc:
         updated_at=row.updated_at,
         deleted_at=row.deleted_at,
         deleted=row.is_deleted,
+        restraint_type_ids=list(restraint_type_ids or []),
     )
+
+
+async def _application_conflict_doc(
+    session: AsyncSession,
+    row: Application,
+) -> ApplicationDoc:
+    """Build a master-doc reply for a push conflict, including the live restraint set.
+
+    ADR-046 §D: a Konflikt-Antwort must teach the client the server's
+    truth for restraints too, otherwise the client would silently drop
+    or reapply the local set on the next push.
+    """
+    sets = await _load_restraint_sets(session, [row.id])
+    return _application_to_doc(row, sets.get(row.id, []))
+
+
+async def _load_restraint_sets(
+    session: AsyncSession,
+    application_ids: Sequence[uuid.UUID],
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """Bulk-load `application_restraint` rows for the given application ids.
+
+    Returns ``{application_id: [restraint_type_id, ...]}``. Missing keys
+    map to an empty set semantically — the caller materialises ``[]``.
+    Sorted by ``restraint_type_id`` to keep the wire format
+    deterministic across pulls (helps roundtrip tests stay stable).
+    """
+    if not application_ids:
+        return {}
+    stmt = select(
+        ApplicationRestraint.application_id,
+        ApplicationRestraint.restraint_type_id,
+    ).where(ApplicationRestraint.application_id.in_(list(application_ids)))
+    rows = list((await session.execute(stmt)).all())
+    result: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for app_id, rt_id in rows:
+        result.setdefault(app_id, []).append(rt_id)
+    for app_id in result:
+        result[app_id].sort()
+    return result
+
+
+async def _restraints_allowed(
+    session: AsyncSession,
+    restraint_type_ids: Sequence[uuid.UUID],
+    user: User,
+) -> bool:
+    """Editor may only link approved RestraintTypes (ADR-046 §C).
+
+    Admin pushes bypass the approved-check (mirrors the catalog-FK
+    behaviour in :func:`_insert_application_or_conflict`). Unknown ids
+    fail too — they would otherwise FK-violate later in
+    ``_sync_application_restraints`` and surface as an opaque
+    IntegrityError.
+    """
+    if not restraint_type_ids:
+        return True
+    if user.role == UserRole.ADMIN:
+        # Admin still needs the rows to exist so the FK insert succeeds;
+        # status (pending/rejected) is irrelevant to admin.
+        existing_rows = list(
+            (
+                await session.execute(
+                    select(RestraintType.id).where(
+                        RestraintType.id.in_(list(restraint_type_ids))
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return len(existing_rows) == len(set(restraint_type_ids))
+    rows = list(
+        (
+            await session.execute(
+                select(RestraintType.id, RestraintType.status).where(
+                    RestraintType.id.in_(list(restraint_type_ids))
+                )
+            )
+        ).all()
+    )
+    if len(rows) != len(set(restraint_type_ids)):
+        return False
+    return all(status == CatalogStatus.APPROVED for _, status in rows)
+
+
+async def _sync_application_restraints(
+    session: AsyncSession,
+    application_id: uuid.UUID,
+    target_ids: Sequence[uuid.UUID],
+) -> None:
+    """Replace the n:m set for one application (ADR-046 §C, set-replace LWW).
+
+    Diffs the current rows against ``target_ids`` and issues a single
+    DELETE for the removed elements plus an ``INSERT … ON CONFLICT DO
+    NOTHING`` for the added ones. RLS already filters writes to
+    applications the caller may modify (`application_restraint_editor_modify`
+    from M2).
+    """
+    target = set(target_ids)
+    current = set(
+        (
+            await session.execute(
+                select(ApplicationRestraint.restraint_type_id).where(
+                    ApplicationRestraint.application_id == application_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    to_delete = current - target
+    to_add = target - current
+    if to_delete:
+        await session.execute(
+            delete(ApplicationRestraint).where(
+                ApplicationRestraint.application_id == application_id,
+                ApplicationRestraint.restraint_type_id.in_(list(to_delete)),
+            )
+        )
+    for rt_id in to_add:
+        try:
+            async with session.begin_nested():
+                session.add(
+                    ApplicationRestraint(
+                        application_id=application_id,
+                        restraint_type_id=rt_id,
+                    )
+                )
+                await session.flush()
+        except (IntegrityError, ProgrammingError):
+            # Concurrent push race: row already inserted. PK will absorb;
+            # outer transaction stays alive.
+            pass
 
 
 def _synthetic_event_tombstone(event_id: uuid.UUID) -> EventDoc:

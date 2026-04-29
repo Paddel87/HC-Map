@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { RestraintPicker } from "@/components/catalog/restraint-picker";
 import { RecipientPicker } from "@/components/person/recipient-picker";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -13,6 +14,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import type { UserRole } from "@/lib/auth";
 import type { HCMapDatabase } from "@/lib/rxdb/database";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { PersonRead } from "@/lib/types";
@@ -34,6 +36,8 @@ export interface ApplicationStartSheetProps {
   onOpenChange: (open: boolean) => void;
   eventId: string;
   performerPersonId: string;
+  /** Drives the Quick-Propose copy in the embedded RestraintPicker. */
+  currentUserRole: UserRole;
   defaultRecipient: PersonRead | null;
   onCreated: () => void;
 }
@@ -43,18 +47,21 @@ export function ApplicationStartSheet({
   onOpenChange,
   eventId,
   performerPersonId,
+  currentUserRole,
   defaultRecipient,
   onCreated,
 }: ApplicationStartSheetProps) {
   const database = useDatabase();
   const [recipient, setRecipient] = useState<PersonRead | null>(defaultRecipient);
   const [note, setNote] = useState("");
+  const [restraintTypeIds, setRestraintTypeIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (open) {
       setRecipient(defaultRecipient);
       setNote("");
+      setRestraintTypeIds([]);
     }
   }, [open, defaultRecipient]);
 
@@ -90,6 +97,7 @@ export function ApplicationStartSheet({
         updated_at: now,
         deleted_at: null,
         _deleted: false,
+        restraint_type_ids: restraintTypeIds,
       });
       toast.success("Application gestartet", {
         description: `Sequenz #${localSeq} (lokal). Sync setzt die endgültige Nummer.`,
@@ -111,8 +119,7 @@ export function ApplicationStartSheet({
         <SheetHeader>
           <SheetTitle>Neue Application starten</SheetTitle>
           <SheetDescription>
-            Performer = du. Recipient ohne Auswahl = Self-Bondage. Restraints und Positionen kannst
-            du später nachpflegen.
+            Performer = du. Recipient ohne Auswahl = Self-Bondage. Positionen pflegst du später nach.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-4">
@@ -122,6 +129,14 @@ export function ApplicationStartSheet({
               value={recipient}
               onChange={setRecipient}
               excludePersonIds={[performerPersonId]}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>Restraints (optional)</Label>
+            <RestraintPicker
+              value={restraintTypeIds}
+              onChange={setRestraintTypeIds}
+              isAdmin={currentUserRole === "admin"}
             />
           </div>
           <div className="flex flex-col gap-2">

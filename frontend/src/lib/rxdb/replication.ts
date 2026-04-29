@@ -91,7 +91,14 @@ function makeReplication<
     collection: collection as never,
     deletedField: "_deleted",
     retryTime: 5_000,
-    waitForLeadership: true,
+    // Pfad A is single-tab-dominant (mobile + occasional desktop) — gating
+    // pull/push on RxDB's broadcast-channel leader election added a
+    // multi-second delay before the first pull and, in HMR cycles,
+    // occasionally never resolved at all (DB initialised but no
+    // /api/sync/* requests in Network). Disabling leadership lets every
+    // tab replicate independently; duplicate pull traffic is acceptable
+    // for a < 20-user system.
+    waitForLeadership: false,
     autoStart: true,
     pull: {
       batchSize: DEFAULT_PULL_BATCH,

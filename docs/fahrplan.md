@@ -28,7 +28,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 - **Stand vom:** 2026-04-28
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
 - **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [IN ARBEIT]** — ADR-043 (zuvor als ADR-042 vergeben, nach Merge mit HOTFIX-001 umnummeriert); Sub-Steps M7.1 + M7.2 + M7.3 abgeschlossen. **M7.3 [ERLEDIGT] 2026-04-29**: Backend ergänzt um `auto_approve`-Pfad in `propose_lookup` / `propose_restraint_type` (ADR-043 §F: Admin-POST landet direkt mit `status='approved'` + `approved_by`). Frontend liefert `LookupForm`, `RestraintTypeForm`, `CatalogFormPage`-Wrapper, neue Routes `/admin/catalogs/[kind]/new` (admin+editor) und `/admin/catalogs/[kind]/[id]/edit` (admin-only mit Server-Redirect für Editor). Mutation-Hooks `useCreateCatalogEntry` / `useUpdateCatalogEntry` mit Cache-Invalidation `["catalog", kind]`; UNIQUE-Konflikt → 409 → `describeMutationError`-Helper liefert Toast-Mapping (Sonner-Mount funktioniert seit HOTFIX-001 / ADR-042 wieder). Listing erweitert um „Neuer Eintrag"/„Neuen Vorschlag einreichen"-Button und Edit-Link pro Row (Admin). Frontend-Suite **230/230 grün** (+11), Backend-Suite **174/174 grün** (+2 für Auto-Approve). Lint, Typecheck, `next build` clean. Browser-E2E: Admin-Create → 201 + status=approved, Edit → 200 mit aktualisiertem Listing, Konflikt → 409 (Backend bestätigt).
-- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug).
+- **Vorläufer:** M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Toast-Bug), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD-Härtung Glyph + RxDB).
 - **Nächster Schritt:** M7.4 — Freigabe-Queue + Editor-Withdraw (Approve/Reject-Buttons mit reject_reason-Dialog, Withdraw-Button auf eigenen pending-Rows).
 - **Offene STOPP-Situationen:** keine
 - **Offene Beobachtungen:** `/events/[id]` rendert Live- und Ended-View weiter über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c. Tile-Proxy braucht `HCMAP_MAPTILER_API_KEY` — ohne Key liefert er 503 und die Karte rendert ohne Tiles; Picker-Flow funktioniert trotzdem per Tap.
@@ -75,6 +75,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M6.4        | └─ Filter (Zeitraum, Beteiligte) + URL-Viewport  | [ERLEDIGT] 2026-04-27 |
 | 1 MVP   | M6.5        | └─ Geocoding-Suchbox in `MapView`                | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | HOTFIX-001  | Sonner v1 → v2 (React-19-Kompatibilität, ADR-042) | [ERLEDIGT] 2026-04-29 |
+| 1 MVP   | HOTFIX-002  | Karten-DoD-Härtung: Glyph-Proxy + RxDB-v17-Strict (ADR-044) | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7          | Katalog-Verwaltung & Vorschlags-Workflow         | [IN ARBEIT] |
 | 1 MVP   | M7.1        | └─ Backend (Migration, Reject-Status, Routes)    | [ERLEDIGT] 2026-04-28 |
 | 1 MVP   | M7.2        | └─ Frontend Übersicht `/admin/catalogs`          | [ERLEDIGT] 2026-04-28 |
@@ -1186,6 +1187,34 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - Die in der ursprünglichen Repro genannten M7.3-Komponenten (`lookup-form.tsx`, `restraint-type-form.tsx`) und Admin-Catalog-Routen existieren im Repo nicht; M7 ist `[OFFEN]`. Catalog-409-Toast wird mit M7 selbst verifiziert.
 - ADR-042 angelegt (Lessons Learned: Abhängigkeits-Vorprüfung auf React-Major + Browser-Smoke als DoD-Bestandteil bei mock-abhängigen Komponenten).
 - CHANGELOG-Eintrag.
+
+---
+
+### HOTFIX-002 — Karten-DoD-Härtung: Glyph-Proxy + RxDB-v17-Strict-Checks
+
+**Ziel:** Karte rendert produktiv mit Markern + Cluster + Beschriftungen. Siehe ADR-044.
+
+**Auslöser:** Erster Browser-Test mit gesetztem `HCMAP_MAPTILER_API_KEY` (HOTFIX-001-Folge) hat zwei orthogonale Bugs aufgedeckt, die im M5b/M6-Vitest-Setup nicht sichtbar waren.
+
+**Deliverables:**
+- **Backend:** Neuer Endpoint `GET /api/glyphs/{fontstack}/{rangespec}` analog zum Tile-Proxy (`backend/app/routes/glyphs.py`, in `app/main.py` registriert).
+- **Frontend:**
+  - `lib/map/style.ts`: `glyphs`-URL ergänzt (Default `/api/glyphs/{fontstack}/{range}.pbf`, Override per `NEXT_PUBLIC_GLYPHS_URL`).
+  - `lib/rxdb/database.ts`: AJV-Validator-Wrapper um Dexie-Storage in dev-mode (`wrappedValidateAjvStorage`); Production unverändert.
+  - `lib/rxdb/replication.ts`: `waitForLeadership: false` mit Begründungs-Kommentar.
+  - `lib/rxdb/provider.tsx`: catch-Block loggt explizit per `console.warn`.
+- **Schemas (alle drei):** `maxLength` für indexed string-Felder (`updated_at` 32, `event_id` 36, `started_at` 32), `multipleOf: 1` + `maximum: 1_000_000` für `sequence_no`.
+
+**Verifikation:**
+- Frontend-Suite 230/230 grün, Backend-Suite 174/174 grün, Drift-Test 9/9 grün.
+- Lint, Typecheck, `next build` clean.
+- **Browser-E2E manuell:** `/map` zeigt Cluster „7" über Berlin-Mitte + Einzel-Marker Kreuzberg + Out-of-View-Marker (München, Hamburg, Köln, Frankfurt). IndexedDB enthält `rxdb-dexie-hcmap--0--{events,applications,event_participants}` plus drei `rx-replication-meta-…`-DBs. Network-Log zeigt drei `/api/sync/*/pull`-Requests.
+
+**Status `[ERLEDIGT]` 2026-04-29.**
+
+**Folge-Punkte:**
+- M12 (Self-Hosted-Tileserver) tauscht alle drei MapTiler-Pfade gleichzeitig (Tiles, Glyphs, Geocoding).
+- Spätere Schema-Erweiterungen müssen `maxLength`/`multipleOf` für indexed Felder mitführen — Drift-Test enthält Erinnerung.
 
 ---
 

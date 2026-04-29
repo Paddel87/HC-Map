@@ -69,6 +69,7 @@ Status-Legende:
 | ADR-041 | Implementierungsstrategie M6 (Kartenansicht: MapView, Cluster, Filter, Geocoding) | Accepted | 2026-04-27 |
 | ADR-042 | Sonner-Major-Upgrade (v1.7.4 → v2.x) für React-19-Kompatibilität | Accepted | 2026-04-29 |
 | ADR-043 | Implementierungsstrategie M7 (Katalog-Verwaltung, Vorschlags-Workflow, Reject-Status) | Accepted | 2026-04-29 |
+| ADR-044 | Karten-DoD-Härtung (HOTFIX-002): Glyph-Proxy + RxDB-v17-Strict-Checks | Accepted | 2026-04-29 |
 
 ---
 
@@ -3521,6 +3522,77 @@ Keine. M7 ist reines Schema- und UI-Update.
 - **M8** (Admin-Bereich): SQLAdmin-Catalog-ModelViews bekommen die neuen Spalten; Workflow-spezifische UI auf `/admin-dash` kann auf den hier eingeführten Routen aufsetzen oder eigene Workflow-Aktionen ergänzen.
 - **Position-Picker im Edit-Form** (M5c.4-Followup): kann nach Abschluss von M7.5 als kleiner Folge-Sub-Step nachgezogen werden, baut auf der Picker-Logik aus M7.5 auf.
 - **Multi-Instanz-Deployments / Pfad B**: rejected-Vorschläge enthalten potenziell sensible Begründungen ("nicht für unseren Kontext geeignet"). Bei Aktivierung von Pfad B muss das Reject-Reason-Feld in das Anonymisierungs-Konzept aufgenommen werden (Kommentar im DSFA).
+
+---
+
+## ADR-044 — Karten-DoD-Härtung (HOTFIX-002): Glyph-Proxy + RxDB-v17-Strict-Checks
+
+**Status:** Accepted
+**Datum:** 2026-04-29
+**Bezug:** Folge-Bugs aus dem ersten Live-Karten-Test (mit funktionierendem MapTiler-Key) und dem dabei aufgedeckten RxDB-Init-Defekt.
+
+### Kontext
+
+Erst beim Browser-Test mit gesetztem `HCMAP_MAPTILER_API_KEY` traten zwei orthogonale Bugs zutage, die im M5b/M6-Vitest-Setup nicht sichtbar waren:
+
+**1. Glyph-Bug (M6.3 Cluster-Count-Layer):**
+`MapView`'s Cluster-Layer rendert eine Zahl per `text-field` — das verlangt eine `glyphs`-URL im MapLibre-Style. `lib/map/style.ts` setzte `glyphs` nicht. Folge: `addLayer` wirft im DEV-Modus, der gesamte React-Subtree der Karte (Source + Cluster-Layer + Marker-Layer) wird nicht angehängt → keine Marker. Im jsdom-Test passiert das nicht, weil MapLibre dort gemockt ist.
+
+**2. RxDB-v17-Strict-Checks (M5b.3):**
+RxDB v17 prüft im DEV-Modus zwingend mehrere Schema-/Storage-Vorgaben:
+- **DVM1:** Storage muss mit einem AJV-Validator gewrappt sein (`wrappedValidateAjvStorage`).
+- **SC34:** Indexed string-Fields brauchen `maxLength`.
+- **SC35:** Indexed integer-Fields brauchen `multipleOf` (und `maximum`).
+
+Unsere Setup aus M5b.3 erfüllt keine der drei Vorgaben. `createRxDatabase` resp. `addCollections` werfen jeweils, der Provider catched still und `useDatabase()` bleibt `null`. Die Sync-Pill bleibt grün (Default-State `idle`), Marker werden nie gerendert, und es gibt keinen Hinweis im UI. Der M5b.4 E2E-Vitest fängt das nicht ab, weil dort `fake-indexeddb` + manuelle Init laufen, die andere Code-Pfade nehmen.
+
+### Entscheidung
+
+**A. Backend-Glyph-Proxy.**
+- Neuer Endpoint `GET /api/glyphs/{fontstack}/{rangespec}` in `app/routes/glyphs.py` analog zum bestehenden Tile-Proxy. Auth-Pflicht, gleicher MapTiler-Key, 7-Tage-Cache-Header, 503/502-Fallback bei fehlendem Key bzw. Upstream-Fehler.
+- Frontend setzt `glyphs: "/api/glyphs/{fontstack}/{range}.pbf"` in `lib/map/style.ts`. Override per `NEXT_PUBLIC_GLYPHS_URL` möglich.
+
+**B. RxDB-Storage mit AJV-Validator wrappen (DEV-only).**
+- `lib/rxdb/database.ts:buildStorage()` wickelt den Dexie-Storage in `wrappedValidateAjvStorage` aus `rxdb/plugins/validate-ajv` — aber **nur wenn `NODE_ENV === "development"`**. Production behält den nackten Storage (kein zusätzlicher Bundle-Aufschlag, RxDB-Prüfungen sind dev-only).
+
+**C. Schema-Härtung (alle drei Sync-Collections).**
+- `event.schema.json`: `started_at` und `updated_at` bekommen `maxLength: 32` (deckt ISO-8601 mit Mikrosekunden + UTC-Offset).
+- `application.schema.json`: `event_id` `maxLength: 36`, `updated_at` `maxLength: 32`, `sequence_no` `multipleOf: 1` + `maximum: 1_000_000`.
+- `event_participant.schema.json`: `event_id` `maxLength: 36`, `updated_at` `maxLength: 32`.
+- Backend-Drift-Test (`tests/test_rxdb_schema_drift.py`) bleibt grün — die neuen Felder berühren weder Property-Liste noch Required-Liste noch Top-Level-Type.
+
+**D. Replication-Leadership.**
+- `waitForLeadership: true` blockierte den ersten Pull bei HMR-Cycles und in einzelnen Browser-Sessions; setzen auf `false`. Pfad-A-Datenmenge (< 5 000 Events, < 20 User) verträgt parallele Pulls problemlos. Trade-off (zusätzliche Pull-Last bei Multi-Tab-Use) ist akzeptiert.
+
+**E. Provider-Logging.**
+- `provider.tsx`'s catch-Block loggt jetzt explizit per `console.warn("[hcmap-rxdb] provider init failed:", caught)`. `database.ts:getDatabase()` ebenfalls bei Init-Fehlern. Silent failure (vorher) hatte den Bug für Tage maskiert; ein sichtbarer Browser-Warn ist die billigste Defense-in-Depth.
+
+### Tests
+
+- **Frontend-Suite:** 230/230 grün, keine Test-Anpassungen nötig (Mocks decken die Branches nicht).
+- **Backend-Suite:** 174/174 grün, **Drift-Test 9/9** verifiziert die Schema-Erweiterungen. Glyph-Endpoint ist analog zum Tile-Proxy aufgebaut; eigene Tests werden mit M12 (Self-Hosted-Tile-Layer) eingeführt, weil dort die Endpoint-Parität explizit geprüft wird.
+- **Browser-E2E (manuell):** `/map` mit gesetztem Key:
+  - 12 seed events → 1 Cluster ("7" über Berlin-Mitte) + 1 Einzel-Marker (Kreuzberg) + Marker für München/Hamburg/Köln/Frankfurt im Out-of-View-Bereich.
+  - IndexedDB enthält `rxdb-dexie-hcmap--0--{events,applications,event_participants}` plus drei Replication-Meta-DBs.
+  - Drei Sync-Pull-Requests im Network-Log, Datenfluss Backend → RxDB → MapLibre-Source → Cluster-Render funktioniert end-to-end.
+
+### Konsequenzen
+
+- **Karten-DoD vollständig**: Tiles + Glyphs + Marker + Cluster + Geocoding + LocationPickerMap rendern produktiv. M6 ist *jetzt erst* in dem Zustand, wie er als ERLEDIGT markiert war.
+- **Defense-in-Depth-Lesson** (analog ADR-042 Lessons Learned, Regel 2): Browser-Smoke-Verify als Pflicht-DoD-Bestandteil bei mock-abhängigen Komponenten ist hier erneut belegt. Beide Bugs hätten in der M6/M5b-Verifikation aufschlagen müssen, taten es aber nicht — weil ohne MapTiler-Key auch keine Karte rendert (Tiles fehlen → kein addLayer-Pfad), und im Vitest die Storage-Initialisierung gemockt wird.
+- **RxDB v17 Compatibility-Note**: jede zukünftige Erweiterung der RxDB-Schemas (`schemas/*.schema.json`) muss `maxLength`/`multipleOf` für indexed Felder mitführen. Wird in `tests/test_rxdb_schema_drift.py` kommentiert; eine zusätzliche maschinelle Prüfung folgt bei Bedarf.
+
+### Verworfene Alternativen
+
+- **Glyph-URL direkt zu MapTiler mit Key im Browser:** verstößt gegen das Self-Hosting-Prinzip (ADR-001), Key wäre über DevTools sichtbar. Backend-Proxy ist der einheitliche Pfad.
+- **`text-field` aus dem Cluster-Count-Layer entfernen:** Cluster ohne Zahl ist UX-Rückschritt. Kostet keinen Cluster-Code, aber den Zahlen-Hint pro Gruppe.
+- **`multiInstance: false` statt `waitForLeadership: false`:** würde die BroadcastChannel-Cross-Tab-Synchronisierung deaktivieren; Tab-Wechsel könnte stale Daten zeigen. Leadership-Skip ist die punktuellere Lösung.
+- **AJV-Validator auch in Production:** RxDB-Bundle wächst um ~50 KB für Validator+AJV. In Pfad A nicht nötig — Schema-Drift wird via Drift-Test verhindert, bevor er in Production landet.
+
+### Folge-Arbeit
+
+- M12 (Self-Hosted-Tileserver) erbt das Glyph-Proxy-Pattern; bei Migration werden alle drei MapTiler-Pfade (Tiles, Glyphs, Geocoding) gleichzeitig getauscht.
+- ADR-031 (RxDB-Schema-Source-of-Truth) bleibt unverändert — die Schema-Erweiterungen sind reine Storage-Hints, keine semantische Änderung.
 
 ---
 

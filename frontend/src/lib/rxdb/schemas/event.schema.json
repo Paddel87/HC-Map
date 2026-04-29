@@ -12,7 +12,8 @@
     },
     "started_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "maxLength": 32
     },
     "ended_at": {
       "type": ["string", "null"],
@@ -47,7 +48,8 @@
     },
     "updated_at": {
       "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "maxLength": 32
     },
     "deleted_at": {
       "type": ["string", "null"],

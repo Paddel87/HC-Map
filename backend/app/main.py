@@ -26,6 +26,7 @@ from app.routes.catalog import (
 from app.routes.events import router as events_router
 from app.routes.exports import router as exports_router
 from app.routes.geocode import router as geocode_router
+from app.routes.glyphs import router as glyphs_router
 from app.routes.persons import router as persons_router
 from app.routes.search import router as search_router
 from app.routes.tiles import router as tiles_router
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router, prefix="/api")
     app.include_router(exports_router, prefix="/api")
     app.include_router(tiles_router, prefix="/api")
+    app.include_router(glyphs_router, prefix="/api")
     app.include_router(geocode_router, prefix="/api")
     app.include_router(sync_router, prefix="/api")
 

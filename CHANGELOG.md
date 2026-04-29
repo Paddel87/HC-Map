@@ -9,6 +9,53 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Fixed
 
+- **HOTFIX-002 — Karten-DoD-Härtung (ADR-044):**
+  Marker, Cluster und Cluster-Count-Beschriftungen rendern jetzt
+  produktiv. Aufgedeckt beim ersten Browser-Test mit gesetztem
+  `HCMAP_MAPTILER_API_KEY` (HOTFIX-001-Folge). Zwei orthogonale Bugs:
+  - **Glyph-Bug (M6.3):** Cluster-Count-Layer nutzt `text-field`, der
+    Style hatte aber kein `glyphs`. MapLibre wirft im DEV-Modus bei
+    `addLayer`, kein Marker-Layer wird angehängt → keine Marker.
+    *Fix:* Neuer Backend-Endpoint
+    [`/api/glyphs/{fontstack}/{rangespec}`](backend/app/routes/glyphs.py)
+    (analog zum Tile-Proxy, gleicher MapTiler-Key, 7-Tage-Cache).
+    Frontend setzt `glyphs` in
+    [`lib/map/style.ts`](frontend/src/lib/map/style.ts) auf
+    `/api/glyphs/{fontstack}/{range}.pbf`. Override per
+    `NEXT_PUBLIC_GLYPHS_URL`.
+  - **RxDB-v17-Strict-Checks (M5b.3):** v17 erzwingt im DEV-Modus
+    Schema-Validator-Wrapper (DVM1), `maxLength` auf indexed
+    string-Fields (SC34) und `multipleOf` auf indexed integer-Fields
+    (SC35). Unsere Setup erfüllte keine. Folge: `addCollections` wirft,
+    `useDatabase()` bleibt `null`, Marker werden nie gerendert.
+    Sync-Pill blieb grün (Default-State).
+    *Fix:*
+    - [`lib/rxdb/database.ts`](frontend/src/lib/rxdb/database.ts):
+      Dexie-Storage mit `wrappedValidateAjvStorage` aus
+      `rxdb/plugins/validate-ajv` wrappen — nur in DEV-Mode (Prod
+      bleibt nackt).
+    - Schemas
+      ([event](frontend/src/lib/rxdb/schemas/event.schema.json),
+      [application](frontend/src/lib/rxdb/schemas/application.schema.json),
+      [event_participant](frontend/src/lib/rxdb/schemas/event_participant.schema.json)):
+      `maxLength: 32` für indexed `started_at` / `updated_at`,
+      `maxLength: 36` für indexed `event_id`, `multipleOf: 1` +
+      `maximum: 1_000_000` für `sequence_no`.
+    - [`lib/rxdb/replication.ts`](frontend/src/lib/rxdb/replication.ts):
+      `waitForLeadership: false` (HMR-Cycles haben Leader-Election
+      gehängt; Pfad-A verträgt parallele Pulls).
+    - [`lib/rxdb/provider.tsx`](frontend/src/lib/rxdb/provider.tsx):
+      catch-Block loggt jetzt sichtbar `console.warn` —
+      Defense-in-Depth gegen das stille Init-Fail-Pattern.
+  - **Frontend-Suite 230/230, Backend-Suite 174/174, Drift-Test 9/9
+    grün.** Lint/Typecheck/Build clean.
+  - **Browser-Verifikation:** 12 seed events → 1 Cluster „7" über
+    Berlin-Mitte + Einzel-Marker Kreuzberg + Marker für München /
+    Hamburg / Köln / Frankfurt im Out-of-View-Bereich. IndexedDB
+    enthält `rxdb-dexie-hcmap--0--{events,applications,event_participants}`
+    plus drei Replication-Meta-DBs. Drei `/api/sync/*/pull`-Requests
+    im Network.
+
 - **HOTFIX-001 — Sonner-Toasts unter React 19 wieder sichtbar (ADR-042):**
   Toasts (`toast.error`, `toast.success` aus `sonner`) wurden im Browser
   nicht angezeigt — der `<Toaster />`-Container in

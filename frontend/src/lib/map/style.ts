@@ -3,6 +3,14 @@ import type { StyleSpecification } from "maplibre-gl";
 export const TILE_URL_TEMPLATE: string =
   process.env.NEXT_PUBLIC_TILE_URL ?? "/api/tiles/{z}/{x}/{y}";
 
+/**
+ * Glyph-URL for MapLibre symbol layers (cluster-count text). Same proxy
+ * pattern as TILE_URL — MapTiler key stays server-side. MapLibre
+ * substitutes ``{fontstack}`` and ``{range}`` at request time.
+ */
+export const GLYPHS_URL_TEMPLATE: string =
+  process.env.NEXT_PUBLIC_GLYPHS_URL ?? "/api/glyphs/{fontstack}/{range}.pbf";
+
 export const DEFAULT_MAP_CENTER: { lat: number; lon: number } = parseCenter(
   process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER ?? "52.5200,13.4050",
 );
@@ -24,9 +32,13 @@ function parseCenter(raw: string): { lat: number; lon: number } {
   return { lat, lon };
 }
 
-export function rasterTileStyle(tileUrl: string = TILE_URL_TEMPLATE): StyleSpecification {
+export function rasterTileStyle(
+  tileUrl: string = TILE_URL_TEMPLATE,
+  glyphsUrl: string = GLYPHS_URL_TEMPLATE,
+): StyleSpecification {
   return {
     version: 8,
+    glyphs: absoluteTileUrl(glyphsUrl),
     sources: {
       "hcmap-raster": {
         type: "raster",

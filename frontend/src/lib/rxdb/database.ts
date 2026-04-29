@@ -33,23 +33,36 @@ const DB_NAME = "hcmap";
 let dbPromise: Promise<HCMapDatabase> | null = null;
 let devPluginLoaded = false;
 
-async function loadDevPlugin(): Promise<void> {
-  if (devPluginLoaded) return;
-  // Production strips it for bundle size; vitest skips it because the
-  // plugin demands a schema-validator wrapper around the storage that
-  // we don't ship in production. Only the interactive `next dev` path
-  // (NODE_ENV === "development") loads it.
-  if (process.env.NODE_ENV !== "development") return;
+async function loadDevPlugin(): Promise<boolean> {
+  if (devPluginLoaded) return true;
+  // Production strips dev-mode + validator for bundle size; vitest skips
+  // both because the plugin demands a schema-validator wrapper around
+  // the storage. Only the interactive `next dev` path
+  // (NODE_ENV === "development") loads them.
+  if (process.env.NODE_ENV !== "development") return false;
   const { RxDBDevModePlugin } = await import("rxdb/plugins/dev-mode");
   addRxPlugin(RxDBDevModePlugin);
   devPluginLoaded = true;
+  return true;
+}
+
+async function buildStorage() {
+  const dexieStorage = getRxStorageDexie();
+  // dev-mode (RxDB ≥ 17) requires the storage to be wrapped in a schema
+  // validator at the top level (error DVM1) — without it, `createRxDatabase`
+  // throws and the provider stays in default state with no UI feedback.
+  // Production omits the wrapper to keep the bundle small.
+  if (process.env.NODE_ENV !== "development") return dexieStorage;
+  const { wrappedValidateAjvStorage } = await import("rxdb/plugins/validate-ajv");
+  return wrappedValidateAjvStorage({ storage: dexieStorage });
 }
 
 async function buildDatabase(): Promise<HCMapDatabase> {
   await loadDevPlugin();
+  const storage = await buildStorage();
   const db = await createRxDatabase<HCMapCollections>({
     name: DB_NAME,
-    storage: getRxStorageDexie(),
+    storage,
     multiInstance: true,
     eventReduce: true,
     ignoreDuplicate: false,
@@ -73,6 +86,11 @@ export function getDatabase(): Promise<HCMapDatabase> {
   }
   if (!dbPromise) {
     dbPromise = buildDatabase().catch((error) => {
+      // Visible warn — silent failures here used to hide RxDB-init bugs
+      // (no DB in IndexedDB, no replication requests, but UI thinks
+      // everything's fine because Provider stays in default state).
+      // eslint-disable-next-line no-console
+      console.warn("[hcmap-rxdb] buildDatabase failed:", error);
       // Reset so the next call can retry from a clean slate.
       dbPromise = null;
       throw error;

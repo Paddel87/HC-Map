@@ -27,7 +27,7 @@ mit "(→ ADR-XXX)" referenzieren.
 | Web-Framework     | FastAPI (aktuell)                                                     | ADR-005     |
 | ORM / Migrations  | SQLAlchemy 2.0 / Alembic                                              | ADR-005     |
 | Validierung       | Pydantic v2                                                           | ADR-005     |
-| Admin-UI          | SQLAdmin (unter /admin, parallel zu Next.js)                          | ADR-016     |
+| Admin-UI          | SQLAdmin 0.25 (unter /admin, parallel zu Next.js)                     | ADR-016, ADR-049 |
 | Auth              | fastapi-users + HttpOnly-Cookie-Sessions                              | ADR-006     |
 | Datenbank         | PostgreSQL 16 + PostGIS 3                                             | ADR-005     |
 | Offline-Sync      | RxDB + Dexie-Storage-Adapter                                          | ADR-017     |
@@ -94,10 +94,12 @@ hc-map/
 │   │   │   └── anonymize.py
 │   │   ├── deps.py                  # FastAPI-Dependencies (Auth, DB, RBAC)
 │   │   ├── rls.py                   # RLS-Helper: GUC setzen pro Request
-│   │   ├── admin_ui/                # SQLAdmin-Integration (siehe ADR-016)
+│   │   ├── admin_ui/                # SQLAdmin-Integration (siehe ADR-016, ADR-049)
 │   │   │   ├── __init__.py
-│   │   │   ├── views.py             # ModelView-Definitionen
-│   │   │   └── auth.py              # Cookie-Session-Bridge zu fastapi-users
+│   │   │   ├── auth.py              # AdminAuthBackend (JWT-Cookie-Reuse)
+│   │   │   ├── context.py           # ContextVars für RLS-Stamp
+│   │   │   ├── setup.py             # _StampingAsyncSession + register_admin
+│   │   │   └── views.py             # 8 ModelView-Definitionen
 │   │   └── sync/                    # RxDB-Replication-Endpoints (siehe ADR-017)
 │   │       ├── __init__.py
 │   │       ├── routes.py            # /api/sync/pull, /api/sync/push

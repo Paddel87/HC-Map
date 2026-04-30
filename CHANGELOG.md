@@ -7,6 +7,24 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M8.2 — SQLAdmin-Schicht unter `/admin` (ADR-049, Backend-Teil):**
+  Selbst-gehostetes Admin-UI parallel zum Next.js-Frontend, ausschließlich
+  für Rolle `admin`. Cookie-Bridge zur fastapi-users-Session
+  (`hcmap_session`-Reuse, kein zweiter Auth-Pfad); RLS-Stamping über eine
+  `_StampingAsyncSession`-Subklasse, die bei jeder DB-Session
+  `app_user` + `app.current_*`-GUCs setzt — `FORCE ROW LEVEL SECURITY` ist
+  somit auch in SQLAdmin durchgängig wirksam. ModelViews für 8 Domain-
+  Tabellen (User, Person, RestraintType, ArmPosition, HandPosition,
+  HandOrientation, Event, Application). `Application` ist read-only
+  und `Event` erlaubt weder Create noch Hard-Delete — Mutationen laufen
+  weiterhin über die RxDB-Sync-Pipeline (ADR-029, ADR-033). Direkter
+  Zugriff auf `/admin/login` (GET) wird auf den Next.js-`/login`
+  umgeleitet, sodass die SQLAdmin-Login-Form unerreichbar bleibt.
+- **Neue Backend-Dependencies:** `sqladmin` `>=0.25,<0.26` (BSD-3),
+  `itsdangerous` `>=2.2,<3` (Starlette-`SessionMiddleware`-Backing).
+
 ### Changed
 
 - **STACK-002 — Backend-Stack-Drift Voll-Sweep (ADR-048, Variante B aus Audit Blocker #001 Punkt 3):**

@@ -22,6 +22,8 @@ dependencies = [
     "email-validator>=2.2,<3",
     "openlocationcode>=1.0,<2",
     "httpx>=0.28,<0.29",
+    "sqladmin>=0.25,<0.26",
+    "itsdangerous>=2.2,<3",
 ]
 
 [dependency-groups]
@@ -64,6 +66,9 @@ ignore = []
 "app/auth/manager.py" = ["B008"]
 "app/routes/*.py" = ["B008"]
 "app/sync/routes.py" = ["B008"]
+# SQLAdmin's ModelView API requires column lists as plain class attributes;
+# RUF012 (mutable default) does not apply to declarative-style frameworks.
+"app/admin_ui/views.py" = ["RUF012"]
 
 [tool.mypy]
 python_version = "3.12"

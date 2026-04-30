@@ -25,12 +25,11 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-30 (Sessionende, STACK-002 [ERLEDIGT] und mit voll-Verifikation grün; ADR-048 inkl. Begleiterscheinungs-Sektion gepflegt.)
+- **Stand vom:** 2026-04-30 (Session M8 läuft; M8.1 [ERLEDIGT], M8.2 [ERLEDIGT], M8.3 vorbereitet.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **STACK-002 (Backend-Stack-Drift Voll-Sweep) [ERLEDIGT] 2026-04-30.** Variante B (Voll-Sweep ohne Runtime-Majors). 13 out-of-range Backend-Pins, 1 within-constraint-Refresh (`pyjwt 2.10.1→2.12.1`), 1 Tooling-Major (`pre-commit-hooks v5→v6`), 1 Build-Image (`uv 0.8.17→0.11.8`), 1 PostGIS-Minor (`postgis 16-3.4→16-3.5`). 182/182 pytest grün, mypy clean, ruff lint clean, Docker-Build clean, PostGIS-Smoke `postgis_full_version()` zeigt 3.5.2. ADR-048 mit Lessons-Learned-Regel (transitive Pin-Klammern audit-relevant) und §Migrations-Begleiterscheinungen (fastapi-users-Pin-Lock auf pyjwt+argon2-cffi, ruff-0.15-Auto-Fix-Halbmigrations, Format-Drift, PostGIS-Volume-Hybridzustand, amd64-only-Image-Hinweis). Folgeschritte: testcontainers-`postgresql`-Extra-Renaming (kosmetisch).
-- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29, STACK-001 [ERLEDIGT] 2026-04-30 (Next.js 16 Migration, ADR-047).
-- **Test-Stand vor STACK-002:** Backend `pytest`: 182/182 grün (auf Basis der bestehenden Pins). Frontend `pnpm test`: 261/261 grün (unverändert nach STACK-001). `pnpm typecheck`, `pnpm lint`, `pnpm build` clean.
-- **Nächster Schritt nach STACK-002:** **M8 (Admin-Bereich)** auf aktualisiertem Backend-Stack — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users 15.x, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-049 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
+- **Aktiver Schritt:** **M8.2 (Backend SQLAdmin-Schicht) [ERLEDIGT] 2026-04-30.** Umsetzung von ADR-049 §A–§D: `sqladmin>=0.25,<0.26` + `itsdangerous>=2.2,<3` neu in `pyproject.toml`, Starlette-Auto-Bump 0.46.2 → 1.0.0 ohne Test-Breakage. `app/admin_ui/{__init__.py,context.py,auth.py,setup.py,views.py}` neu angelegt. **Cookie-Bridge** dekodiert `hcmap_session` mit `_jwt_strategy()`-Reuse (kein Token-Re-Issue), prüft `is_active` und `role == ADMIN`, redirected sonst auf `/login`. **RLS-Stamp** über `_StampingAsyncSession`-Subklasse (SQLAlchemy `class_=`-Mechanik) liest aus drei `ContextVar`s (User-ID, Role, Person-ID), die `authenticate()` setzt — `FORCE ROW LEVEL SECURITY` greift dadurch korrekt. **8 ModelViews** (User/Person/RestraintType/ArmPosition/HandPosition/HandOrientation/Event read+edit-only/Application read-only). `/admin/login`-GET wird in `app/main.py` als `RedirectResponse("/login")` abgefangen, bevor SQLAdmin gemountet wird. **Verifikation:** 197/197 pytest grün (+15 neue Admin-UI-Tests), `ruff check` clean (RUF012 für `views.py` per-file-ignored — declarative-style Framework-Konvention), `ruff format --check` clean, `mypy --strict` clean, `docker compose build backend` clean, Smoke `sqladmin=0.25.0 fastapi=0.136.1 starlette=1.0.0` aus dem gebauten Image. **Nächster Schritt:** M8.3 (Backend `/api/admin/*`-Endpoints).
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29, STACK-001 [ERLEDIGT] 2026-04-30 (Next.js 16 Migration, ADR-047), STACK-002 [ERLEDIGT] 2026-04-30 (Backend-Stack-Drift Voll-Sweep, ADR-048).
+- **Test-Stand vor M8:** Backend `pytest`: 182/182 grün. Frontend `pnpm test`: 261/261 grün. `pnpm typecheck`, `pnpm lint`, `pnpm build` clean. `ruff`/`mypy --strict` clean. M8.2-Erwartung: ≥187 Tests grün (4 zusätzliche Auth-Bridge-/ModelView-Tests). M8.3-Erwartung: ≥200 Tests grün (Person-Merge inkl. Konflikt-Pfade, Anonymisierung 100 % Coverage, Stats-Endpoint, Export-Endpoint).
 - **Offene STOPP-Situationen:** keine.
 - **Offene Freigabe-Entscheidungen:**
   - **Blocker #001 Punkt 2 — CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift:** offen. Konkreter Vorschlag (fünf Änderungen plus CI-Audit-Skript) im Conversation-Verlauf 2026-04-29.
@@ -91,7 +90,12 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | STACK-001   | Next.js 15.0.4 → 16.2.4 + React 19.2 (ADR-047)   | [ERLEDIGT] 2026-04-30 |
 | 1 MVP   | STACK-002   | Backend-Stack-Drift Voll-Sweep (ADR-048)         | [ERLEDIGT] 2026-04-30 |
-| 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
+| 1 MVP   | M8          | Admin-Bereich (zwei Schichten gemäß ADR-016/049) | [IN ARBEIT] |
+| 1 MVP   | M8.1        | └─ Strategie-ADR-049 (SQLAdmin-Version, Auth-Bridge, ModelView-Liste, Person-Merge, Stats) | [ERLEDIGT] 2026-04-30 |
+| 1 MVP   | M8.2        | └─ Backend SQLAdmin-Schicht (Dep, Auth-Bridge, RLS-Stamp, 8 ModelViews) | [ERLEDIGT] 2026-04-30 |
+| 1 MVP   | M8.3        | └─ Backend `/api/admin/*` (users CRUD, stats, export/all, persons/merge, persons/anonymize) | [OFFEN]     |
+| 1 MVP   | M8.4        | └─ Frontend `/admin` Dashboard + `/admin/users` (Linkable-Person-Picker) | [OFFEN]     |
+| 1 MVP   | M8.5        | └─ Frontend `/admin/persons` (Filter, Merge-Wizard, Anonymisierung) + Export-UI | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
 | 1 MVP   | M11         | Go-Live Pfad A                                   | [OFFEN]     |
@@ -1658,29 +1662,37 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 ### M8 — Admin-Bereich
 
-**Ziel:** Admin kann Nutzer und Personen verwalten, Stammdaten pflegen, Daten inspizieren. Zweischichtiger Ansatz gemäß ADR-016.
+**Ziel:** Admin kann Nutzer und Personen verwalten, Stammdaten pflegen, Daten inspizieren. Zweischichtiger Ansatz gemäß ADR-016, Implementierungsstrategie in **ADR-049** festgelegt.
 
-**Deliverables — SQLAdmin-Schicht unter `/admin`:**
-- SQLAdmin-Integration im Backend (`app/admin_ui/`), Cookie-Session-Auth-Bridge zu fastapi-users.
-- ModelViews für User, Person, RestraintType, ArmPosition, HandPosition, HandOrientation, Event, Application.
-- Sortier- und Filter-Optionen, Bulk-Aktionen, CSV-Export via SQLAdmin-Standard.
-- Zugriff nur für `role = 'admin'`.
+**Sub-Steps:** M8.1 (Strategie-ADR) → M8.2 (Backend SQLAdmin) → M8.3 (Backend `/api/admin/*`) → M8.4 (Frontend Dashboard + Users) → M8.5 (Frontend Persons-Workflow + Export-UI).
 
-**Deliverables — Next.js-Schicht unter `/admin-dash`** (Workflow-Teile, die über reine CRUD hinausgehen):
-- **Admin-Dashboard** als Startseite für Admin-Rolle mit Kennzahlen-Übersicht.
-- **Freigabe-Queue** für pending Katalog-Vorschläge (mit Freigabe/Ablehnung und Workflow-Aktionen — SQLAdmin kann CRUD, aber kein spezialisiertes Workflow-UI).
-- **Personen-Verwaltung Spezial**: Übersicht „Neue Personen aus Live-Erfassung" (Filter `origin = 'on_the_fly'` und nicht verknüpft), Merge-Funktion für Duplikate, Anonymisierungs-Button mit Bestätigungsdialog.
-- **User-Anlage** mit Verknüpfungsmodus (bestehende Person mit `linkable = true` auswählen, siehe ADR-014).
-- **Admin-Export aller Daten** (JSON/CSV) als „Notausstieg" und für Backup-Zwecke (siehe ADR-015).
-- **Einfache Statistiken**: Events pro Monat, häufigste Positionen, häufigste Restraints.
+**Deliverables — SQLAdmin-Schicht unter `/admin` (M8.2):**
+- SQLAdmin 0.25.x als neue Backend-Dependency (siehe ADR-049 §A); `app/admin_ui/{__init__.py,auth.py,views.py}` mit Cookie-Session-Auth-Bridge zu fastapi-users (ADR-049 §B), separater Admin-Engine mit RLS-Stamp pro Request (ADR-049 §C).
+- ModelViews für 8 Tabellen (User, Person, RestraintType, ArmPosition, HandPosition, HandOrientation, Event, Application) gemäß ADR-049 §D — `Application` read-only, `Event` read+edit-only (kein Create/Hard-Delete; Sync-Vertrag ADR-029/033 wahren).
+- Sortier-/Filter-Optionen, Bulk-Approve/Reject auf Catalog-Tabellen.
+- Zugriff nur für `role = 'admin'`. Anonymous/Editor → Redirect auf `/login`.
+
+**Deliverables — Next.js-Workflow-Schicht unter `(protected)/admin/(admin-only)/` (M8.4 + M8.5):**
+- **Admin-Dashboard** (M8.4) als `(admin-only)/page.tsx` mit Stats-Cards (Events/Monat, Top-Restraints, Top-Positionen, User-Count, pending-Catalog-Count).
+- **User-Verwaltung** `/admin/users` (M8.4): Listing + Anlage-Form mit Linkable-Person-Picker (ADR-014); Rollen-Toggle und Deaktivierung über SQLAdmin.
+- **Personen-Verwaltung** `/admin/persons` (M8.5): Filter `origin = on_the_fly`, `linkable = true`, `unlinked = true`; Merge-Wizard (Source/Target-Picker, Konflikt-Vorschau, Bestätigung) → `POST /api/admin/persons/{id}/merge`; Anonymisierungs-Button mit Confirm-Dialog → `POST /api/admin/persons/{id}/anonymize`.
+- **Admin-Export** (M8.5): Trigger-Button → `GET /api/admin/export/all?format=json` (Browser-Download, ADR-049 §G).
+- **Freigabe-Queue für Katalog-Vorschläge** ist bereits in M7.4 implementiert — kein zusätzlicher M8-Aufwand.
+
+**Deliverables — Backend `/api/admin/*` (M8.3):**
+- `app/routes/admin.py`: `GET/POST/PATCH/DELETE /api/admin/users`, `GET /api/admin/stats`, `GET /api/admin/export/all`, `POST /api/admin/persons/{id}/merge`, `POST /api/admin/persons/{id}/anonymize`.
+- `app/services/person_merge.py` (ADR-049 §E) mit Re-Pointing `event_participant`/`application` und UNIQUE-Konflikt-Resolution; **keine Migration erforderlich**.
+- Pydantic-Schemas + RLS-Tests inkl. negativ Editor/Viewer.
 
 **Akzeptanzkriterien:**
-- Admin kann via SQLAdmin schnell Stammdaten pflegen und Daten inspizieren.
-- Via Next.js-Admin-Dash kann Admin Workflow-Aktionen durchführen (Freigaben, Merges, Anonymisierung).
-- Verknüpfung neuer User mit bestehender on-the-fly-Person funktioniert; verknüpfter User sieht alle Events seiner Person rückwirkend.
-- Anonymisierungs-Prozess ist ein Knopfdruck und in der DB korrekt umgesetzt.
+- Admin kann via SQLAdmin schnell Stammdaten pflegen und Daten inspizieren (Browser-Smoke `/admin/user/list` u. ä.).
+- Via Next.js-Admin-Dash kann Admin Workflow-Aktionen durchführen (Stats anzeigen, User anlegen, Personen mergen, Personen anonymisieren, Export herunterladen).
+- Verknüpfung neuer User mit bestehender on-the-fly-Person (Linkable=true) funktioniert; verknüpfter User sieht alle Events seiner Person rückwirkend.
+- Anonymisierungs-Prozess ist ein Knopfdruck mit Confirm-Dialog und in der DB korrekt umgesetzt (`name = '[gelöscht]'`, `alias = NULL`, `note = NULL`, `is_deleted = true`, `deleted_at = now()`; Verknüpfungen bleiben). Coverage 100 % (DSGVO-Pflicht).
+- Person-Merge-Coverage ≥ 90 % inkl. Konflikt-Pfaden (gemeinsamer Event-Participant beider Personen).
+- Test-Suite grün: ≥ 200 Backend-Tests, alle Frontend-Suites grün, `ruff`/`mypy --strict` clean, `pnpm typecheck`/`pnpm lint`/`pnpm build` clean.
 
-**Abhängigkeiten:** M2, M3, M7.
+**Abhängigkeiten:** M2 (Auth + RLS), M3 (Domain-API), M7 (Catalog-Routes), ADR-016, ADR-049.
 
 ---
 

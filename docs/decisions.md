@@ -4072,4 +4072,193 @@ Phase-für-Phase-Messung: 70 s (Baseline) / 64 s (nach Phase 2) / 63 s (nach Pha
 
 ---
 
+## ADR-049 — Implementierungsstrategie M8 (Admin-Bereich: SQLAdmin-Schicht + Next.js-Workflow-Schicht)
+
+**Status:** Accepted
+**Datum:** 2026-04-30
+**Freigabe:** 2026-04-30 (Patrick)
+**Kategorie:** §4.1 Architektur (Zwei-Schichten-Admin-Topologie konkretisiert), §4.2 neue Module (`backend/app/admin_ui/`, `backend/app/routes/admin.py`, Frontend-Workflow-Routen unter `(admin-only)/`), §4.3 neue externe Abhängigkeit (`sqladmin`), §4.5 API-Verträge (`/api/admin/*`-Bündel inkl. Person-Merge), §4.6 Sicherheit (Cookie-Bridge SQLAdmin↔fastapi-users, Admin-RBAC).
+**Vorgänger:** ADR-016 (2026-04-22, Zwei-Schichten-Ansatz beschlossen), ADR-006 (Auth-Topologie: HttpOnly-Cookie + JWT), ADR-019 (RLS via `app_user`-Rolle + GUCs), ADR-014 (on-the-fly-Person + Linkable-Verknüpfung), ADR-002 (Anonymisierungs-Kompromiss), ADR-015 (Admin-Export + Stats-Granularität), ADR-048 (Backend-Stack-Stand auf 2026-04-30).
+
+### Kontext
+
+ADR-016 hat den Zwei-Schichten-Ansatz verabschiedet: SQLAdmin-Schicht für reine Stammdaten-CRUD und Daten-Inspektion, Next.js-Schicht für Workflow-UI (Freigabe-Queues — bereits in M7.4 abgedeckt — Personen-Merge, Anonymisierungs-Wizard, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export, Statistik-Übersicht). Der Fahrplan-Eintrag M8 listet die Deliverables, lässt aber Sub-Step-Schnitt, SQLAdmin-Versionsbasis, Cookie-Bridge-Mechanik, ModelView-Umfang, Person-Merge-Mechanik und Stats-Definition offen.
+
+Backend-Stand nach ADR-048 (STACK-002): Python 3.12, FastAPI 0.136.1, fastapi-users 15.0.5, SQLAlchemy 2.0.49, Starlette 0.46.2 (über fastapi gepinnt). Auth-Cookie heißt `hcmap_session`, JWT-Strategy mit `secret_key`-HMAC, RLS-Helper `app/rls.py::stamp_session` setzt `app_user`-Rolle und drei GUCs (`app.current_user_id`, `app.current_role`, `app.current_person_id`) per Transaction. Admin-Routen-Schutz erfolgt heute pro Endpoint via `Depends(require_role(UserRole.admin))`.
+
+Frontend-Stand nach ADR-047: Next.js 16.2.4, App Router, Route-Group `(protected)/admin/(admin-only)/` als Stub; Layouts sind RBAC-gesetzt (Editor für Catalog-Zweig, Admin für `(admin-only)`-Zweig).
+
+Patrick hat den Sub-Step-Schnitt M8.1–M8.5 am 2026-04-30 freigegeben. Diese ADR formalisiert die fünf Schlüssel-Entscheidungen, deren Inhalte beim Sub-Step-Schnitt-Vorschlag im Conversation-Verlauf vom 2026-04-30 als Empfehlungen mit-genannt wurden, und fixiert sie als Implementierungs-Vorgaben.
+
+### Entscheidungen
+
+**A. SQLAdmin-Versionsbasis.**
+
+PyPI-Lookup 2026-04-30: `sqladmin` `latest = 0.25.0` (Release 2026-04-18, BSD-3, Python 3.10–3.14, `requires_dist`: `starlette<2.0,>=0.50` für Py ≥3.10, `wtforms<3.2,>=3.1`, `jinja2`, `python-multipart`, `sqlalchemy>=2.0`).
+
+Constraint-Cap-Stil analog ADR-048 §A: `sqladmin>=0.25,<0.26` in `backend/pyproject.toml` aufnehmen. Dependency-Anker:
+
+| Paket | Constraint | Locked-Erwartung | Anmerkung |
+|---|---|---|---|
+| `sqladmin` | `>=0.25,<0.26` | 0.25.0 | Hauptlibrary |
+| `wtforms` | (transitiv) | 3.1.x | `<3.2` durch sqladmin gepinnt |
+| `jinja2` | (transitiv) | latest | bereits via fastapi-Standard |
+| `python-multipart` | (transitiv) | latest | wahrscheinlich bereits über fastapi extras |
+
+**Starlette-Hub:** SQLAdmin 0.25 fordert Starlette ≥0.50, FastAPI 0.136.1 erlaubt `starlette>=0.46.0` ohne Obergrenze. uv-Resolver hebt das Lockfile automatisch auf Starlette ≥0.50 (heute 0.46.2). FastAPI-Test-Suite verifiziert die Kompatibilität in M8.2-Phase 1.
+
+**B. Cookie-Auth-Bridge SQLAdmin ↔ fastapi-users.**
+
+SQLAdmin akzeptiert ein eigenes `AuthenticationBackend`-Subklassen-Interface mit den Hooks `login(request)`, `logout(request)`, `authenticate(request)`. **Entscheidung: Wiederverwendung der bestehenden JWT-Cookie-Strategy ohne separate Token-Ausgabe.**
+
+Konkrete Mechanik (`backend/app/admin_ui/auth.py`):
+
+1. `authenticate(request)` liest `request.cookies.get("hcmap_session")`.
+2. Erzeugt eine `JWTStrategy`-Instanz (`app.auth.backend._jwt_strategy()`).
+3. Ruft `await strategy.read_token(token, user_manager)` auf — wirft `InvalidTokenError` bei fehlendem/abgelaufenem Cookie.
+4. Lädt `User` mit `user_manager.get(user_id)`, prüft `user.is_active and user.role == UserRole.admin`. Andernfalls Auth-Fail (kein Tier-down auf Editor — `/admin` ist admin-only, ADR-016).
+5. Bei Erfolg legt `request.session["sqladmin_user_id"] = str(user.id)` an (SQLAdmin-Konvention für nachfolgende Calls innerhalb derselben Session). Starlette-`SessionMiddleware` ist dafür Voraussetzung — wird in `app/main.py` einmalig hinzugefügt mit `secret_key=settings.secret_key`, `same_site="lax"`, `https_only=cookie_secure`.
+6. `login()`/`logout()` sind No-Op-Forwards: SQLAdmin-Login-Form wird **nicht** exponiert; stattdessen redirected `/admin/login` auf `/login` (Next.js-Login). Nach erfolgreichem Next.js-Login ist der `hcmap_session`-Cookie gesetzt und `/admin/*` ist erreichbar.
+
+**Vorteil:** Kein zweiter Auth-Pfad, kein Token-Sharing, keine doppelte CSRF-Logik. SQLAdmin-Session-Cookie ist nur ein Hint für die Authority (welche User-ID zur Session gehört); der eigentliche Auth-Beweis ist und bleibt das `hcmap_session`-JWT.
+
+**Logout-Verhalten:** Logout über `/api/auth/logout` löscht den `hcmap_session`-Cookie; SQLAdmin liefert beim nächsten Request `401`/`Redirect-to-Login`, weil `authenticate()` keinen gültigen Token mehr findet. Starlette-Session bleibt physikalisch bestehen, ist aber wertlos ohne JWT.
+
+**C. RLS/GUC pro SQLAdmin-Request.**
+
+SQLAdmin betreibt eigene `Engine`/`Session`-Bindung; die `app/rls.py::stamp_session`-Funktion ist nur per FastAPI-Dependency-Injection erreichbar. **Entscheidung: SQLAdmin nutzt eine eigene Async-Engine-Factory mit per-Session-Event-Hook**, der `stamp_session` automatisch ausführt.
+
+Mechanik (`backend/app/admin_ui/__init__.py`):
+
+1. SQLAdmin-Init mit `Admin(app, engine=admin_engine, authentication_backend=…)`. `admin_engine` ist eine separate `create_async_engine`-Instanz, die auf dieselbe DSN zeigt wie der Haupt-Engine (eigener Pool für Admin-Requests, vermeidet RLS-Stamp-Konflikte mit nicht-Admin-Sessions).
+2. Bei jeder Admin-Request-Session wird in einem `before_cursor_execute`/`after_begin`-Listener oder via Custom-`ModelView.list_query`-Override sichergestellt, dass `SET LOCAL ROLE app_user` + GUC-Stempel vor dem ersten DML laufen.
+3. **Pragmatik:** Da Admin per RLS ohnehin Vollzugriff hat (siehe ADR-019 Policies mit `current_role = 'admin'`-Bypass), genügt es, den Admin als `app_user` mit `current_role = 'admin'` zu stempeln. Keine Sonderbehandlung der RLS für SQLAdmin nötig.
+4. Falls die `before_*`-Hook-Variante in SQLAdmin 0.25 zu fragil ist: Alternative ist ein `ModelView`-Basisklassen-Override (`async def list_query(...)` etc.), der vor jedem Query-Aufruf das Session-Stamping injiziert. Endgültige Wahl in M8.2 nach Quelltext-Sichtung des SQLAdmin-Internals; beide Wege sind funktional äquivalent.
+
+**D. ModelView-Umfang.**
+
+Alle 8 Domain-Tabellen werden als ModelView angelegt:
+
+| Tabelle | Mode | Spalten (List) | Filter | Edit-Form-Beschränkungen |
+|---|---|---|---|---|
+| `User` | full CRUD | email, role, is_active, person_id, created_at | role, is_active | Passwort-Felder ausgeblendet (Zurücksetzen-Funktion in Next.js-Schicht); `person_id` als FK-Selector |
+| `Person` | full CRUD | name, alias, origin, linkable, is_deleted, created_at | origin, linkable, is_deleted | Anonymisierungs-Felder (`is_deleted`, `deleted_at`) read-only — Anonymisierung erfolgt über Next.js-Workflow |
+| `RestraintType` | full CRUD | name, brand, model, mechanism, status | mechanism, status | analog zu M7-CRUD-Forms |
+| `ArmPosition` | full CRUD | name, status | status | — |
+| `HandPosition` | full CRUD | name, status | status | — |
+| `HandOrientation` | full CRUD | name, status | status | — |
+| `Event` | **read + edit only** (kein Create, kein Delete) | id, started_at, ended_at, lat, lon, plus_code, reveal_participants, is_deleted, created_by | reveal_participants, is_deleted | Neuanlage läuft über Live-/Backfill-Pfad (RxDB-Sync, ADR-029); Soft-Delete läuft über Edit-Pfad (ADR-040). Hard-Delete in SQLAdmin bewusst gesperrt |
+| `Application` | **read-only** | id, event_id, sequence_no, performer_id, recipient_id, started_at, ended_at, is_deleted | is_deleted | Mutationen ausschließlich über Sync-Endpoints (ADR-029); SQLAdmin nur als Inspektions-Tool |
+
+**Begründung der Edit-Sperren:** `Event.create`/`Event.delete` und alle `Application`-Mutationen würden den Sync-Vertrag (`updated_at`-LWW, Auto-Participant-Trigger, Sequence-No-Vergabe) umgehen. Inkonsistente RxDB-Pulls wären die Folge. Read+Edit-only auf Event ist der Kompromiss für Recovery-Aktionen (z. B. fehlerhafte Notiz korrigieren, wenn Editor das nicht selbst kann).
+
+Bulk-Actions: SQLAdmin-Standard für RestraintType/Position-Status (Approve/Reject), keine Bulk-Action für Person (zu fehleranfällig für Anonymisierung/Merge — bewusst nur Single-Item-Workflow in Next.js-Schicht).
+
+**E. Person-Merge-Mechanik.**
+
+Service `app/services/person_merge.py::merge_persons(session, source_id, target_id) -> MergeResult` als Transaction:
+
+1. **Pre-Check:**
+   - Beide Personen existieren, beide `is_deleted = false`.
+   - Source ≠ Target.
+   - Wenn `source.user` existiert (`user.person_id = source_id`): **Abort mit Fehler** „Source-Person ist mit User verknüpft — Merge nur möglich, wenn beide Source-Person und Target-Person nicht oder beide mit demselben User verknüpft sind" (Konzeptuell falsch, wenn ein User dadurch zwei Identitäten kollabiert).
+2. **EventParticipant-Re-Pointing:** Konflikt-Resolution für `(event_id, person_id)`-UNIQUE:
+   ```sql
+   DELETE FROM event_participant
+    WHERE person_id = :source
+      AND event_id IN (
+        SELECT event_id FROM event_participant WHERE person_id = :target
+      );
+   UPDATE event_participant SET person_id = :target WHERE person_id = :source;
+   ```
+3. **Application-Re-Pointing:**
+   ```sql
+   UPDATE application SET performer_id = :target WHERE performer_id = :source;
+   UPDATE application SET recipient_id = :target WHERE recipient_id = :source;
+   ```
+4. **Source-Person-Soft-Delete:** `UPDATE person SET is_deleted = true, deleted_at = now(), name = '[merged → ' || :target || ']' WHERE id = :source` (Markierung dient der Audit-Spur, anders als die ADR-002-Anonymisierung).
+5. **Audit-Log:** Eintrag in `app/services/person_merge.py` via `structlog`-Logger (Felder: `source_id`, `target_id`, `actor_user_id`, `affected_event_participants`, `affected_applications`).
+
+**Datenmodell-Migration: nicht erforderlich.** Die Operation arbeitet auf bestehenden Spalten/Constraints. `(event_id, person_id)` UNIQUE bleibt erhalten, `application.performer_id`/`recipient_id` haben keine Such-Conflict-Constraints.
+
+**F. Stats-Definition (`/api/admin/stats`).**
+
+Pydantic-Response-Schema `AdminStats`:
+
+```python
+class AdminStats(BaseModel):
+    events_total: int
+    events_per_month_last_12: list[MonthlyCount]   # {year, month, count}
+    top_restraints: list[RestraintCount]            # {id, name, count}, top 10
+    top_arm_positions: list[PositionCount]          # top 5
+    top_hand_positions: list[PositionCount]         # top 5
+    users_by_role: dict[UserRole, int]
+    persons_total: int
+    persons_on_the_fly_unlinked: int
+    pending_catalog_proposals: int
+```
+
+Implementierung als ein einziger Endpoint mit ~6 SQL-Aggregat-Queries innerhalb derselben RLS-Session (Admin sieht alles). **Kein Caching in M8** — ADR-015 §F-Bewertung („bei Pfad-A-Last <5.000 Events ist Echtzeit-Aggregation unkritisch") gilt unverändert. Falls die Antwortzeit über die in §7 project-context.md genannten 2 s steigt, wird Caching als Folge-Aufgabe geöffnet.
+
+**G. Admin-Export-Format (`/api/admin/export/all`).**
+
+Single-Endpoint, `GET /api/admin/export/all?format=json` (CSV folgt nicht in M8 — Pfad-A-Volumen rechtfertigt es nicht). Streaming-Response mit `application/x-ndjson` ist bewusst **nicht** gewählt: Patrick als einziger Konsument profitiert mehr von einem strukturierten JSON-Objekt als von Zeilen-Streaming.
+
+Response-Shape:
+
+```json
+{
+  "exported_at": "2026-04-30T12:34:56Z",
+  "schema_version": 1,
+  "users": [...],
+  "persons": [...],
+  "events": [...],
+  "applications": [...],
+  "event_participants": [...],
+  "application_restraints": [...],
+  "restraint_types": [...],
+  "arm_positions": [...],
+  "hand_positions": [...],
+  "hand_orientations": [...]
+}
+```
+
+Soft-deleted Rows werden mit-exportiert (Backup-Charakter — siehe ADR-015 §G „Notausstieg"). Größenbedenken sind bei Pfad-A-Volumen (<5.000 Events × ~3 Apps × ~2 Restraints) irrelevant (~1–5 MB JSON, problemlos in einem Response-Body).
+
+**H. Sub-Step-Spezifikation.**
+
+| Sub-Step | Status nach Freigabe | Deliverables | Verifikation |
+|---|---|---|---|
+| **M8.1** | Diese ADR-049 zur Freigabe vorgelegt; bei Annahme `Status: Accepted` setzen, Fahrplan-Eintrag M8 in 5 Sub-Steps aufschlüsseln | ADR-049 + Fahrplan-Update | Patrick gibt frei |
+| **M8.2** | Backend SQLAdmin-Schicht (Punkt A–D) | `pyproject.toml`-Dep, `app/admin_ui/{__init__.py,auth.py,views.py}`, `app/main.py`-Mount, `Starlette.SessionMiddleware`-Mount, neue Tests in `backend/tests/test_admin_ui.py` (mind. 1 positiver Login-Flow, 1 Editor-Reject, 1 Anonymous-Reject, 1 ModelView-Listing pro Tabelle) | `pytest` grün ≥187, `ruff`/`mypy --strict` clean, `docker compose build` clean. Browser-Smoke `/admin/user/list` mit Admin-Cookie (manuell, vor M8.3-Start) |
+| **M8.3** | Backend `/api/admin/*` (Punkt E–G) | `app/routes/admin.py` (`users`-CRUD, `stats`, `export/all`, `persons/{id}/merge`, `persons/{id}/anonymize`), `app/services/person_merge.py`, `app/services/person_anonymize.py` (sofern noch nicht in M2 angelegt), neue Pydantic-Schemas, RLS-Tests inkl. negativ Editor/Viewer | `pytest` grün ≥200, Coverage Person-Merge ≥90 % (Datenintegrität-kritisch), Coverage Anonymisierung 100 % (DSGVO-Pflicht aus project-context.md §6) |
+| **M8.4** | Frontend `/admin` Dashboard + `/admin/users` | `frontend/src/app/(protected)/admin/(admin-only)/page.tsx` mit Stats-Cards, `users/page.tsx` (Listing) + `users/new/page.tsx` (Form mit Linkable-Person-Picker), TanStack-Query-Hooks `useAdminStats`, `useAdminUsers`, `useCreateAdminUser`, vitest-Tests | `pnpm test` grün, `pnpm typecheck` clean, `pnpm lint` clean, Browser-Smoke (preview_*-Workflow gemäß Hauptpfad) |
+| **M8.5** | Frontend `/admin/persons` Workflow + Export-UI | `persons/page.tsx` mit Filtern (`origin=on_the_fly`, `linkable=true`, `unlinked=true`), Merge-Wizard (Source/Target-Picker, Konflikt-Vorschau, Bestätigung), Anonymisierungs-Confirm-Dialog, Export-Trigger-Button mit `?format=json`-Download | `pnpm test` grün, Browser-Smoke (Merge-Roundtrip + Anonymisierungs-Roundtrip + Export-Download), `CHANGELOG.md`-Eintrag, M8 → `[ERLEDIGT]` |
+
+### Verworfene Alternativen
+
+- **Eigene SQLAdmin-Login-Seite mit Session-Token-Re-Issue.** Hätte zwei Auth-Pfade erzeugt, doppelten CSRF-Bedarf, Sync-Risiko zwischen Cookie-Lifetime und Session-Lifetime. Verworfen zugunsten der Cookie-Bridge.
+- **SQLAdmin als reine Datenbank-Inspektion ohne Edit-Rechte (read-only-only).** Hätte den ADR-016-Vorteil „Admin pflegt Stammdaten schnell" amputiert. Verworfen.
+- **Person-Merge als SQLAdmin-Bulk-Action.** UI-Beschränkung von SQLAdmin (kein Konflikt-Vorschau-Step), zu fehleranfällig. Verworfen zugunsten Next.js-Wizard.
+- **CSV-Export pro Tabelle in M8.** Ohne konkreten Konsumenten überdimensioniert. Bei Bedarf in Phase 2 aufnehmen.
+- **Stats-Caching mit Redis oder LRU.** Pfad-A-Volumen rechtfertigt es nicht (siehe project-context.md §7). Bei Last-Druck nachträglich öffnen.
+- **Hard-Delete in SQLAdmin für Application/Event.** Würde Sync-Tombstone-Mechanik (ADR-033) umgehen. Verworfen.
+- **Gemeinsamer DB-Pool zwischen FastAPI- und SQLAdmin-Engine.** RLS-Stamp-Konflikte unter Last. Verworfen zugunsten separater Engine (siehe Punkt C).
+
+### Risiken und Mitigationen
+
+- **R1. Starlette-Auto-Bump (0.46→0.50+) bricht FastAPI-Verhalten.** Mitigation: Phase-1-Verifikation in M8.2 (volle Test-Suite vor SQLAdmin-Code). Bei Breakage: SQLAdmin auf 0.24 zurückstufen (kompatibel zu Starlette 0.46 für Py 3.10+) und die Versionsbasis im ADR-049-Folge-Update korrigieren.
+- **R2. SQLAdmin-Internal-Hook für Session-Stamping ist nicht offiziell dokumentiert.** Mitigation: Quelltext-Sichtung in M8.2-Phase 2; Fallback-Variante (ModelView-Basisklasse mit `list_query`-Override) bleibt verfügbar und ist von der öffentlichen API gedeckt.
+- **R3. Person-Merge-Konflikte bei `event_participant.UNIQUE`.** Mitigation: §E-Algorithmus löst Konflikte deterministisch (Source-Eintrag löschen, Target behalten — kein Datenverlust, da Source ohnehin gemerged wird).
+- **R4. ModelView-Edit auf `Event` ohne Sync-Pfad.** Mitigation: Edit-Form auf wenige Felder beschränken (`note`, `reveal_participants`, `is_deleted`), `updated_at` per `set_updated_at`-Trigger automatisch hochziehen → der nächste RxDB-Pull liefert die Änderung an alle Clients.
+
+### Folge-Arbeit
+
+- M9 (w3w-Migration) baut auf der Personen-Pflege auf — Linkable-Verknüpfung ist nach M8.5 verfügbar.
+- M11 (Go-Live) verlangt User-Anlage-Workflow als Akzeptanzkriterium — wird in M8.4 erfüllt.
+- Phase-2-Foto-Anhänge (M15) erweitern ggf. die Person-Anonymisierung um Medien-Löschung — kein M8-Scope.
+- README-Badges: Falls SQLAdmin-Version-Badge aufgenommen wird, im selben Commit pflegen (siehe CLAUDE.md §6).
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

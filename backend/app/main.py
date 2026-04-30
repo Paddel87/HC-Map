@@ -10,8 +10,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from app.admin_ui import register_admin
 from app.auth.manager import generate_csrf_token
 from app.auth.routes import build_auth_router
 from app.config import get_settings
@@ -115,6 +117,16 @@ def create_app() -> FastAPI:
     app.include_router(glyphs_router, prefix="/api")
     app.include_router(geocode_router, prefix="/api")
     app.include_router(sync_router, prefix="/api")
+
+    # SQLAdmin's default ``/admin/login`` template would shows a username/
+    # password form that we never use - bounce direct hits to the SPA
+    # login. Registered before ``register_admin`` so SQLAdmin's mount
+    # doesn't shadow it.
+    @app.get("/admin/login", include_in_schema=False)
+    async def _admin_login_redirect() -> RedirectResponse:
+        return RedirectResponse(url="/login", status_code=302)
+
+    register_admin(app)
 
     return app
 

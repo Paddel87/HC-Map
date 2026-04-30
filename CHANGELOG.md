@@ -9,6 +9,26 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M8.4 — Frontend Admin-Dashboard und User-Verwaltung (ADR-049 §H):**
+  - **Dashboard `/admin`** zeigt 4 Stat-Cards (Events gesamt, Personen,
+    On-the-fly-unverknüpft, Pending-Vorschläge), Events/Monat über die
+    letzten 12 Monate, User-Count pro Rolle, Top-Restraints (10),
+    Top-Arm-/Hand-Positionen (5). Direkt-Links zur User-/Personen-
+    Verwaltung und Export-Download.
+  - **`/admin/users`** mit Listing aller User, Inline-Rollen-Toggle
+    (PATCH /api/admin/users/{id}) und Soft-Deactivate per Confirm-
+    Dialog (DELETE /api/admin/users/{id}).
+  - **`/admin/users/new`** mit Modus-Wahl: linkable Person aus der
+    Live-Erfassung verknüpfen (ADR-014, Filter `linkable === true`)
+    oder gleichzeitig neue Person anlegen (`new_person`-Body).
+  - **TanStack-Query-Layer** in `frontend/src/lib/admin/`: typsichere
+    Hooks gegen den `/api/admin/*`-Surface mit Cache-Key-Hierarchie
+    `["admin", <resource>, ...]` und automatischer Invalidation der
+    Stats-/Users-Subtrees nach Mutation. 6 Smoke-Tests in
+    `tests/admin-api.test.tsx`.
+
+### Added
+
 - **M8.3 — Backend `/api/admin/*`-Endpoints (ADR-049 §E/§F/§G):**
   Fünf Surfaces unter `/api/admin/` ergänzen die SQLAdmin-Stammdaten-
   Pflege um Workflow-fähige Bausteine, die das Next.js-Frontend ab M8.4

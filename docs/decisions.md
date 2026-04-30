@@ -3856,6 +3856,46 @@ DoD nach CLAUDE.md §9:
 **Abgeleitete Regel (gilt ab dieser ADR, projektintern bis zur möglichen CLAUDE.md-Härtung in Blocker #001 Punkt 2):**
 - **Regel — Dev-Overlay-Sichtprüfung im DoD:** Beim Setup oder Major-Update einer Frontend-Lib mit Dev-Overlay (Next.js, Vite-basierte Stacks, …) ist eine kurze Sichtprüfung des Dev-Overlay Pflicht-DoD-Bestandteil. Auftretende „outdated"-/„deprecated"-Banner werden im Implementierungs-Bericht referenziert und entweder im selben Schritt aufgelöst oder als Folge-Ticket erfasst.
 
+### Migrations-Begleiterscheinungen (beobachtet 2026-04-30)
+
+Während der Umsetzung sind eine Reihe von Effekten aufgetreten, die nicht durch den ADR-Scope-Cut explizit vorhergesagt waren. Sie sind weder Migrations-Fehler noch Funktionsregressionen, gehören aber zur Wahrheit der Migration und sind für künftige Major-Bumps wertvoll.
+
+**A. Turbopack-CSS-Strikter als Webpack/PostCSS.**
+Build schlug initial fehl mit „`@import` rules must precede all rules aside from `@charset` and `@layer` statements" auf [`globals.css:1488`](frontend/src/styles/globals.css). Webpack/PostCSS hatten die Reihenfolge `@tailwind ... @import "maplibre-gl/..."` toleriert. Fix: `@import` an den Anfang verschoben — funktional identisch, da Tailwind-Direktiven in keiner Variante als CSS-`@import` gelten. Lessons: Bei künftigem `next build` mit Turbopack auf strikte CSS-Spec-Konformität achten; PostCSS-Toleranzen sind nicht übertragbar.
+
+**B. `tsconfig.json` und `next-env.d.ts` werden bei Next-16-Builds automatisch modifiziert.**
+- `jsx: "preserve"` → `jsx: "react-jsx"` ist mandatory (React-19 automatic JSX runtime).
+- `include` ergänzt um `.next/dev/types/**/*.ts` (Konsequenz der dev/build-Verzeichnistrennung).
+- `next-env.d.ts` bekommt `import "./.next/types/routes.d.ts";` und einen aktualisierten Doku-Link.
+
+Beide Auto-Edits gehen in den Commit ein. **Achtung: `next-env.d.ts` „bounct" zwischen `.next/types/...` und `.next/dev/types/...` je nachdem, ob zuletzt `next build` oder `next dev` lief.** Das ist eine bekannte Eigenheit der dev/build-Verzeichnistrennung. Pragmatisch akzeptiert; bei jeder Session den Stand committen, der zuletzt erzeugt wurde. Saubere Lösung wäre `next-env.d.ts` als generated File aus dem Repo zu nehmen (in `.gitignore`) — gehört zu einem späteren Tooling-Refactor.
+
+**C. `eslint-config-next@16` exportiert native Flat-Config-Arrays.**
+Erste Implementierung verwendete `FlatCompat` aus `@eslint/eslintrc` (gemäß Next-Doku-Beispiel) — produzierte einen `TypeError: Converting circular structure to JSON`. Inspektion der `eslint-config-next/dist/`-Files zeigte, dass `core-web-vitals.js` und `typescript.js` direkt als Flat-Config-Arrays geliefert werden. Die finale [`eslint.config.mjs`](frontend/eslint.config.mjs) importiert sie via `createRequire` und spreadet sie in den Default-Export. **Kein `FlatCompat` nötig** — die Next-Doku ist hier (Stand 2026-04-30) hinter dem Repo-Stand.
+
+**D. `@eslint/js@latest` ist 10.x mit `eslint@^10`-Peer.**
+`pnpm add -D @eslint/js@latest` zog 10.0.1 mit unmet Peer auf eslint@9.39.4 ein. Auf `9.39.0` (passende 9er-Linie) gepinnt. Lessons: Bei kombinierten ESLint-Stack-Bumps die `@eslint/*`-Major-Linien explizit angleichen, nicht `@latest` blind nehmen.
+
+**E. Prettier reformatiert Bestandscode bei `pnpm format`-Lauf.**
+Während der Migration wurde `pnpm format` einmal pauschal ausgeführt, um die `tsconfig.json`-Auto-Edits konsistent zu formatieren. Folge: ~40 Bestand-Files bekamen Zeilenumbruch-Refactorings, die mit der Migration nichts zu tun hatten. Diese Diffs wurden mittels `git restore` aus dem Migrations-Commit ausgeschlossen, um CLAUDE.md §11 (atomare Commits) zu wahren. Offene Frage: liefen frühere Sessions an Prettier vorbei? Hinweis für eigenen Folgeschritt — entweder gezielt `pnpm format` einmal isoliert committen oder im Pre-Commit-Hook fix erzwingen.
+
+**F. Performance-Beobachtungen (manueller Vergleich, kein wissenschaftlicher Benchmark).**
+- **Dev-Server `Ready`:** 1863 ms (15.0.4 / Webpack) → 220 ms (16.2.4 / Turbopack). ~8.5× schneller.
+- **Production-Build:** ~5.9 s + nachgelagerte Schritte (15.0.4) → 2.6 s mit Turbopack-Default (16.2.4). ~2.3× schneller; präziserer Vergleich nicht möglich, weil 16 die „First Load JS"-Spalten aus dem Build-Output entfernt.
+- **Build-Output-Form:** Spalten `Size` und `First Load JS` sind in 16 entfernt (siehe Upgrade Guide §Performance Improvements: nicht zuverlässig in RSC-Architekturen messbar). Wer Bundle-Größen weiterhin tracken will, braucht Lighthouse/Vercel Analytics.
+
+**G. Dev-Overlay-Verhalten geändert.**
+Statt einer prominenten roten Dialog-Box mit „Next.js (15.0.4) is outdated" zeigt 16 einen unauffälligen Header-Stripe „Next.js 16.2.4 Turbopack" plus einen Issues-Counter unten links. Console-Errors werden im Issues-Drawer aggregiert statt als blockierender Dialog. Funktion: Dev kann weiterklicken, ohne den Error-Dialog zu schließen. Folge: Issue-Counts können schnell hoch werden (z. B. 88 Tile-503-Errors auf `/map` ohne MapTiler-Key); kein Anlass zur Sorge, solange die Quellen bekannt sind.
+
+**H. Browser-Console-Warnung aus React 19.2 in `next-themes`.**
+Bereits in §E als Out-of-Scope vermerkt; an dieser Stelle nochmals als beobachtetes Symptom: jede Seite triggert n × „Encountered a script tag while rendering React component" (n abhängig von Seitenanzahl der Wechsel). Quelle: `<ThemeProvider>` aus `next-themes@0.4.6` rendert Hydration-Bootstrap-`<script>`. Funktional ohne Effekt; nur Console-Lärm.
+
+**I. Vitest-Suite ungestört.**
+Frontend-Tests mocken Sonner, fetch, RxDB-Replication, MapLibre — alle 261 Cases laufen unverändert grün durch. Die Migration berührt die Mock-Schicht nicht. Damit ist die Test-Suite zwar nicht der einzige Funktionsnachweis (siehe ADR-042 Lessons), aber sie ist ein zuverlässiger erster Filter für Regression in pure-Logik-Code.
+
+**J. End-to-End-Verifikation am 2026-04-30 mit lebendem Backend bestätigt.**
+Stack lokal hochgefahren (DB + Backend + Frontend via `preview_start`), Test-Admin via Argon2-Hash-Patch erstellt. Verifizierte Pfade: Auto-Login mit bestehender Session, Dashboard mit RxDB-Sync-Status, Event-Detail-Page mit Live-Timer + Application-Liste + Restraint-Anzeige, Admin/Catalogs mit Workflow-Tabs, MapView mit Cluster-Markern (Tile-Layer grau ohne MapTiler-Key — pre-existierend), Logout (`POST /api/auth/logout` → 204), Re-Login mit gepatchtem User. **Keine durch die Migration eingeführten Funktionsregressionen**.
+
 ### Folge-Arbeit
 
 - README-Badges: Versions-Badge `Next.js 15.0.4` (falls vorhanden) auf `16.2.4` aktualisieren — siehe CLAUDE.md §6 „README-Badges spiegeln den Ist-Zustand".

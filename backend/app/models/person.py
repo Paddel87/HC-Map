@@ -24,7 +24,7 @@ from app.models.base import (
 )
 
 
-class PersonOrigin(str, enum.Enum):
+class PersonOrigin(enum.StrEnum):
     """How the person record came into existence."""
 
     MANAGED = "managed"

@@ -97,7 +97,7 @@ async def test_three_event_pushes_with_same_id_yield_one_row(
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Insert payload sent three times → exactly one event row, one participant."""
-    user, csrf = await login_as(client, async_session_factory, role=UserRole.EDITOR)
+    _user, csrf = await login_as(client, async_session_factory, role=UserRole.EDITOR)
     event_id = str(uuid.uuid4())
     doc = _new_event_doc(event_id)
 
@@ -139,9 +139,7 @@ async def test_three_event_pushes_with_same_id_yield_one_row(
         async_session_factory, EventParticipant, event_id=uuid.UUID(event_id)
     )
     assert events == 1, f"expected exactly one event row, got {events}"
-    assert participants == 1, (
-        f"expected one auto-participant for the creator, got {participants}"
-    )
+    assert participants == 1, f"expected one auto-participant for the creator, got {participants}"
 
 
 async def test_three_application_pushes_with_same_id_yield_one_row(
@@ -176,9 +174,7 @@ async def test_three_application_pushes_with_same_id_yield_one_row(
             json=[{"assumedMasterState": None, "newDocumentState": app_doc}],
         )
 
-    apps = await _count(
-        async_session_factory, Application, id=uuid.UUID(app_id)
-    )
+    apps = await _count(async_session_factory, Application, id=uuid.UUID(app_id))
     assert apps == 1, f"expected exactly one application row, got {apps}"
 
     # Pull and verify the server-vergebene sequence_no is stable across retries.

@@ -24,7 +24,10 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
 
 ### Blocker #001: Stack-Drift Frontend-Abhängigkeiten — Setup mit veralteten Versionen
 
-> **Teilauflösung 2026-04-30:** Punkt 1 (Next.js-Update-Pfad) **gelöst** mit STACK-001 / ADR-047 — Pfad C + Variante Z2 (Next.js 15.0.4 → 16.2.4, React 19.0.0 → 19.2.5, ESLint 8.57.1 → 9.39.4 wegen `eslint-config-next@16`-Peer-Dep, Flat Config, `middleware.ts` → `proxy.ts`). Punkte 2 (CLAUDE.md-Härtung) und 3 (Backend-/Container-/Runtime-Audit inkl. `engines: ">=22 <23"`-Pin) bleiben **aktiv**. Eintrag bleibt vorerst hier, bis auch Punkt 2 und 3 erledigt sind, dann gesamter Eintrag nach „Gelöste Blocker" mit Lösungsverweis auf alle drei.
+> **Teilauflösung 2026-04-30 (zwei Etappen):**
+> - Punkt 1 (Next.js-Update-Pfad) **gelöst** mit STACK-001 / ADR-047 — Pfad C + Variante Z2 (Next.js 15.0.4 → 16.2.4, React 19.0.0 → 19.2.5, ESLint 8.57.1 → 9.39.4 wegen `eslint-config-next@16`-Peer-Dep, Flat Config, `middleware.ts` → `proxy.ts`).
+> - Punkt 3 (Backend-/Container-/Runtime-Audit) **gelöst** mit STACK-002 / ADR-048 — Variante B (Voll-Sweep ohne Runtime-Majors). 13 Backend-Pin-Bumps (4 SemVer-/CalVer-Major, 8 0.x-Minors out-of-range, 1 Within-Constraint-Refresh), 1 Tooling-Major (pre-commit-hooks v5→v6), 1 Build-Image-Bump (uv 0.8.17→0.11.8), 1 PostGIS-Minor (16-3.4→16-3.5). Audit explizit **ohne** Runtime-Majors (Postgres/Node/Python) und ohne Anpassung des `engines: ">=22 <23"`-Pins — diese drei werden bei Bedarf eigenständig entschieden.
+> - Punkt 2 (CLAUDE.md-Härtung) bleibt **aktiv**. Eintrag bleibt vorerst hier, bis auch Punkt 2 erledigt ist, dann gesamter Eintrag nach „Gelöste Blocker" mit Lösungsverweis auf alle drei.
 
 - **Datum:** 2026-04-29
 - **Fahrplan-Referenz:** M0 (Initial-Setup `frontend/package.json` im Commit `3e30a0c` vom 2026-04-25); querschnittlich gegen alle Folge-Meilensteine, die auf demselben Pin-Stand aufbauen.

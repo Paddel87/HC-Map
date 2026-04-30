@@ -530,7 +530,7 @@ def upgrade() -> None:
     # -- Grant baseline privileges to app_user -----------------------------
     # Schema usage and full DML on all tables we just created.
     op.execute("GRANT USAGE ON SCHEMA public TO app_user")
-    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE " "ON ALL TABLES IN SCHEMA public TO app_user")
+    op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user")
     op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user")
 
     # -- RLS: enable + permissive default policy (M2 will replace with strict)

@@ -72,6 +72,8 @@ Status-Legende:
 | ADR-044 | Karten-DoD-Härtung (HOTFIX-002): Glyph-Proxy + RxDB-v17-Strict-Checks | Accepted | 2026-04-29 |
 | ADR-045 | Implementierungsstrategie M7.4 (Freigabe-Queue + Editor-Withdraw)        | Accepted | 2026-04-29 |
 | ADR-046 | Restraint-IDs als Array auf ApplicationDoc (M7.5 Sync-Erweiterung)       | Accepted | 2026-04-29 |
+| ADR-047 | Next.js 15.0.4 → 16.2.4 Migration (Pfad C aus Blocker #001)              | Accepted | 2026-04-30 |
+| ADR-048 | Backend-Stack-Drift Voll-Sweep (Variante B aus Audit Blocker #001 Punkt 3) | Accepted | 2026-04-30 |
 
 ---
 
@@ -3904,6 +3906,169 @@ Stack lokal hochgefahren (DB + Backend + Frontend via `preview_start`), Test-Adm
 - Pfad B/C des Audit-Themas (Backend, Container-Image-Tags, Sprach-Runtimes inklusive `engines: ">=22 <23"`-Pin-Anpassung) bleibt als eigenständiger Folge-Schritt offen. Keine implizite Mit-Erledigung in dieser ADR.
 - **Code-Quality-Sweep (Folgeschritt nach M8):** Die in `eslint.config.mjs` deaktivierten Regeln (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `react/display-name`) werden iterativ angegangen. Pro Komponente: `useEffect` → `useEvent` / Memoisierung / Ref-Update außerhalb Render. Ziel: Regeln wieder als `"error"` aktivieren und Treffer auf 0 senken.
 - **next-themes-Folgeschritt:** Console-Warnung „Encountered a script tag while rendering React component" durch React 19.2 — Workaround-Optionen: (a) Beobachten, ob `next-themes` v1.0 (aktuell beta) die Warnung auflöst, (b) eigene Theme-Initialisierung via Server-Component schreiben, (c) Warnung akzeptieren, da nicht funktional brechend. Entscheidung mit Code-Quality-Sweep treffen.
+
+---
+
+## ADR-048 — Backend-Stack-Drift Voll-Sweep (Variante B aus Audit Blocker #001 Punkt 3)
+
+**Status:** Accepted
+**Datum:** 2026-04-30
+**Kategorie:** Externe Abhängigkeiten, mehrere Major-/0.x-Out-of-Range-Bumps in Bündel (CLAUDE.md §4.3)
+**Vorgänger:** Blocker #001 (2026-04-29), ADR-047 (STACK-001 Frontend-Sweep, schließt das Frontend-Pendant), Audit-Befund 2026-04-30 (in dieser Session erstellt).
+
+### Kontext
+
+Blocker #001 Punkt 3 hat den Verdacht aufgestellt, dass die Backend-Pins in `backend/pyproject.toml` und die Container-Image-Tags in `docker/` ähnlichem Stack-Drift unterliegen wie die Frontend-Pins, die ADR-047 (STACK-001) gerade aufgelöst hat. STACK-001 hat das Frontend von Dezember-2024-Pins auf den 2026-04-Stand gebracht; Punkt 3 wurde damals ausdrücklich aus Scope ausgegrenzt und als „eigenständiger Folge-Schritt vor M8 oder parallel" markiert.
+
+Am 2026-04-30 wurde der Audit ausgeführt — Lookup gegen PyPI (`https://pypi.org/pypi/<pkg>/json`), Docker Hub (`postgis/postgis`), GitHub-Releases (`uv`, `pre-commit-*`-Mirrors, `fastapi-users`), endoflife.date (Postgres/Python/Node-LTS-Stand). Befund:
+
+- **Lockfile (`backend/uv.lock`)** ist seit M0 mehrfach refresht: 9 von 23 Paketen sind locked = latest-within-constraint (z. B. `pydantic 2.13.3` vom 2026-04-20, `mypy 1.20.2` vom 2026-04-21).
+- **Constraint-Obergrenzen** in `pyproject.toml` lagen für 13 Pakete out-of-range gegen den jeweiligen `latest`-Tag:
+  - SemVer-/CalVer-Major out-of-range (5): `fastapi-users 14→15`, `pytest 8→9`, `pytest-asyncio 0.24→1.x`, `argon2-cffi 23→25` (CalVer), `structlog 24→25` (CalVer).
+  - 0.x-Minor out-of-range (8): `fastapi 0.115→0.136`, `uvicorn 0.32→0.46`, `asyncpg 0.30→0.31`, `geoalchemy2 0.15→0.19`, `uuid-utils 0.10→0.14`, `httpx 0.27→0.28`, `ruff 0.7→0.15`. (Plus `psycopg 3.2→3.3.x` → bereits aufgelöst durch lockfile-refresh, locked = 3.3.3, Constraint `<4` ist großzügig.)
+- **Pre-commit-Pins:** `pre-commit-hooks v5→v6` (Major), `ruff-pre-commit v0.7.4→v0.15.x` (parallel zu pyproject `ruff`), `mirrors-mypy v1.13.0→v1.20.2` (innerhalb Major).
+- **Container-Images:** `ghcr.io/astral-sh/uv:0.8.17 → 0.11.8` (3 0.x-Minors), `postgis/postgis:16-3.4 → 16-3.5` (PostGIS-Minor; Postgres 16 bleibt).
+- **Within-Constraint-Refresh:** `pyjwt 2.10.1 → 2.12.1` (locked hinkt 2 Minors hinter, freigabefrei via `uv lock --upgrade-package`).
+
+Patrick hat am 2026-04-30 **Variante B** (Voll-Sweep ohne Runtime-Majors) freigegeben. Begründung: Erfahrung aus STACK-001 hat den Aufwand für einen geschlossenen Stack-Bump validiert; ein zweiter, auf Backend fokussierter Sweep kostet weniger Zeit als drei verstreute Major-Entscheide während M8. Die Minimal-Variante A (`fastapi-users` allein) hätte 12 weitere Out-of-Range-Pins liegen lassen und einen zweiten Audit-Bedarf vor M9 erzeugt.
+
+### Entscheidungen
+
+**A. Versionssprünge `backend/pyproject.toml`.**
+
+| Paket | Constraint vorher | Constraint nachher | Locked vorher | Locked nachher (Erwartung) |
+|---|---|---|---|---|
+| `fastapi` | `>=0.115,<0.116` | `>=0.136,<0.137` | 0.115.14 | 0.136.1 (Stand 2026-04-23) |
+| `uvicorn[standard]` | `>=0.32,<0.33` | `>=0.46,<0.47` | 0.32.1 | 0.46.0 |
+| `pydantic` | `>=2.9,<3` | `>=2.9,<3` (unverändert) | 2.13.3 | 2.13.3 |
+| `pydantic-settings` | `>=2.6,<3` | `>=2.6,<3` (unverändert) | 2.14.0 | 2.14.0 |
+| `structlog` | `>=24.4,<25` | `>=25,<26` | 24.4.0 | 25.5.0 |
+| `sqlalchemy[asyncio]` | `>=2.0.36,<3` | `>=2.0.36,<3` (unverändert) | 2.0.49 | 2.0.49 |
+| `alembic` | `>=1.14,<2` | `>=1.14,<2` (unverändert) | 1.18.4 | 1.18.4 |
+| `asyncpg` | `>=0.30,<0.31` | `>=0.31,<0.32` | 0.30.0 | 0.31.0 |
+| `psycopg[binary]` | `>=3.2,<4` | `>=3.2,<4` (unverändert) | 3.3.3 | 3.3.3 |
+| `geoalchemy2` | `>=0.15,<0.16` | `>=0.19,<0.20` | 0.15.2 | 0.19.0 |
+| `uuid-utils` | `>=0.10,<0.11` | `>=0.14,<0.15` | 0.10.0 | 0.14.1 |
+| `fastapi-users[sqlalchemy]` | `>=14,<15` | `>=15,<16` | 14.0.2 | 15.0.5 |
+| `argon2-cffi` | `>=23.1,<24` | `>=25,<26` | 23.1.0 | 25.1.0 |
+| `pyjwt` | `>=2.10,<3` | `>=2.10,<3` (unverändert, Refresh) | 2.10.1 | 2.12.1 |
+| `email-validator` | `>=2.2,<3` | `>=2.2,<3` (unverändert) | 2.3.0 | 2.3.0 |
+| `openlocationcode` | `>=1.0,<2` | `>=1.0,<2` (unverändert) | 1.0.1 | 1.0.1 |
+| `httpx` | `>=0.27,<0.28` | `>=0.28,<0.29` | 0.27.2 | 0.28.1 |
+| `ruff` (dev) | `>=0.7,<0.8` | `>=0.15,<0.16` | 0.7.4 | 0.15.12 |
+| `mypy` (dev) | `>=1.13,<2` | `>=1.13,<2` (unverändert) | 1.20.2 | 1.20.2 |
+| `pytest` (dev) | `>=8.3,<9` | `>=9,<10` | 8.4.2 | 9.0.3 |
+| `pytest-asyncio` (dev) | `>=0.24,<0.25` | `>=1,<2` | 0.24.0 | 1.3.0 |
+| `testcontainers[postgresql]` (dev) | `>=4.8,<5` | `>=4.8,<5` (unverändert) | 4.14.2 | 4.14.2 |
+| `coverage` (dev) | `>=7.13.5` | `>=7.13.5` (unverändert) | 7.13.5 | 7.13.5 |
+
+**B. `.pre-commit-config.yaml`-Anpassungen.**
+- `pre-commit/pre-commit-hooks` v5.0.0 → v6.0.0 (Major).
+- `astral-sh/ruff-pre-commit` v0.7.4 → v0.15.12 (synchron zu pyproject `ruff`).
+- `pre-commit/mirrors-mypy` v1.13.0 → v1.20.2 (synchron zu pyproject `mypy`).
+- `additional_dependencies` für `mypy`-Hook: Pins `pydantic`/`pydantic-settings`/`fastapi`/`structlog` an die jeweils neuen Konstellationen ankleichen, soweit relevant.
+
+**C. Container-Image-Tags.**
+- `docker/backend.Dockerfile`: `COPY --from=ghcr.io/astral-sh/uv:0.8.17 /uv /usr/local/bin/uv` → `ghcr.io/astral-sh/uv:0.11.8`. Build-Tool-Drift (3 0.x-Minors). uv 0.11 hat keinen erkennbaren Breaking-Change im `uv sync --frozen --no-dev`-Pfad gegen 0.8 (verifiziert via Stichprobe der Release-Notes).
+- `docker/docker-compose.yml`: `postgis/postgis:16-3.4` → `postgis/postgis:16-3.5`. Postgres-Major bleibt 16 (Daten-Migration ausgeschlossen). PostGIS-Minor 3.4 → 3.5: kompatibel zu Postgres 16, keine Schema-Änderung erforderlich, PostGIS-Erweiterung wird beim Container-Start regulär initialisiert.
+
+**D. Innerhalb-Constraint-Refresh (freigabefrei nach §5).**
+- `pyjwt`: Locked-Version 2.10.1 → 2.12.1 via `uv lock --upgrade-package pyjwt`. Constraint `>=2.10,<3` bleibt.
+
+**E. Out-of-Scope.**
+- **Postgres-Major:** 16 → 17 oder 18. Datenmigrations-Aufwand, eigener ADR bei Bedarf.
+- **Node-Major:** 22 → 24 LTS. `engines: ">=22 <23"` in `frontend/package.json` bleibt unangetastet (Frontend war Scope von STACK-001, der dort bewusst stehen ließ).
+- **Python-Major:** 3.12 → 3.13. mypy-/pydantic-Plugin-Kompat-Risiko, eigener ADR bei Bedarf.
+- **CLAUDE.md-Methodik-Härtung:** Blocker #001 Punkt 2 bleibt offen.
+- **SQLAdmin-Aufnahme** als neue Backend-Dependency: Teil von M8, nicht Teil dieses Stack-Bumps. M8-Strategie-ADR (geplant ADR-049) entscheidet die Versionsbasis.
+- **Mockito/Stub-Refactoring** für ggf. neu deprecated APIs: nur reaktiv adressieren, falls Tests rot werden.
+
+**F. Ausführungsreihenfolge (Phasen).**
+
+Die Sweep-Reihenfolge folgt dem Risiko-Gradienten *aufsteigend*: erst tooling-only Bumps (Lint/Typing), die die Runtime nicht berühren, danach Test-Tooling, danach Runtime-Libraries, zuletzt Frameworks und Container. Tests werden zwischen den Phasen gefahren, sodass eine ggf. brechende Phase isoliert identifiziert werden kann.
+
+1. **Phase 1 — Within-Constraint-Refresh:** `uv lock --upgrade-package pyjwt`. Sanity-Check, dass das Lockfile-Tool funktioniert.
+2. **Phase 2 — Tooling-Bumps:** `ruff` 0.7→0.15 (pyproject + pre-commit synchron), `mirrors-mypy` v1.13→v1.20.2, `pre-commit-hooks` v5→v6. `ruff check` + `mypy --strict` ausführen, neue Lints fixen oder per `ignore` whitelisten (mit Kommentar).
+3. **Phase 3 — Test-Tooling-Majors:** `pytest` 8→9, `pytest-asyncio` 0.24→1.x. `pytest` ausführen — Migrations-Tweaks (z. B. `asyncio_mode`, deprecated-fixture-Patterns) addressieren.
+4. **Phase 4 — Runtime-Library-Bumps:** `httpx` 0.27→0.28, `asyncpg` 0.30→0.31, `structlog` 24→25, `argon2-cffi` 23→25, `geoalchemy2` 0.15→0.19, `uuid-utils` 0.10→0.14, `uvicorn` 0.32→0.46. Tests laufen lassen.
+5. **Phase 5 — Framework-Majors:** `fastapi` 0.115→0.136, `fastapi-users` 14→15. **Höchstes Risiko** (Auth-Bridge, Routing-Layer, Pydantic-Integration). Bei Breakage: Migrations-Anpassung im Code, Tests grün ziehen.
+6. **Phase 6 — Container/Build:** `ghcr.io/astral-sh/uv:0.11.8`, `postgis:16-3.5`. `docker compose build backend` und `docker compose up db` validieren.
+7. **Phase 7 — Verifikation:** Volle `pytest`-Suite (Erwartung: 182/182 grün, ggf. mit migrations-bedingten Anpassungen). `ruff check` clean. `mypy --strict` clean. `docker compose build` clean.
+
+**G. Verifikationsstrategie.**
+DoD nach CLAUDE.md §9:
+1. `uv lock` durchläuft ohne Fehler, neuer Lockfile committet.
+2. `uv sync` (mit dev) erzeugt eine konsistente Venv.
+3. `pytest` läuft vollständig grün; Anzahl der grünen Cases im Bericht festgehalten.
+4. `ruff check .` clean (ggf. neu eingeführte Regel-Treffer dokumentiert oder gefixt).
+5. `mypy --strict` clean.
+6. `docker compose -f docker/docker-compose.yml build backend` produziert ein Image; uv-Image-Tag im Build-Log sichtbar als `0.11.8`.
+7. `docker compose -f docker/docker-compose.yml up db` startet; PostGIS-Erweiterung (`SELECT postgis_version();`) liefert eine 3.5-Versionszeichenkette.
+8. Smoke gegen das gebaute Backend (`curl http://127.0.0.1:8000/api/health`) liefert HTTP 200.
+
+### Verworfene Alternativen
+
+- **Variante A (Minimal-Sweep: nur `fastapi-users 14→15`).** Adressiert das M8-Risiko, lässt aber 12 out-of-range-Pins offen. Erzeugt einen zweiten Audit-Bedarf vor M9. Nicht effizient.
+- **Variante C (Audit-Befund nur dokumentieren, keine Bumps).** Spart M8-Verzögerung, lässt Drift weiter wachsen. Bei späterem Sweep wären M8-Codeänderungen mit zu adressieren — teurer, nicht günstiger.
+- **Variante D (Voll-Sweep + Runtime-Majors).** Postgres/Node/Python in einem Block hätte eigenständige Daten-/Build-/Plugin-Validierungen erzwungen; der zusätzliche Aufwand übersteigt den Nutzen für Pfad A (alle drei Runtimes sind aktuell auf einer aktiv gepatchten Major). Wenn Pfad B aktiviert wird, kann das je Runtime-Major separat getrieben werden.
+- **Versions-Cap weglassen** (z. B. `fastapi>=0.136`). Dies würde künftige Auto-Upgrades durch `uv lock --upgrade` einfach erlauben und wäre weniger restriktiv. Verworfen, weil 0.x-Libraries per SemVer-Konvention in jeder Minor brechen können — der Cap dient als Schutz gegen unbeabsichtigte Major-Drifts und ist eine bewusste CLAUDE.md-§4-Schutzschicht. Beibehaltung des Cap-Stils aus M0.
+
+### Lessons Learned
+
+**Beobachtung:** Der Backend-Drift ist im Mittel kleiner als der Frontend-Drift (Lockfile war refresht, 9 Pins waren bereits at-latest-within-constraint), aber die Constraint-Caps in `pyproject.toml` sind seit M0 nie gehoben worden. Das heißt: Lockfile-Pflege erfasst nur den Innerhalb-Constraint-Drift, nicht den Out-of-Constraint-Drift. Eine routinemäßige `uv lock --upgrade`-Übung allein reicht nicht aus, um Major-Lag zu erkennen.
+
+**Ableitung:**
+1. Constraint-Caps in `pyproject.toml` und Lockfile-Snapshots driften unabhängig voneinander. Der Audit-Wert ist die Differenz zwischen Constraint-Cap und Registry-Latest, nicht die Differenz zwischen Lockfile-Snapshot und Registry-Latest.
+2. Periodische Audits der Constraint-Caps gegen Registry-`latest` sind die einzige verlässliche Drift-Erkennung — ein automatisierbarer Skript-Schritt (Blocker #001 Punkt 2 schlägt das vor) wäre die natürliche Antwort.
+
+### Migrations-Begleiterscheinungen (beobachtet 2026-04-30)
+
+Während der Phasen-Ausführung sind eine Reihe von Effekten aufgetreten, die den ADR-Scope nicht brechen, aber für künftige Backend-Bumps wertvoll sind.
+
+**A. `fastapi-users 14.0.2` enthält einen ultra-strikten Transitiv-Pin auf `pyjwt[crypto]==2.10.1`.**
+Phase 1 (`uv lock --upgrade-package pyjwt`) wirkungslos gelaufen — das Lockfile blieb auf 2.10.1. uv-Resolver-Debug-Log zeigte: `fastapi-users==14.0.2 depends on pyjwt[crypto]>=2.10.1, <2.10.1+` (das `+` ist eine uv-interne Notation für „exklusiv obere Grenze direkt nach 2.10.1"). Konsequenz: pyjwt-Refresh ließ sich nicht vor Phase 5 fahren. Nach `fastapi-users 14→15` war die transitive Klammer aufgehoben, pyjwt landete im selben Lock-Lauf auf 2.12.1. Lessons: Bei künftigen Audits den Lockfile-Resolver nicht nur auf direkte Dependencies, sondern auch auf transitive Pin-Klammern prüfen — eine `pyproject.toml`-Constraint wie `>=2.10,<3` reicht nicht aus, wenn ein direktes Dep den Pin verengt.
+
+**B. Analoges Phänomen für `argon2-cffi`: `fastapi-users 14` zwingt via `pwdlib[argon2]==0.2.1` auf `argon2-cffi>=23.1.0,<24`.**
+Der erste Phase-4-Lockversuch mit `argon2-cffi>=25,<26` schlug mit „requirements are unsatisfiable" fehl. Workaround: argon2-cffi-Bump aus Phase 4 zurückgenommen, in Phase 5 zusammen mit fastapi-users 15 + pwdlib 0.3.0 nachgezogen. **Beide Pins (pyjwt, argon2-cffi) sind also unauflösbar an die fastapi-users-Major gekoppelt.** Bei Pfad-A-Architektur stellt das kein Problem dar; bei Pfad-B-Aktivierung wäre das eine Vendor-Lock-in-Beobachtung wert.
+
+**C. `ruff 0.15.12` aktiviert standardmäßig drei Regeln, die in 0.7.4 stillschweigend nicht erkannt wurden.**
+- `UP042` (StrEnum): `class X(str, enum.Enum)` → `class X(enum.StrEnum)`. 5 Treffer in `app/models/catalog.py`, `app/models/person.py`, `app/models/user.py`. Auto-Fix per `ruff check --fix --unsafe-fixes` zuverlässig.
+- `UP046`/`UP047` (Generic Class/Function → Python-3.12-Type-Parameter): 7 Treffer in `app/services/catalog.py`, `app/routes/catalog.py`, `app/schemas/common.py`. Auto-Fix funktioniert, **aber:** generiert eine inkonsistente Mischung aus alten `TypeVar`-Modul-Definitionen und neuen Type-Param-Signaturen. `app/routes/catalog.py:55-63` hatte nach Auto-Fix einen Funktion-Header `[T: Base]` mit Body-Referenzen auf das alt-stilige `_T`. Manuell aufgeräumt: alte `TypeVar`-Definitionen entfernt, Body-Variablen auf den neuen Typ-Param-Namen umgestellt.
+- `RUF046`/`RUF059` (überflüssige Casts, ungenutzte Tupel-Entpackungen): 5 Treffer in den Tests. Auto-Fix führte zu `_user`/`_csrf`-Prefixierung, was den bestehenden Stilkonventionen entspricht.
+Lessons: `--unsafe-fixes` für UP046/UP047 nicht blind übernehmen — manueller Sweep nach Anwendung Pflicht, um Halbmigrations zu vermeiden.
+
+**D. `ruff format` zwischen 0.7 und 0.15 hat das Zeilen-Layout für mehrzeilige Funktions-Signaturen geändert.**
+22 Bestand-Files wurden bei `ruff format .` reformatiert (Migrations-Files, Test-Files, einige Service-Files). Konkrete Änderung: Funktions-Signaturen, die in 0.7 auf mehrere Zeilen umbrochen wurden, werden in 0.15 auf eine Zeile zurückgezogen, sofern sie unter `line-length = 100` passen. Funktional unverändert. **Pragmatisch akzeptiert** — die 22 Files sind im selben Commit Teil der ADR-048-Migration. Alternative wäre gewesen, die Format-Drift in einen separaten Commit auszulagern; dagegen sprach, dass das Reformat-Verhalten Teil der ruff-0.15-Migration *ist* und vom Bump untrennbar.
+
+**E. Kein Code-Bruch durch fastapi 0.115→0.136 bzw. fastapi-users 14→15.**
+Nach Phase 5 liefen alle 182 Tests beim ersten Versuch grün. Erwartet waren Migrations-Anpassungen für (1) Pydantic-v2-Async-Validators (in 0.116 als breaking deprecated markiert) und (2) `fastapi-users` Auth-Backend-Renaming. Tatsächlich: HC-Map nutzt keinen async validator und keine `fastapi-users`-API, die zwischen 14 und 15 entfernt wurde. Lessons: Die FastAPI-Minor-Bump-Phobie ist im konkreten Fall überzogen; Test-Coverage-Filter funktioniert auch hier als erstes Sicherheitsnetz (analog ADR-047 §I).
+
+**F. PostGIS-Volume-Hybridzustand bei Tag-Bump auf bestehender Test-Instanz.**
+Nach `docker compose up db` mit Tag `16-3.5` auf einem persistierten Volume, das vorher `16-3.4` initialisiert hat, läuft das Container-Binary mit PostGIS 3.5.2, aber die Datenbank-eigenen Extension-Procs sind weiterhin auf 3.4.3 (`postgis_full_version()` zeigt: `(core procs from "3.4.3 e365945" need upgrade)`). Auf einem frischen Volume entfällt das. Saubere Auflösung im laufenden Setup: einmalig `ALTER EXTENSION postgis UPDATE;` (und für Topology die analoge UPDATE-Anweisung). Für M10 (VPS-Deployment): in Bootstrap-Skript aufnehmen, falls vor Go-Live ein PostGIS-Bump fällig wird. **Aktuell akzeptierter Hybridzustand**, keine funktionale Beeinträchtigung in der Test-Suite (testcontainers fährt für jeden Test eine frische DB hoch).
+
+**G. PostGIS-Image `postgis/postgis:16-3.5` ist amd64-only auf Docker Hub.**
+Beim ersten `docker compose up db` Pull-Fehler `no matching manifest for linux/arm64/v8`. Workaround: `docker pull --platform linux/amd64 postgis/postgis:16-3.5` zwingt Rosetta-Emulation auf Apple Silicon. Konsequenz: Der `compose up`-Lauf zeigt einen Hinweis-Banner „The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)" — das ist erwartetes Verhalten und kein Fehler. Identisches Verhalten lag bereits beim alten Tag `16-3.4` vor (war im project-context.md nicht dokumentiert). **Keine Verschlechterung**, aber als Setup-Voraussetzung für M10 (wenn dort andere Hoster-Architekturen ins Spiel kommen) im Hinterkopf zu behalten. Die `alpine`-Variante (`16-3.5-alpine`) hat dieselbe Beschränkung.
+
+**H. `testcontainers==4.14.2` Warnung „package does not have an extra named `postgresql`".**
+Bei jedem `uv lock` taucht der Hinweis auf — der Extra-Name wurde in einer testcontainers-Minor umbenannt. Bestand vor STACK-002, ist also keine durch diese ADR eingeführte Beobachtung. Folge-Schritt-würdig (kosmetisch, kein Breakage).
+
+**I. Backend-Image `hc-map-backend` baut sauber gegen `ghcr.io/astral-sh/uv:0.11.8`.**
+`uv sync --frozen --no-dev` läuft im Build-Stage in 1.4 s durch (Layer-Cache aktiv). Smoke-Test mit `docker run --rm hc-map-backend:latest /app/.venv/bin/python -c "import fastapi, fastapi_users, …; print(...)"` gibt die erwarteten Versionen aus: `fastapi=0.136.1, fastapi-users=15.0.5, sqlalchemy=2.0.49, structlog=25.5.0, argon2=25.1.0, jwt=2.12.1`. Build-Tool-Drift ist also schmerzfrei aufgelöst.
+
+**J. argon2 `__version__`-Deprecation-Hinweis.**
+Beim Smoke-Print zeigt argon2-cffi 25 die Warnung: „Accessing argon2.__version__ is deprecated and will be removed in a future release. Use importlib.metadata directly to query for argon2-cffi's packaging metadata." HC-Map-Code zugreift nirgends auf `argon2.__version__` — der Hinweis stammt nur aus dem Smoke-Print. Keine Aktion nötig.
+
+**K. Test-Suite-Laufzeit unverändert.**
+Phase-für-Phase-Messung: 70 s (Baseline) / 64 s (nach Phase 2) / 63 s (nach Phase 3) / 64 s (nach Phase 4) / 67 s (nach Phase 5) / 66 s (nach Phase 7 mit format applied). Schwankung im Sekundenbereich, kein erkennbarer Performance-Trend.
+
+### Folge-Arbeit
+
+- Blocker #001 Punkt 3 wird mit dieser ADR gelöst und nach „Gelöste Blocker" verschoben (Punkt 2 bleibt aktiv).
+- README-Badges: Falls Backend-Versions-Badges (FastAPI, Python, Postgres) bestehen, im selben Commit aktualisieren — siehe CLAUDE.md §6 „README-Badges spiegeln den Ist-Zustand".
+- M8 (Admin-Bereich, `[OFFEN]`) startet auf dem aktualisierten Backend-Stack. SQLAdmin-Versionswahl in M8-Strategie-ADR (ADR-049 oder Folge).
+- Runtime-Majors (Postgres/Node/Python): Bleiben offen. Bei Bedarf jeweils eigener ADR-Antrag.
+- CLAUDE.md-Methodik-Härtung (Blocker #001 Punkt 2): Bleibt offen. Vorschlag aus dem 2026-04-29-Verlauf (fünf Änderungen plus CI-Audit-Skript).
+- pre-commit-Hooks selbst-Update (`pre-commit autoupdate`) als möglichen Folge-Schritt notieren — kann in den Audit-Skript-Workflow eingebaut werden, sobald Punkt 2 entschieden ist.
 
 ---
 

@@ -119,21 +119,17 @@ def _build_upstream_url(
 
     encoded_query = quote(query, safe="")
     query_string = "&".join(f"{k}={quote(v, safe=',')}" for k, v in params)
-    return (
-        f"https://api.maptiler.com/geocoding/{encoded_query}.json"
-        f"?{query_string}"
-    )
+    return f"https://api.maptiler.com/geocoding/{encoded_query}.json?{query_string}"
 
 
 def _retry_after_header(seconds: float) -> dict[str, str]:
-    return {"Retry-After": str(max(1, int(round(seconds))))}
+    return {"Retry-After": str(max(1, round(seconds)))}
 
 
 @router.get(
     "",
     summary=(
-        "Proxy geocoding query to MapTiler (auth required, server-side key, "
-        "per-user rate limit)"
+        "Proxy geocoding query to MapTiler (auth required, server-side key, per-user rate limit)"
     ),
 )
 async def geocode(

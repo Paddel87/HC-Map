@@ -66,8 +66,7 @@ async def main() -> None:
         ho = await seed_lookup(conn, "hand_orientation", tuple(HAND_ORIENTATIONS))
     await engine.dispose()
     print(
-        f"Seeded: restraint_type={rt}, arm_position={ap}, "
-        f"hand_position={hp}, hand_orientation={ho}"
+        f"Seeded: restraint_type={rt}, arm_position={ap}, hand_position={hp}, hand_orientation={ho}"
     )
 
 

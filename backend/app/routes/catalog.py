@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,14 +48,11 @@ def _state_error(exc: CatalogStateError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
-_T = TypeVar("_T", bound=Base)
-
-
-async def _get_or_404(
+async def _get_or_404[T: Base](
     session: AsyncSession,
-    model: type[_T],
+    model: type[T],
     entry_id: uuid.UUID,
-) -> _T:
+) -> T:
     entry = await session.get(model, entry_id)
     if entry is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -164,9 +160,7 @@ async def reject_arm_position(
 ) -> ArmPositionRead:
     entry = await _get_or_404(session, ArmPosition, entry_id)
     try:
-        await catalog_svc.reject_entry(
-            session, entry, rejected_by=user.id, reason=payload.reason
-        )
+        await catalog_svc.reject_entry(session, entry, rejected_by=user.id, reason=payload.reason)
     except CatalogStateError as exc:
         raise _state_error(exc) from exc
     return ArmPositionRead.model_validate(entry)
@@ -275,9 +269,7 @@ async def reject_hand_position(
 ) -> HandPositionRead:
     entry = await _get_or_404(session, HandPosition, entry_id)
     try:
-        await catalog_svc.reject_entry(
-            session, entry, rejected_by=user.id, reason=payload.reason
-        )
+        await catalog_svc.reject_entry(session, entry, rejected_by=user.id, reason=payload.reason)
     except CatalogStateError as exc:
         raise _state_error(exc) from exc
     return HandPositionRead.model_validate(entry)
@@ -390,9 +382,7 @@ async def reject_hand_orientation(
 ) -> HandOrientationRead:
     entry = await _get_or_404(session, HandOrientation, entry_id)
     try:
-        await catalog_svc.reject_entry(
-            session, entry, rejected_by=user.id, reason=payload.reason
-        )
+        await catalog_svc.reject_entry(session, entry, rejected_by=user.id, reason=payload.reason)
     except CatalogStateError as exc:
         raise _state_error(exc) from exc
     return HandOrientationRead.model_validate(entry)
@@ -499,9 +489,7 @@ async def reject_restraint_type(
 ) -> RestraintTypeRead:
     entry = await _get_or_404(session, RestraintType, entry_id)
     try:
-        await catalog_svc.reject_entry(
-            session, entry, rejected_by=user.id, reason=payload.reason
-        )
+        await catalog_svc.reject_entry(session, entry, rejected_by=user.id, reason=payload.reason)
     except CatalogStateError as exc:
         raise _state_error(exc) from exc
     return RestraintTypeRead.model_validate(entry)

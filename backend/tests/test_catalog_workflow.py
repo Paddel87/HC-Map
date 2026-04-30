@@ -28,9 +28,7 @@ async def _clean(async_session_factory: async_sessionmaker[AsyncSession]):
     yield
     async with async_session_factory() as session, session.begin():
         await session.execute(text("DELETE FROM application_restraint"))
-        await session.execute(
-            text("DELETE FROM restraint_type WHERE display_name LIKE 'M7-%'")
-        )
+        await session.execute(text("DELETE FROM restraint_type WHERE display_name LIKE 'M7-%'"))
         await session.execute(text("DELETE FROM arm_position WHERE name LIKE 'M7-%'"))
         await session.execute(text("DELETE FROM hand_position WHERE name LIKE 'M7-%'"))
         await session.execute(text("DELETE FROM hand_orientation WHERE name LIKE 'M7-%'"))
@@ -45,9 +43,7 @@ async def _propose_arm_position(
     *,
     name: str,
 ) -> str:
-    resp = await post_with_csrf(
-        client, csrf, "/api/arm-positions", json={"name": name}
-    )
+    resp = await post_with_csrf(client, csrf, "/api/arm-positions", json={"name": name})
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
@@ -394,9 +390,7 @@ async def test_listing_status_filter(
     await client.post("/api/auth/logout")
 
     _, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
-    appr = await post_with_csrf(
-        client, csrf_admin, f"/api/arm-positions/{approved_id}/approve"
-    )
+    appr = await post_with_csrf(client, csrf_admin, f"/api/arm-positions/{approved_id}/approve")
     assert appr.status_code == 200
     rej = await post_with_csrf(
         client,
@@ -468,7 +462,7 @@ async def test_other_editor_cannot_see_foreign_rejected(
     assert rej.status_code == 200
     await client.post("/api/auth/logout")
 
-    _, csrf_b = await login_as(client, async_session_factory, role=UserRole.EDITOR)
+    _, _csrf_b = await login_as(client, async_session_factory, role=UserRole.EDITOR)
     resp = await client.get("/api/arm-positions?status=rejected")
     assert resp.status_code == 200
     ids = {item["id"] for item in resp.json()["items"]}

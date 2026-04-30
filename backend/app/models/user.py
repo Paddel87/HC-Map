@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, SoftDeleteMixin, TimestampMixin, pk_column
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
     """Application-level RBAC roles (architecture.md §RLS)."""
 
     ADMIN = "admin"

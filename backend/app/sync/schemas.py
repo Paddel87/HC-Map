@@ -143,7 +143,5 @@ class EventPushItem(BaseModel):
 class ApplicationPushItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    assumed_master_state: ApplicationDoc | None = Field(
-        default=None, alias="assumedMasterState"
-    )
+    assumed_master_state: ApplicationDoc | None = Field(default=None, alias="assumedMasterState")
     new_document_state: ApplicationDoc = Field(alias="newDocumentState")

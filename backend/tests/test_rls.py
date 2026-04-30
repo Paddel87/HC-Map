@@ -441,9 +441,7 @@ def test_editor_can_delete_own_pending_via_rls(db_engine: Engine, role_session) 
             conn.execute(text("DELETE FROM restraint_type WHERE id = :id"), {"id": own_pending})
 
 
-def test_editor_cannot_delete_foreign_pending_via_rls(
-    db_engine: Engine, role_session
-) -> None:
+def test_editor_cannot_delete_foreign_pending_via_rls(db_engine: Engine, role_session) -> None:
     """Editor must not be able to DELETE another editor's pending row."""
     _, world = role_session
     other_pending = uuid7()
@@ -485,9 +483,7 @@ def test_editor_cannot_delete_foreign_pending_via_rls(
             )
 
 
-def test_editor_cannot_delete_own_rejected_via_rls(
-    db_engine: Engine, role_session
-) -> None:
+def test_editor_cannot_delete_own_rejected_via_rls(db_engine: Engine, role_session) -> None:
     """Editor sees own rejected (read-only) but cannot DELETE it via RLS."""
     _, world = role_session
     own_rejected = uuid7()

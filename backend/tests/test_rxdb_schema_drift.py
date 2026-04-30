@@ -108,8 +108,7 @@ def test_property_types_match(schema_file: str, model: type) -> None:
         fe_types = _normalised_types(fe_prop)
         be_types = _normalised_types(be_prop)
         assert fe_types == be_types, (
-            f"{schema_file}.{prop_name}: type set differs. "
-            f"frontend={fe_types}, backend={be_types}"
+            f"{schema_file}.{prop_name}: type set differs. frontend={fe_types}, backend={be_types}"
         )
 
 

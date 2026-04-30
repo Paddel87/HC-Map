@@ -323,15 +323,11 @@ async def push_applications(
             # validation runs before the row insert so we don't have to
             # roll back partial state.
             if not await _restraints_allowed(session, new_doc.restraint_type_ids, user):
-                conflicts.append(
-                    _synthetic_application_tombstone(new_doc.id, new_doc.event_id)
-                )
+                conflicts.append(_synthetic_application_tombstone(new_doc.id, new_doc.event_id))
                 continue
             inserted = await _insert_application_or_conflict(session, new_doc, user)
             if inserted is None:
-                conflicts.append(
-                    _synthetic_application_tombstone(new_doc.id, new_doc.event_id)
-                )
+                conflicts.append(_synthetic_application_tombstone(new_doc.id, new_doc.event_id))
                 continue
             await _sync_application_restraints(session, inserted.id, new_doc.restraint_type_ids)
             continue
@@ -652,9 +648,7 @@ async def _restraints_allowed(
         existing_rows = list(
             (
                 await session.execute(
-                    select(RestraintType.id).where(
-                        RestraintType.id.in_(list(restraint_type_ids))
-                    )
+                    select(RestraintType.id).where(RestraintType.id.in_(list(restraint_type_ids)))
                 )
             )
             .scalars()

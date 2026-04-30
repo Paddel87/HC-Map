@@ -106,12 +106,8 @@ async def test_soft_deleted_event_excluded_from_search(
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     _, csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
-    visible_id = await _push_and_get_id(
-        client, csrf, _new_event_doc(note="alpha-bravo-charlie")
-    )
-    deleted_id = await _push_and_get_id(
-        client, csrf, _new_event_doc(note="alpha-bravo-charlie")
-    )
+    visible_id = await _push_and_get_id(client, csrf, _new_event_doc(note="alpha-bravo-charlie"))
+    deleted_id = await _push_and_get_id(client, csrf, _new_event_doc(note="alpha-bravo-charlie"))
     await _soft_delete(client, csrf, deleted_id)
 
     resp = await client.get("/api/search", params={"q": "alpha-bravo-charlie"})

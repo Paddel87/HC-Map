@@ -22,21 +22,25 @@ from app.models.event import Event, EventParticipant
 async def build_json_export(session: AsyncSession) -> dict[str, Any]:
     # Soft-deleted rows are excluded from exports (ADR-030).
     events = (
-        await session.execute(select(Event).where(Event.is_deleted.is_(False)))
-    ).scalars().all()
+        (await session.execute(select(Event).where(Event.is_deleted.is_(False)))).scalars().all()
+    )
     apps = (
-        await session.execute(
-            select(Application).where(Application.is_deleted.is_(False))
-        )
-    ).scalars().all()
+        (await session.execute(select(Application).where(Application.is_deleted.is_(False))))
+        .scalars()
+        .all()
+    )
     # event_participant got soft-delete columns in M5c.1b (ADR-037 §B);
     # exports follow the same "tombstones excluded" rule as events
     # and applications.
     eps = (
-        await session.execute(
-            select(EventParticipant).where(EventParticipant.is_deleted.is_(False))
+        (
+            await session.execute(
+                select(EventParticipant).where(EventParticipant.is_deleted.is_(False))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     ars = (await session.execute(select(ApplicationRestraint))).scalars().all()
 
     referenced_rt_ids = {ar.restraint_type_id for ar in ars}
@@ -76,9 +80,7 @@ async def stream_events_csv(session: AsyncSession) -> AsyncIterator[str]:
         "created_at",
     ]
     yield _csv_line(headers)
-    rows = (
-        await session.execute(select(Event).where(Event.is_deleted.is_(False)))
-    ).scalars().all()
+    rows = (await session.execute(select(Event).where(Event.is_deleted.is_(False)))).scalars().all()
     for e in rows:
         yield _csv_line(
             [
@@ -108,10 +110,10 @@ async def stream_applications_csv(session: AsyncSession) -> AsyncIterator[str]:
     ]
     yield _csv_line(headers)
     rows = (
-        await session.execute(
-            select(Application).where(Application.is_deleted.is_(False))
-        )
-    ).scalars().all()
+        (await session.execute(select(Application).where(Application.is_deleted.is_(False))))
+        .scalars()
+        .all()
+    )
     for a in rows:
         yield _csv_line(
             [

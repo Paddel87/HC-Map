@@ -29,12 +29,8 @@ async def _clean(async_session_factory: async_sessionmaker[AsyncSession]):
         await session.execute(text("DELETE FROM event_participant"))
         await session.execute(text("DELETE FROM application"))
         await session.execute(text("DELETE FROM event"))
-        await session.execute(
-            text("DELETE FROM restraint_type WHERE display_name LIKE 'M7.5 %'")
-        )
-        await session.execute(
-            text("DELETE FROM arm_position WHERE name LIKE 'M7.5 %'")
-        )
+        await session.execute(text("DELETE FROM restraint_type WHERE display_name LIKE 'M7.5 %'"))
+        await session.execute(text("DELETE FROM arm_position WHERE name LIKE 'M7.5 %'"))
 
 
 def _new_event_doc() -> dict:

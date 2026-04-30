@@ -56,5 +56,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute('DROP POLICY IF EXISTS application_editor_select_own ON application')
+    op.execute("DROP POLICY IF EXISTS application_editor_select_own ON application")
     op.execute('DROP POLICY IF EXISTS event_editor_select_own ON "event"')

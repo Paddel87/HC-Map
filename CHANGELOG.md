@@ -9,6 +9,69 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Changed
 
+- **STACK-002 — Backend-Stack-Drift Voll-Sweep (ADR-048, Variante B aus Audit Blocker #001 Punkt 3):**
+  Backend-Pin-Bump auf jeweils aktuelle Stable-Linie, **ohne** Runtime-Majors
+  (Postgres/Node/Python). Auslöser: Audit am 2026-04-30 zeigte 13 out-of-range
+  Constraint-Caps in [`backend/pyproject.toml`](backend/pyproject.toml).
+  Variante B am 2026-04-30 freigegeben (Patrick).
+  - **Backend-Pakete (Constraint-Caps + Lockfile):**
+    `fastapi` `0.115.14` → `0.136.1` (`<0.116` → `<0.137`),
+    `fastapi-users` `14.0.2` → `15.0.5` (`<15` → `<16`),
+    `uvicorn[standard]` `0.32.1` → `0.46.0` (`<0.33` → `<0.47`),
+    `structlog` `24.4.0` → `25.5.0` (`<25` → `<26`),
+    `argon2-cffi` `23.1.0` → `25.1.0` (`<24` → `<26`, CalVer),
+    `asyncpg` `0.30.0` → `0.31.0` (`<0.31` → `<0.32`),
+    `geoalchemy2` `0.15.2` → `0.19.0` (`<0.16` → `<0.20`),
+    `uuid-utils` `0.10.0` → `0.14.1` (`<0.11` → `<0.15`),
+    `httpx` `0.27.2` → `0.28.1` (`<0.28` → `<0.29`),
+    `pyjwt` `2.10.1` → `2.12.1` (Within-Constraint-Refresh, `<3` unverändert),
+    `pwdlib` `0.2.1` → `0.3.0` (transitiv via fastapi-users 15),
+    `python-multipart` `0.0.20` → `0.0.27` (transitiv).
+  - **Dev-Tooling:**
+    `ruff` `0.7.4` → `0.15.12` (`<0.8` → `<0.16`),
+    `pytest` `8.4.2` → `9.0.3` (`<9` → `<10`, Major),
+    `pytest-asyncio` `0.24.0` → `1.3.0` (`<0.25` → `<2`, Major).
+  - **Pre-commit-Hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml)):**
+    `pre-commit/pre-commit-hooks` `v5.0.0` → `v6.0.0`,
+    `astral-sh/ruff-pre-commit` `v0.7.4` → `v0.15.12`,
+    `pre-commit/mirrors-mypy` `v1.13.0` → `v1.20.2`.
+  - **Container-Images:**
+    [`docker/backend.Dockerfile`](docker/backend.Dockerfile)
+    `ghcr.io/astral-sh/uv:0.8.17` → `0.11.8`;
+    [`docker/docker-compose.yml`](docker/docker-compose.yml)
+    `postgis/postgis:16-3.4` → `16-3.5` (Postgres-Major bleibt 16,
+    PostGIS Binary 3.5.2; bestehende Test-Volumes brauchen einmalig
+    `ALTER EXTENSION postgis UPDATE` für saubere Procs, neue Volumes
+    starten clean).
+  - **Code-Modernisierung durch ruff 0.15:** `class X(str, enum.Enum)`
+    → `class X(enum.StrEnum)` in
+    [`app/models/catalog.py`](backend/app/models/catalog.py),
+    [`app/models/person.py`](backend/app/models/person.py),
+    [`app/models/user.py`](backend/app/models/user.py).
+    Generic Functions/Classes auf Python-3.12-Type-Parameter
+    umgestellt in
+    [`app/services/catalog.py`](backend/app/services/catalog.py),
+    [`app/routes/catalog.py`](backend/app/routes/catalog.py),
+    [`app/schemas/common.py`](backend/app/schemas/common.py).
+    Alte `TypeVar`-Modul-Definitionen entfernt (Auto-Fix-Halbmigration
+    nachgezogen, siehe ADR-048 §C). Ungenutzte Tupel-Entpackungen
+    in 5 Test-Files mit `_`-Präfix versehen (`RUF059`).
+  - **Format-Drift:** 22 Bestand-Files reformatiert durch
+    `ruff format` 0.15-Layout (mehrzeilige Funktions-Signaturen
+    werden bei Bedarf wieder auf eine Zeile zurückgezogen, sofern
+    `line-length = 100` passt). Funktional unverändert.
+  - **Verifikation:** `pytest` 182/182 grün; `mypy --strict` clean
+    (56 Files); `ruff check` clean; `ruff format --check` clean;
+    `docker compose build backend` clean (`uv:0.11.8`-Image baut in
+    1.4 s); `docker compose up db` startet `postgis 16-3.5`,
+    `postgis_full_version()` zeigt `3.5.2`. Smoke-Run gegen Image
+    bestätigt Versionen aller Major-Bumps.
+  - **Out-of-Scope:** Postgres-Major (16 → 17/18), Node-Major
+    (22 → 24 LTS), Python-Major (3.12 → 3.13), `engines: ">=22 <23"`
+    in [`frontend/package.json`](frontend/package.json) (unangetastet),
+    SQLAdmin-Aufnahme (Teil von M8), CLAUDE.md-Methodik-Härtung
+    (Blocker #001 Punkt 2 bleibt offen).
+
 - **STACK-001 — Next.js 15.0.4 → 16.2.4 (ADR-047, Pfad C aus Blocker #001 + Variante Z2):**
   Frontend-Stack-Bump auf aktuelle Major-Linie. Auslöser: Dev-Overlay-Banner
   „Next.js (15.0.4) is outdated" empirisch im Live-Preview verifiziert

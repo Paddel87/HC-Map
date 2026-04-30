@@ -25,16 +25,16 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-30 (Sessionende, STACK-001 [ERLEDIGT] und mit E2E-Browser-Smoke verifiziert; ADR-047 inkl. Begleiterscheinungs-Sektion gepflegt; auf `origin/main` gepusht)
+- **Stand vom:** 2026-04-30 (Sessionende, STACK-002 [ERLEDIGT] und mit voll-Verifikation grün; ADR-048 inkl. Begleiterscheinungs-Sektion gepflegt.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **STACK-001 (Next.js 16 Migration) [ERLEDIGT] 2026-04-30.** Pfad C + Variante Z2 (ESLint-Major mit-migriert wegen Peer-Dep-Anforderung von `eslint-config-next@16`). ADR-047 mit Lessons-Learned-Regel (Dev-Overlay-Sichtprüfung im DoD) und §Migrations-Begleiterscheinungen (Turbopack-CSS-Strenge, tsconfig-/next-env-Auto-Edits, FlatCompat-Umgehung, Prettier-Drift, Performance-Vergleich). Browser-Smoke + E2E-Funktionsverifikation (lebendes Backend) bestätigt, keine Funktionsregressionen. 261/261 Frontend-Tests grün, Lint/Typecheck/Build clean. Folgeschritte (Code-Quality-Sweep für drei deaktivierte Lint-Regeln, next-themes-Theme-Hydration-Warnung) im ADR §Folge-Arbeit dokumentiert.
+- **Aktiver Schritt:** **STACK-002 (Backend-Stack-Drift Voll-Sweep) [ERLEDIGT] 2026-04-30.** Variante B (Voll-Sweep ohne Runtime-Majors). 13 out-of-range Backend-Pins, 1 within-constraint-Refresh (`pyjwt 2.10.1→2.12.1`), 1 Tooling-Major (`pre-commit-hooks v5→v6`), 1 Build-Image (`uv 0.8.17→0.11.8`), 1 PostGIS-Minor (`postgis 16-3.4→16-3.5`). 182/182 pytest grün, mypy clean, ruff lint clean, Docker-Build clean, PostGIS-Smoke `postgis_full_version()` zeigt 3.5.2. ADR-048 mit Lessons-Learned-Regel (transitive Pin-Klammern audit-relevant) und §Migrations-Begleiterscheinungen (fastapi-users-Pin-Lock auf pyjwt+argon2-cffi, ruff-0.15-Auto-Fix-Halbmigrations, Format-Drift, PostGIS-Volume-Hybridzustand, amd64-only-Image-Hinweis). Folgeschritte: testcontainers-`postgresql`-Extra-Renaming (kosmetisch).
 - **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29, STACK-001 [ERLEDIGT] 2026-04-30 (Next.js 16 Migration, ADR-047).
-- **Test-Stand nach STACK-001:** Backend `pytest`: 182/182 grün (unverändert). Frontend `pnpm test`: 261/261 grün. `pnpm typecheck`, `pnpm lint` (eslint .), `pnpm build` (Next.js 16.2.4 / Turbopack, 16 Routen + Proxy) clean.
-- **Nächster Schritt nach STACK-001:** **M8 (Admin-Bereich)** auf 16.x-Linie — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-048 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
+- **Test-Stand vor STACK-002:** Backend `pytest`: 182/182 grün (auf Basis der bestehenden Pins). Frontend `pnpm test`: 261/261 grün (unverändert nach STACK-001). `pnpm typecheck`, `pnpm lint`, `pnpm build` clean.
+- **Nächster Schritt nach STACK-002:** **M8 (Admin-Bereich)** auf aktualisiertem Backend-Stack — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users 15.x, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-049 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
 - **Offene STOPP-Situationen:** keine.
 - **Offene Freigabe-Entscheidungen:**
   - **Blocker #001 Punkt 2 — CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift:** offen. Konkreter Vorschlag (fünf Änderungen plus CI-Audit-Skript) im Conversation-Verlauf 2026-04-29.
-  - **Blocker #001 Punkt 3 — Audit-Ausweitung Backend/Container/Runtimes:** offen. Eigenständiger Folge-Schritt vor M8 oder parallel; umfasst auch die Anpassung des `engines: ">=22 <23"`-Pins in `frontend/package.json`.
+  - **Runtime-Majors (Postgres 16→17/18, Node 22→24, Python 3.12→3.13):** explizit aus STACK-002 ausgenommen (siehe ADR-048 §E). Werden bei Bedarf als eigenständige ADR-Tickets verhandelt; kein laufender Druck (alle drei Runtimes sind LTS bzw. aktiv gepatcht).
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
   - **`/events/[id]`** rendert Live-/Ended-View über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c (vorhanden, aber Edge-Case bleibt).
@@ -90,6 +90,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | STACK-001   | Next.js 15.0.4 → 16.2.4 + React 19.2 (ADR-047)   | [ERLEDIGT] 2026-04-30 |
+| 1 MVP   | STACK-002   | Backend-Stack-Drift Voll-Sweep (ADR-048)         | [ERLEDIGT] 2026-04-30 |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
@@ -1270,6 +1271,74 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 - ADR-047 Status `Accepted`. Blocker #001 Punkt 1 nach „Gelöste Blocker" verschoben (Punkte 2 und 3 bleiben offen).
 - README-Badge Next.js 15 → 16 aktualisiert; CHANGELOG ergänzt unter `[Unreleased]`. ADR-047 §Migrations-Begleiterscheinungen dokumentiert zusätzlich Turbopack-CSS-Strenge, Auto-Edits an `tsconfig.json`/`next-env.d.ts`, FlatCompat-Umgehung, `@eslint/js`-Peer-Detail, Prettier-Drift und Performance-Beobachtungen (Dev-Ready 1863 ms → 220 ms, Build ~5.9 s → 2.6 s).
 - **End-to-End-Verifikation am 2026-04-30 (lebendes Backend, lokaler Docker-Stack):** Auto-Login mit bestehender Session, Dashboard rendert mit RxDB-`synchronisiert`-Status und 3 RLS-gefilterten Events, Event-Detail-Page mit laufendem Timer (`19:57:56`) + Plus Code (`9F4MGC22+222`) + Application-Liste mit Restraint-Anzeige (M7.5-Ergebnisse), Admin/Catalogs mit Workflow-Tabs (18 Restraints sichtbar), MapView mit Cluster-Markern (7+4) + Filter + Adress-Suche (Tile-Layer grau ohne MapTiler-Key, 88× 503 sind pre-existierender Fallback gemäß project-context.md). Logout `POST /api/auth/logout` → 204. Re-Login über `<LoginForm>` mit Argon2id-validiertem Test-User (`u6cdb3bbf@example.com`) erfolgreich. Stack sauber gestoppt.
+
+---
+
+### STACK-002 — Backend-Stack-Drift Voll-Sweep (Variante B aus Audit-Befund Blocker #001 Punkt 3)
+
+**Ziel:** Backend-Pins, Build-Tool-Image und Container-Image-Tags auf jeweils aktuelle Stable-Linie heben, **ohne** Runtime-Majors (Postgres/Node/Python). Drift-Berge vor M8 (Admin-Bereich) abbauen, sodass M8 auf einem konsistenten Backend-Stack startet. Strategie und Begründung: ADR-048.
+
+**Auslöser:** Audit am 2026-04-30 (PyPI/Docker-Hub/GitHub-Releases-Lookup) auf Basis Blocker #001 Punkt 3. Lockfile-Snapshot (`backend/uv.lock`) war zwar refresht (locked = latest-within-constraint für 9 Pakete), aber 13 Constraint-Obergrenzen in `backend/pyproject.toml` lagen out-of-range gegen den jeweiligen `latest`-Tag. Patrick hat am 2026-04-30 Variante B (Voll-Sweep ohne Runtime-Majors) freigegeben.
+
+**Deliverables — Backend (`backend/pyproject.toml`):**
+- **Refresh innerhalb Constraint:** `pyjwt` 2.10.1 → 2.12.1 (kein Pin-Cap-Move).
+- **Major-Bumps (SemVer):**
+  - `fastapi-users` `>=14,<15` → `>=15,<16` (Locked: 14.0.2 → 15.0.5).
+  - `pytest` `>=8.3,<9` → `>=9,<10` (Locked: 8.4.2 → 9.0.3).
+  - `pytest-asyncio` `>=0.24,<0.25` → `>=1,<2` (Locked: 0.24.0 → 1.x).
+- **Major-Bumps (CalVer):**
+  - `argon2-cffi` `>=23.1,<24` → `>=25,<26` (Locked: 23.1.0 → 25.1.0).
+  - `structlog` `>=24.4,<25` → `>=25,<26` (Locked: 24.4.0 → 25.x).
+- **0.x-Minor-Bumps out-of-range:**
+  - `fastapi` `>=0.115,<0.116` → `>=0.13x,<0.137` bzw. weitestmöglicher 0.x-Cap (Locked: 0.115.14 → 0.136.x).
+  - `uvicorn` `>=0.32,<0.33` → `>=0.46,<0.47` (Locked: 0.32.1 → 0.46.x).
+  - `asyncpg` `>=0.30,<0.31` → `>=0.31,<0.32` (Locked: 0.30.0 → 0.31.0).
+  - `geoalchemy2` `>=0.15,<0.16` → `>=0.19,<0.20` (Locked: 0.15.2 → 0.19.0).
+  - `uuid-utils` `>=0.10,<0.11` → `>=0.14,<0.15` (Locked: 0.10.0 → 0.14.1).
+  - `httpx` `>=0.27,<0.28` → `>=0.28,<0.29` (Locked: 0.27.2 → 0.28.1).
+  - `ruff` `>=0.7,<0.8` → `>=0.15,<0.16` (Locked: 0.7.4 → 0.15.x).
+
+**Deliverables — Pre-commit (`.pre-commit-config.yaml`):**
+- `pre-commit/pre-commit-hooks` v5.0.0 → v6.0.0 (Major).
+- `astral-sh/ruff-pre-commit` v0.7.4 → v0.15.x (synchron zu pyproject-`ruff`).
+- `pre-commit/mirrors-mypy` v1.13.0 → v1.20.2 (synchron zu pyproject-`mypy`).
+- `additional_dependencies` für mypy: `pydantic`/`pydantic-settings`/`fastapi`/`structlog`-Pins entsprechend angehoben.
+
+**Deliverables — Container-Images:**
+- `docker/backend.Dockerfile`: `ghcr.io/astral-sh/uv:0.8.17` → `ghcr.io/astral-sh/uv:0.11.8` (Build-Tool-Image).
+- `docker/docker-compose.yml`: `postgis/postgis:16-3.4` → `postgis/postgis:16-3.5` (PostGIS-Minor; Postgres-Major bleibt 16).
+
+**Out of Scope (siehe ADR-048 §E):**
+- **Runtime-Majors:** Postgres 16 → 17/18 (Daten-Migration), Node 22 → 24 (Frontend-Stack-Bump), Python 3.12 → 3.13 (mypy-/Pydantic-Plugin-Kompatibilität). Drei eigenständige Entscheidungen mit jeweils eigenem ADR-Bedarf bei Anpassung.
+- **CLAUDE.md-Methodik-Härtung:** Blocker #001 Punkt 2 bleibt offen, separat zu entscheiden.
+- **Frontend-`engines: ">=22 <23"`-Pin:** Bleibt unverändert, weil Node-Major aus Scope.
+- **SQLAdmin-Aufnahme** in `pyproject.toml`-Dependencies: gehört in M8 (Admin-Bereich), nicht in den Stack-Bump.
+
+**Akzeptanzkriterien:**
+- `uv lock` läuft sauber durch, alle aktualisierten Pins haben gültige Resolver-Pfade.
+- `uv sync --no-dev` und `uv sync` produzieren eine vollständige Venv ohne Konflikte.
+- Backend-Tests `pytest` laufen vollständig grün (Erwartung: 182/182, ggf. mit Migrations-Anpassungen für pytest 9 / pytest-asyncio 1.x — wenn Test-Anzahl sich durch Migration ändert, im Bericht dokumentieren).
+- `ruff check` und `mypy --strict` clean (mit ggf. neu aktivierten Lint-Regeln aus ruff 0.15 — entweder fixen oder explizit per `ignore` deaktivieren mit Begründung).
+- `docker compose -f docker/docker-compose.yml build backend` erzeugt fehlerfrei ein Image auf Basis `uv:0.11.8`.
+- `docker compose -f docker/docker-compose.yml up db` startet `postgis:16-3.5` ohne Schema-Inkompatibilität (PostGIS 3.4 → 3.5: keine Schema-Änderung erforderlich, aber `CREATE EXTENSION postgis` ggf. zu validieren).
+- ADR-048 in `decisions.md` mit Status `Accepted`, inkl. §Migrations-Begleiterscheinungen post-execution.
+- Blocker #001 Punkt 3 nach „Gelöste Blocker" verschoben (Punkt 2 bleibt aktiv).
+- README-Badges aktualisiert, falls Backend-Versions-Badge oder Container-Image-Badge vorhanden.
+- CHANGELOG-Eintrag.
+
+**Abhängigkeiten:** keine (cross-cutting Migration auf bestehendem Stack-Stand). Vorgänger: STACK-001 [ERLEDIGT] 2026-04-30, Blocker #001 Punkt 3 freigegeben durch Patrick am 2026-04-30 (Variante B).
+
+**Status `[ERLEDIGT]` 2026-04-30:**
+- **Phase 1 (Refresh `pyjwt`):** wirkungslos — `fastapi-users 14.0.2` pinnt `pyjwt[crypto]==2.10.1` strikt. Refresh in Phase 5 nachgezogen (`pyjwt 2.10.1 → 2.12.1`). Begleiterscheinung dokumentiert in ADR-048 §A.
+- **Phase 2 (Tooling):** `ruff 0.7→0.15.12`, `ruff-pre-commit v0.7.4→v0.15.12`, `mirrors-mypy v1.13.0→v1.20.2`, `pre-commit-hooks v5.0.0→v6.0.0`. `mypy`-Hook-`additional_dependencies` auf passende Linien ausgerichtet. Drei neu aktivierte Lint-Regeln (`UP042` StrEnum, `UP046`/`UP047` Type-Param-Modernisierung, `RUF046`/`RUF059` Cast-/Unpack-Hygiene): Auto-Fix per `--unsafe-fixes` angewandt; Halbmigrations in `app/routes/catalog.py` und `app/services/catalog.py` manuell aufgeräumt (alte `TypeVar`-Modul-Definitionen entfernt). 182/182 grün.
+- **Phase 3 (Test-Tooling-Majors):** `pytest 8.4.2→9.0.3`, `pytest-asyncio 0.24.0→1.3.0`. **Keine Code-Anpassung nötig** — `asyncio_mode = "auto"` bleibt valide, keine Fixture-API-Brüche. 182/182 grün.
+- **Phase 4 (Runtime-Libraries):** `uvicorn 0.32→0.46`, `httpx 0.27→0.28`, `asyncpg 0.30→0.31`, `structlog 24.4→25.5.0`, `geoalchemy2 0.15→0.19`, `uuid-utils 0.10→0.14`. `argon2-cffi`-Bump aus dieser Phase **zurückgenommen**, weil `fastapi-users 14`+`pwdlib 0.2.1` einen Transitiv-Pin auf `argon2-cffi<24` setzen (siehe ADR-048 §B). 182/182 grün.
+- **Phase 5 (Framework-Majors):** `fastapi 0.115→0.136.1`, `fastapi-users 14.0.2→15.0.5`. Mit-aufgelöst: `pwdlib 0.2.1→0.3.0`, `python-multipart 0.0.20→0.0.27`, `argon2-cffi 23.1.0→25.1.0`, `pyjwt 2.10.1→2.12.1`. **Keine Code-Anpassung nötig** — kein async validator, keine zwischen 14↔15 entfernte fastapi-users-API in HC-Map-Code. 182/182 grün, mypy clean, ruff clean.
+- **Phase 6 (Container):** `docker/backend.Dockerfile`: `ghcr.io/astral-sh/uv:0.8.17→0.11.8`. `docker/docker-compose.yml`: `postgis/postgis:16-3.4→16-3.5`. Build-Smoke gegen Image: `python -c "import fastapi, fastapi_users, …"` zeigt erwartete Versionen. DB-Smoke: `postgres 16.9 + postgis 3.5.2`. Hinweis: bestehendes Test-Volume zeigt PostGIS-Hybridzustand (Binary 3.5, Procs 3.4) — frische Volumes starten clean (siehe ADR-048 §F).
+- **Phase 7 (Verifikation):** `pytest` 182/182 grün; `mypy --strict` clean (56 Files); `ruff check` clean; `ruff format` 22 Files reformatiert (Format-Drift 0.7→0.15 — funktional unverändert, siehe ADR-048 §D); `docker compose build backend` clean.
+- **Out-of-Scope-Bestätigt:** Postgres-Major (16→17/18), Node-Major (22→24), Python-Major (3.12→3.13) bleiben offen. `engines: ">=22 <23"` in `frontend/package.json` unangetastet. CLAUDE.md-Methodik-Härtung (Blocker #001 Punkt 2) bleibt offen.
+- ADR-048 Status `Accepted`. Blocker #001 Punkt 3 nach „Gelöste Blocker" verschoben (Punkt 2 bleibt offen).
+- CHANGELOG ergänzt unter `[Unreleased]`. README-Badges (Backend) geprüft — keine inkonsistente Versions-Badge gefunden.
 
 ---
 

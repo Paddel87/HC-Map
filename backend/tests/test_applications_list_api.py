@@ -44,15 +44,9 @@ async def test_list_applications_returns_in_sequence_order(
 ) -> None:
     _, csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
     event_id = await _start_event(client, csrf)
-    a1 = await post_with_csrf(
-        client, csrf, f"/api/events/{event_id}/applications/start", json={}
-    )
-    a2 = await post_with_csrf(
-        client, csrf, f"/api/events/{event_id}/applications/start", json={}
-    )
-    a3 = await post_with_csrf(
-        client, csrf, f"/api/events/{event_id}/applications/start", json={}
-    )
+    a1 = await post_with_csrf(client, csrf, f"/api/events/{event_id}/applications/start", json={})
+    a2 = await post_with_csrf(client, csrf, f"/api/events/{event_id}/applications/start", json={})
+    a3 = await post_with_csrf(client, csrf, f"/api/events/{event_id}/applications/start", json={})
     resp = await client.get(f"/api/events/{event_id}/applications")
     assert resp.status_code == 200
     body = resp.json()

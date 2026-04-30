@@ -79,10 +79,10 @@ async def test_event_with_reveal_false_masks_other_participant(
     """
     _, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
     # Editor with a fresh person
-    editor, csrf_editor = await login_as(client, async_session_factory, role=UserRole.EDITOR)
+    editor, _csrf_editor = await login_as(client, async_session_factory, role=UserRole.EDITOR)
     # Login back as admin to set up the event.
     await client.post("/api/auth/logout")
-    admin, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
+    _admin, csrf_admin = await login_as(client, async_session_factory, role=UserRole.ADMIN)
     other_person = await client.post(
         "/api/persons",
         json={"name": "Co-Participant"},

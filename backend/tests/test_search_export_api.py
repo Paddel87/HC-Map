@@ -62,7 +62,7 @@ async def test_throwbacks_today(
     client: AsyncClient,
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    _, csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
+    _, _csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
     today = datetime.now(tz=UTC)
     last_year = today.replace(year=today.year - 1)
     # Insert directly via DB so we can pre-date the started_at.
@@ -70,7 +70,7 @@ async def test_throwbacks_today(
         from app.models.base import uuid7
 
         await session.execute(
-            text("INSERT INTO event (id, started_at, lat, lon) " "VALUES (:id, :ts, 0, 0)"),
+            text("INSERT INTO event (id, started_at, lat, lon) VALUES (:id, :ts, 0, 0)"),
             {"id": uuid7(), "ts": last_year},
         )
 

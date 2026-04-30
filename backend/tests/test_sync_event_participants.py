@@ -109,7 +109,7 @@ async def test_cursor_advances_across_multiple_events(
     client: AsyncClient,
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    user, csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
+    _user, csrf = await login_as(client, async_session_factory, role=UserRole.ADMIN)
     e1, e2 = str(uuid.uuid4()), str(uuid.uuid4())
     await _seed_event(client, csrf, e1)
     await _seed_event(client, csrf, e2)
@@ -144,7 +144,7 @@ async def test_editor_sees_only_their_own_events_participants(
     await _seed_event(client, csrf_a, event_a)
 
     # Editor B logs in independently — should see no rows.
-    _, csrf_b = await login_as(client, async_session_factory, role=UserRole.EDITOR)
+    _, _csrf_b = await login_as(client, async_session_factory, role=UserRole.EDITOR)
     resp = await client.get("/api/sync/event-participants/pull")
     assert resp.status_code == 200
     body = resp.json()

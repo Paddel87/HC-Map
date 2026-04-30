@@ -115,9 +115,7 @@ async def test_pull_cursor_advances(
     assert page2.status_code == 200
     page2_body = page2.json()
     assert len(page2_body["documents"]) == 1
-    assert page2_body["documents"][0]["id"] not in {
-        d["id"] for d in page1_body["documents"]
-    }
+    assert page2_body["documents"][0]["id"] not in {d["id"] for d in page1_body["documents"]}
 
 
 async def test_push_event_soft_delete_replicates_as_tombstone(

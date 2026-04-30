@@ -28,7 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin, pk_column
 
 
-class CatalogStatus(str, enum.Enum):
+class CatalogStatus(enum.StrEnum):
     """Workflow state shared by all catalog tables."""
 
     APPROVED = "approved"
@@ -36,7 +36,7 @@ class CatalogStatus(str, enum.Enum):
     REJECTED = "rejected"
 
 
-class RestraintCategory(str, enum.Enum):
+class RestraintCategory(enum.StrEnum):
     """High-level grouping for the restraint catalog."""
 
     HANDCUFFS = "handcuffs"
@@ -51,7 +51,7 @@ class RestraintCategory(str, enum.Enum):
     OTHER = "other"
 
 
-class RestraintMechanicalType(str, enum.Enum):
+class RestraintMechanicalType(enum.StrEnum):
     """Mechanical type for cuff-style restraints."""
 
     CHAIN = "chain"

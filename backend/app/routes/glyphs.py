@@ -47,10 +47,7 @@ async def get_glyph(
         )
     # MapTiler's glyph endpoint expects "{fontstack}/{range}.pbf"; we
     # accept the range with the .pbf suffix as MapLibre sends it.
-    url = (
-        f"https://api.maptiler.com/fonts/{fontstack}/{rangespec}"
-        f"?key={settings.maptiler_api_key}"
-    )
+    url = f"https://api.maptiler.com/fonts/{fontstack}/{rangespec}?key={settings.maptiler_api_key}"
     client = _http_client()
     try:
         upstream = await client.get(url)

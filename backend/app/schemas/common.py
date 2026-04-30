@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
-
 from pydantic import BaseModel, ConfigDict, Field
 
-T = TypeVar("T")
 
-
-class Page(BaseModel, Generic[T]):
+class Page[T](BaseModel):
     """Generic paginated response envelope (offset/limit, ADR-020 §C)."""
 
     items: list[T]

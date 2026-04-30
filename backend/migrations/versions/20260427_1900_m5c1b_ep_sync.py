@@ -71,8 +71,7 @@ def upgrade() -> None:
     )
     op.execute("UPDATE event_participant SET updated_at = created_at WHERE updated_at IS NULL")
     op.execute(
-        "ALTER TABLE event_participant "
-        "ALTER COLUMN updated_at SET DEFAULT clock_timestamp()"
+        "ALTER TABLE event_participant ALTER COLUMN updated_at SET DEFAULT clock_timestamp()"
     )
     op.execute("ALTER TABLE event_participant ALTER COLUMN updated_at SET NOT NULL")
 
@@ -101,7 +100,7 @@ def upgrade() -> None:
     # 6. set_updated_at trigger — same shared function as the other
     #    sync-aware tables (created in the initial migration).
     op.execute(
-        'CREATE TRIGGER set_updated_at_event_participant '
+        "CREATE TRIGGER set_updated_at_event_participant "
         'BEFORE UPDATE ON "event_participant" '
         "FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
     )
@@ -154,9 +153,7 @@ def downgrade() -> None:
         """
     )
 
-    op.execute(
-        'DROP TRIGGER IF EXISTS set_updated_at_event_participant ON "event_participant"'
-    )
+    op.execute('DROP TRIGGER IF EXISTS set_updated_at_event_participant ON "event_participant"')
     op.drop_index("ix_event_participant_cursor", table_name="event_participant")
 
     op.drop_column("event_participant", "deleted_at")

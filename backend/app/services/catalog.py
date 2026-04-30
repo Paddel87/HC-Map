@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -25,9 +25,6 @@ from app.models.catalog import (
     RestraintType,
 )
 
-CatalogModel = TypeVar("CatalogModel", ArmPosition, HandPosition, HandOrientation, RestraintType)
-LookupModel = TypeVar("LookupModel", ArmPosition, HandPosition, HandOrientation)
-
 
 class CatalogConflictError(Exception):
     """Raised on UNIQUE-constraint violations during create/update."""
@@ -37,7 +34,7 @@ class CatalogStateError(Exception):
     """Raised when a status transition is attempted from an invalid state."""
 
 
-async def list_lookup(
+async def list_lookup[CatalogModel: (ArmPosition, HandPosition, HandOrientation, RestraintType)](
     session: AsyncSession,
     model: type[CatalogModel],
     *,
@@ -61,18 +58,14 @@ async def list_lookup(
         count_stmt = count_stmt.where(model.status == status_filter)
     total = await session.scalar(count_stmt)
     rows = (
-        (
-            await session.execute(
-                stmt.order_by(model.created_at.desc()).limit(limit).offset(offset)
-            )
-        )
+        (await session.execute(stmt.order_by(model.created_at.desc()).limit(limit).offset(offset)))
         .scalars()
         .all()
     )
     return rows, int(total or 0)
 
 
-async def propose_lookup(
+async def propose_lookup[LookupModel: (ArmPosition, HandPosition, HandOrientation)](
     session: AsyncSession,
     model: type[LookupModel],
     *,
@@ -148,7 +141,7 @@ async def propose_restraint_type(
     return entry
 
 
-async def update_lookup(
+async def update_lookup[LookupModel: (ArmPosition, HandPosition, HandOrientation)](
     session: AsyncSession,
     entry: LookupModel,
     *,
@@ -191,7 +184,7 @@ async def update_restraint_type(
     return entry
 
 
-async def approve_entry(
+async def approve_entry[CatalogModel: (ArmPosition, HandPosition, HandOrientation, RestraintType)](
     session: AsyncSession,
     entry: CatalogModel,
     *,
@@ -214,7 +207,7 @@ async def approve_entry(
     return entry
 
 
-async def reject_entry(
+async def reject_entry[CatalogModel: (ArmPosition, HandPosition, HandOrientation, RestraintType)](
     session: AsyncSession,
     entry: CatalogModel,
     *,
@@ -236,7 +229,7 @@ async def reject_entry(
     return entry
 
 
-async def withdraw_entry(
+async def withdraw_entry[CatalogModel: (ArmPosition, HandPosition, HandOrientation, RestraintType)](
     session: AsyncSession,
     entry: CatalogModel,
 ) -> None:

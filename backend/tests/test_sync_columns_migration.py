@@ -80,9 +80,7 @@ def _make_application(
 def test_event_updated_at_is_non_null_on_insert(db_session: Session) -> None:
     _, user = _make_admin(db_session)
     event = _make_event(db_session, user)
-    fetched = db_session.execute(
-        select(Event.updated_at).where(Event.id == event.id)
-    ).scalar_one()
+    fetched = db_session.execute(select(Event.updated_at).where(Event.id == event.id)).scalar_one()
     assert fetched is not None
     assert fetched >= event.created_at
 
@@ -104,15 +102,11 @@ def test_application_updated_at_is_non_null_on_insert(db_session: Session) -> No
 def test_event_updated_at_trigger_bumps_on_update(db_session: Session) -> None:
     _, user = _make_admin(db_session)
     event = _make_event(db_session, user)
-    initial = db_session.execute(
-        select(Event.updated_at).where(Event.id == event.id)
-    ).scalar_one()
+    initial = db_session.execute(select(Event.updated_at).where(Event.id == event.id)).scalar_one()
     time.sleep(0.05)
     event.note = "trigger-test"
     db_session.flush()
-    after = db_session.execute(
-        select(Event.updated_at).where(Event.id == event.id)
-    ).scalar_one()
+    after = db_session.execute(select(Event.updated_at).where(Event.id == event.id)).scalar_one()
     assert after > initial
 
 

@@ -140,10 +140,7 @@ async def test_proximity_is_translated_to_lon_lat(
     assert fake.last_url is not None
     # MapTiler expects lon,lat — our API received lat,lon → must be flipped.
     # Comma may be raw or %2C-encoded; both are valid in query strings.
-    assert (
-        "proximity=13.405,52.52" in fake.last_url
-        or "proximity=13.405%2C52.52" in fake.last_url
-    )
+    assert "proximity=13.405,52.52" in fake.last_url or "proximity=13.405%2C52.52" in fake.last_url
 
 
 async def test_invalid_proximity_returns_422(

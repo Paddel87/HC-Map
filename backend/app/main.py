@@ -18,6 +18,7 @@ from app.auth.manager import generate_csrf_token
 from app.auth.routes import build_auth_router
 from app.config import get_settings
 from app.logging import configure_logging
+from app.routes.admin import router as admin_router
 from app.routes.applications import router as applications_router
 from app.routes.catalog import (
     arm_positions_router,
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(glyphs_router, prefix="/api")
     app.include_router(geocode_router, prefix="/api")
     app.include_router(sync_router, prefix="/api")
+    app.include_router(admin_router, prefix="/api")
 
     # SQLAdmin's default ``/admin/login`` template would shows a username/
     # password form that we never use - bounce direct hits to the SPA

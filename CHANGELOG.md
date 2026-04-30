@@ -9,6 +9,42 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M8.3 — Backend `/api/admin/*`-Endpoints (ADR-049 §E/§F/§G):**
+  Fünf Surfaces unter `/api/admin/` ergänzen die SQLAdmin-Stammdaten-
+  Pflege um Workflow-fähige Bausteine, die das Next.js-Frontend ab M8.4
+  konsumieren wird:
+  - `users` CRUD inkl. der Linkable-Person-Bridge aus ADR-014 (Body
+    nimmt entweder `existing_person_id` einer Person mit `linkable=true`
+    oder `new_person` mit `PersonCreate`-Feldern; Validator erzwingt
+    genau eine der beiden Quellen).
+  - `stats` mit sechs Aggregat-Queries (Events/Monat letzte 12, Top-10
+    Restraints, Top-5 Arm-/Hand-Positionen, User-Count je Rolle, Personen-
+    Count, on-the-fly-unverknüpft, Pending-Catalog-Proposals). Kein
+    Caching in M8 — bei Pfad-A-Volumen unkritisch.
+  - `export/all` als strukturierter JSON-Dump mit
+    `schema_version = 1`/`exported_at`-Zeitstempel und allen 10 Domain-
+    Tabellen. `hashed_password` und PostGIS-`geom` werden bewusst aus
+    der Antwort entfernt.
+  - `persons/{source_id}/merge` re-pointet `event_participant`/
+    `application` von Source auf Target. `(event_id, person_id)`-
+    UNIQUE-Konflikte werden vorab durch Soft-Delete der überlappenden
+    Source-Participant-Rows aufgelöst. Source-Person wird soft-deleted
+    mit Audit-Marker `[merged → <uuid>]`. Refused mit 409, wenn Source
+    oder Target an einen User gebunden ist.
+- Anonymisierung bleibt unter `/api/persons/{id}/anonymize` (admin-only,
+  M2/ADR-002) — kein Duplikat unter `/api/admin/`.
+
+### Changed
+
+- **`/api/admin/export/all`** liefert nicht mehr nur Events/Applications/
+  Participants/Restraints (alter Endpoint aus `routes/exports.py`),
+  sondern den vollständigen `AdminExport`-Dump mit allen 10 Domain-
+  Tabellen plus Versionsfeldern. Die alte Implementierung wurde
+  entfernt; der bestehende Test `test_admin_export_all_requires_admin`
+  trifft das neue Endpoint und bleibt grün.
+
+### Added
+
 - **M8.2 — SQLAdmin-Schicht unter `/admin` (ADR-049, Backend-Teil):**
   Selbst-gehostetes Admin-UI parallel zum Next.js-Frontend, ausschließlich
   für Rolle `admin`. Cookie-Bridge zur fastapi-users-Session

@@ -691,15 +691,19 @@ Pro Katalog-Typ ein eigener Router-Prefix: `/api/restraint-types`, `/api/arm-pos
 
 `/api/tiles/{z}/{x}/{y}` → MapTiler. Vorteil: API-Key bleibt serverseitig, einfacher Wechsel zu Self-Hosted in Phase 2 ohne Frontend-Änderung.
 
-### Admin
+### Admin (M8.3, ADR-049)
 
-| Methode | Pfad                             | Rolle | Zweck                  |
-|---------|----------------------------------|-------|------------------------|
-| GET     | `/api/admin/users`               | admin | User-Liste             |
-| POST    | `/api/admin/users`               | admin | User anlegen — entweder mit neuer Person oder mit Verknüpfung zu bestehender (Body-Feld `existing_person_id`) |
-| PATCH   | `/api/admin/users/{id}`          | admin | Rolle/Status ändern    |
-| DELETE  | `/api/admin/users/{id}`          | admin | Deaktivieren           |
-| GET     | `/api/admin/stats`               | admin | Aggregat-Statistiken   |
+| Methode | Pfad                                          | Rolle | Zweck |
+|---------|-----------------------------------------------|-------|-------|
+| GET     | `/api/admin/users`                            | admin | User-Liste mit optionalen Filtern `role`/`is_active`. |
+| POST    | `/api/admin/users`                            | admin | User anlegen — entweder mit `new_person` (PersonCreate-Body) oder mit `existing_person_id` (muss `linkable=true` und nicht deleted sein, ADR-014). Genau eines von beiden. |
+| PATCH   | `/api/admin/users/{id}`                       | admin | Rolle/Status/`display_name` ändern. |
+| DELETE  | `/api/admin/users/{id}`                       | admin | Deaktivieren (`is_active=false`). Self-Deaktivierung wird mit 409 abgelehnt. |
+| GET     | `/api/admin/stats`                            | admin | Aggregat: `events_total`, `events_per_month_last_12`, `top_restraints` (10), `top_arm_positions` (5), `top_hand_positions` (5), `users_by_role`, `persons_total`, `persons_on_the_fly_unlinked`, `pending_catalog_proposals`. Kein Caching (ADR-049 §F). |
+| GET     | `/api/admin/export/all`                       | admin | Strukturierter JSON-Dump aller Tabellen mit `exported_at`/`schema_version=1` (ADR-049 §G). `hashed_password` und PostGIS-`geom` werden bewusst entfernt. |
+| POST    | `/api/admin/persons/{source_id}/merge`        | admin | Re-pointet `event_participant`/`application` von `source_id` auf `target_id` (Body-Feld). Konflikt-Resolution für `(event_id, person_id)`-UNIQUE per Soft-Delete der überlappenden Source-Rows. Source wird soft-deleted mit Marker `[merged → <uuid>]`. Refused mit 409, wenn Source oder Target an einen User gebunden ist (ADR-049 §E). |
+
+**Anonymisierung** (`POST /api/persons/{id}/anonymize`) bleibt unter `/api/persons` (admin-only, ADR-002, M2). Kein Duplikat unter `/api/admin/`.
 
 ### Health
 

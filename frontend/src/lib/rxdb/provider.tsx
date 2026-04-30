@@ -53,7 +53,6 @@ export function RxdbProvider({ children }: { children: ReactNode }) {
         // Visible warn — silent failures here used to hide RxDB-init
         // bugs (no DB in IndexedDB, no replication requests, but UI
         // looked fine because Provider stayed in default state).
-        // eslint-disable-next-line no-console
         console.warn("[hcmap-rxdb] provider init failed:", caught);
         setError(caught instanceof Error ? caught : new Error(String(caught)));
       }

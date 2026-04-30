@@ -157,7 +157,7 @@ export function PinLockProvider({ children }: PinLockProviderProps) {
       await apiFetch<void>("/api/auth/logout", { method: "POST" });
     } catch {
       // Ignore: even without a clean logout, redirecting to /login is
-      // sufficient — the middleware will treat the user as unauthenticated
+      // sufficient — the proxy will treat the user as unauthenticated
       // on the next request because the session cookie is gone or invalid.
     }
     router.push("/login?error=pin");

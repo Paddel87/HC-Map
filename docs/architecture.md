@@ -776,7 +776,7 @@ Schema-Source-of-Truth: Frontend-RxDB-Schemas (`frontend/src/lib/rxdb/schemas/{e
 /profile                   → Eigenes Profil, Passwort ändern
 ```
 
-Schutz via Middleware (Next.js `middleware.ts`): prüft Session-Cookie. RBAC-Gates pro Route im jeweiligen Server-Layout:
+Schutz via Proxy (Next.js `proxy.ts`, vor Next 16 als `middleware.ts` bekannt — Umbenennung in STACK-001 / ADR-047): prüft Session-Cookie. RBAC-Gates pro Route im jeweiligen Server-Layout:
 
 - `(protected)/admin/layout.tsx` lockert auf Mindestrolle Editor (`canViewCatalogAdmin`); damit erreichen Editoren `/admin/catalogs/...`.
 - `(protected)/admin/(admin-only)/layout.tsx` strafft auf admin (für Admin-Übersicht und alles, was M8 hier ergänzt).

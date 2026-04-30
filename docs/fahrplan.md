@@ -25,16 +25,16 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-04-29 (Sessionende, M7.5 + Followups + M5a-Drift-Fix auf `origin/main` gepusht; spät-session Aktualitätsprüfung Frontend-Stack ergab Versions-Drift — Blocker #001 dokumentiert, vor M8-Start zu klären)
+- **Stand vom:** 2026-04-30 (STACK-001 [ERLEDIGT] — Next.js 15.0.4 → 16.2.4 + React 19.2.5 + ESLint 9 Flat Config + middleware → proxy; Blocker #001 Punkt 1 gelöst)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M7 (Katalog-Verwaltung & Vorschlags-Workflow) [ERLEDIGT] 2026-04-29.** Alle Sub-Steps (M7.1–M7.5) plus die zwei M7.5-Followups (Restraint-Picker im Edit-Form, generischer LookupPicker für ArmPosition/HandPosition/HandOrientation in Live+Backfill+Edit) sind verifiziert. Backend-Sicherheitsfix `_position_fks_allowed` schließt das Editor-Exposure auf dem Sync-Update-Path. Doku-Drift M5a → `[ERLEDIGT] 2026-04-26` ebenfalls behoben.
-- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29.
-- **Test-Stand am Sessionende:** Backend `pytest`: 182/182 grün. Frontend `pnpm test`: 261/261 grün. `pnpm typecheck`, `pnpm lint`, `next build` clean. Last commit auf `origin/main`: `3895f99`.
-- **Nächster Schritt:** **M8 (Admin-Bereich)** — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-047 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
-- **Offene STOPP-Situationen:** keine.
+- **Aktiver Schritt:** **STACK-001 (Next.js 16 Migration) [ERLEDIGT] 2026-04-30.** Pfad C + Variante Z2 (ESLint-Major mit-migriert wegen Peer-Dep-Anforderung von `eslint-config-next@16`). ADR-047 mit Lessons-Learned-Regel (Dev-Overlay-Sichtprüfung im DoD). Browser-Smoke verifiziert: „Next.js (15.0.4) is outdated"-Banner verschwunden, Header zeigt 16.2.4 Turbopack. 261/261 Frontend-Tests grün, Lint/Typecheck/Build clean. Folgeschritte (Code-Quality-Sweep für drei deaktivierte Lint-Regeln, next-themes-Theme-Hydration-Warnung) im ADR §Folge-Arbeit dokumentiert.
+- **Vorläufer (Reihenfolge auf main):** HOTFIX-001 [ERLEDIGT] 2026-04-29 (Sonner-Bug, ADR-042), M7.1 [ERLEDIGT] 2026-04-28 (Backend-Workflow), M7.2 [ERLEDIGT] 2026-04-28 (Listing-UI), M7.3 [ERLEDIGT] 2026-04-29 (CRUD-Forms + Auto-Approve), HOTFIX-002 [ERLEDIGT] 2026-04-29 (Karten-DoD, ADR-044), M7.4 [ERLEDIGT] 2026-04-29 (Freigabe-Queue + Editor-Withdraw, ADR-045), M7.5 [ERLEDIGT] 2026-04-29 (Restraint-Picker + Sync-Erweiterung, ADR-046), M7.5-Followups [ERLEDIGT] 2026-04-29 (Edit-Form-Restraint-Picker + Position-Picker via `LookupPicker`, ADR-046 Followup-Sektion), M5a-Doku-Fix [ERLEDIGT] 2026-04-29, STACK-001 [ERLEDIGT] 2026-04-30 (Next.js 16 Migration, ADR-047).
+- **Test-Stand nach STACK-001:** Backend `pytest`: 182/182 grün (unverändert). Frontend `pnpm test`: 261/261 grün. `pnpm typecheck`, `pnpm lint` (eslint .), `pnpm build` (Next.js 16.2.4 / Turbopack, 16 Routen + Proxy) clean.
+- **Nächster Schritt nach STACK-001:** **M8 (Admin-Bereich)** auf 16.x-Linie — SQLAdmin-Schicht unter `/admin` (Cookie-Bridge zu fastapi-users, ModelViews für User/Person/Catalog/Event/Application) und Next.js-Workflow-Schicht unter `/admin-dash` (Personen-Verwaltung mit Merge + Anonymisierung, User-Anlage mit Linkable-Person-Verknüpfung, Admin-Export). Vorab: Strategie-ADR (ADR-048 oder Folge) im Stil der M7-ADRs anlegen — Sub-Step-Schnitt, ModelView-Liste, Cookie-Auth-Bridge entscheiden.
 - **Offene STOPP-Situationen:** keine.
 - **Offene Freigabe-Entscheidungen:**
-  - **Blocker #001 (`docs/blockers.md`) — Stack-Drift Frontend-Abhängigkeiten:** Aktualitätsprüfung am 2026-04-29 hat ergeben, dass `frontend/package.json` mit Versionen aus Dezember 2024 gepinnt ist (Next.js 15.0.4 statt aktuell 16.2.4, React 19.0.0 statt 19.2.5). Drei trennbare Entscheidungen offen: (1) Next.js-Update-Pfad A/B/C, (2) CLAUDE.md-Methodik-Härtung gegen künftigen Drift, (3) Audit-Ausweitung auf Backend/Container/Runtimes. Empfehlung KI vor M8: Option C (Next.js 16.2.4) + CLAUDE.md-Annahme A. Vor Start M8 zu klären.
+  - **Blocker #001 Punkt 2 — CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift:** offen. Konkreter Vorschlag (fünf Änderungen plus CI-Audit-Skript) im Conversation-Verlauf 2026-04-29.
+  - **Blocker #001 Punkt 3 — Audit-Ausweitung Backend/Container/Runtimes:** offen. Eigenständiger Folge-Schritt vor M8 oder parallel; umfasst auch die Anpassung des `engines: ">=22 <23"`-Pins in `frontend/package.json`.
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
   - **`/events/[id]`** rendert Live-/Ended-View über SSR; Offline-Insert mit direkter Navigation kann kurzzeitig 404 produzieren. Behebung als Pflicht-Deliverable in M5c (vorhanden, aber Edge-Case bleibt).
@@ -89,6 +89,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M7.3        | └─ CRUD-Formulare (Admin + Editor-Vorschlag)     | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.4        | └─ Freigabe-Queue + Editor-Withdraw              | [ERLEDIGT] 2026-04-29 |
 | 1 MVP   | M7.5        | └─ Restraint-Picker in Application-Erfassung     | [ERLEDIGT] 2026-04-29 |
+| 1 MVP   | STACK-001   | Next.js 15.0.4 → 16.2.4 + React 19.2 (ADR-047)   | [ERLEDIGT] 2026-04-30 |
 | 1 MVP   | M8          | Admin-Bereich                                    | [OFFEN]     |
 | 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
@@ -1222,6 +1223,52 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 **Folge-Punkte:**
 - M12 (Self-Hosted-Tileserver) tauscht alle drei MapTiler-Pfade gleichzeitig (Tiles, Glyphs, Geocoding).
 - Spätere Schema-Erweiterungen müssen `maxLength`/`multipleOf` für indexed Felder mitführen — Drift-Test enthält Erinnerung.
+
+---
+
+### STACK-001 — Next.js 15.0.4 → 16.2.4 + React 19.2 (Pfad C aus Blocker #001)
+
+**Ziel:** Frontend-Stack auf aktuelle Major-Linie (Next 16.2.4 / React 19.2.5) heben, Dev-Overlay-Statusmeldung „Next.js (15.0.4) is outdated" aufheben, Migrationsschulden vor M8 (Admin-Bereich) abbauen. Strategie und Begründung: ADR-047.
+
+**Deliverables:**
+- `frontend/package.json`: `next` `15.0.4` → `16.2.4`, `react`/`react-dom` `19.0.0` → `19.2.5`, `@types/react` `19.0.2` → `19.2.14`, `@types/react-dom` `19.0.2` → `19.2.3`, `eslint-config-next` `15.0.4` → `16.2.4`, `eslint` `8.57.1` → `9.39.4` (siehe ADR-047 §C, Variante Z2 — Peer-Dep-Anforderung von `eslint-config-next@16`). Lockfile aktualisiert.
+- `package.json`-Skripte: `lint` und `lint:fix` von `next lint` auf `eslint .` umgestellt (Subcommand in 16 entfernt).
+- `frontend/src/middleware.ts` → `frontend/src/proxy.ts` umbenannt, named export `middleware` → `proxy`. `tests/middleware.test.ts` → `tests/proxy.test.ts` mit angepasstem Import-Pfad.
+- `frontend/.eslintrc.json` (Legacy) → `frontend/eslint.config.mjs` (Flat Config), inhaltsidentisch (`next/core-web-vitals` + `next/typescript` via `FlatCompat`, `prettier`-Override, zwei Repo-Regeln).
+- `next.config.mjs` unverändert (kein migrationspflichtiger Eintrag).
+
+**Out of Scope (siehe ADR-047 §E):**
+- Backend-Audit (Blocker #001 Punkt 3).
+- CLAUDE.md-Methodik-Härtung (Blocker #001 Punkt 2).
+- `engines: ">=22 <23"`-Pin in package.json (separater Folge-Schritt zusammen mit Runtime-Audit).
+- shadcn/ui-`forwardRef`-Sweep.
+- Opt-in-Features Next 16: `cacheComponents`, React Compiler, `next-devtools-mcp`.
+
+**Akzeptanzkriterien:**
+- `pnpm install` läuft mit aktualisiertem Lockfile durch.
+- `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` grün.
+- Browser-Smoke via `preview_start frontend`: Login-Seite rendert, Dev-Overlay zeigt **kein** „outdated"-Banner mehr, keine neuen Deprecation-Meldungen in Console oder Dev-Overlay.
+- ADR-047 in `decisions.md` (Status `Accepted`).
+- Blocker #001 Punkt 1 nach „Gelöste Blocker" verschoben (Punkte 2 und 3 bleiben aktiv).
+- README-Badges aktualisiert, falls Next-Versions-Badge vorhanden.
+- CHANGELOG-Eintrag.
+
+**Abhängigkeiten:** keine (cross-cutting Migration auf bestehendem Stack-Stand). Vorgängern: Blocker #001 (2026-04-29) freigegeben durch Patrick am 2026-04-30 (Pfad C).
+
+**Status `[ERLEDIGT]` 2026-04-30:**
+- `frontend/package.json`: `next` `15.0.4` → `16.2.4`, `react`/`react-dom` `19.0.0` → `19.2.5`, `@types/react` `19.0.2` → `19.2.14`, `@types/react-dom` `19.0.2` → `19.2.3`, `eslint-config-next` `15.0.4` → `16.2.4`, `eslint` `8.57.1` → `9.39.4`, neu `@eslint/eslintrc@3.3.5` + `@eslint/js@9.39.0`. Lockfile aktualisiert.
+- `package.json`-Skripte: `"lint": "eslint ."`, `"lint:fix": "eslint . --fix"`.
+- `frontend/.eslintrc.json` (Legacy) entfernt; `frontend/eslint.config.mjs` (Flat Config) angelegt — Direkt-Import der Flat-Arrays aus `eslint-config-next/core-web-vitals` und `eslint-config-next/typescript` (FlatCompat nicht nötig, weil v16 native Flat-Exports liefert), `prettier`-Override, zwei Repo-Regeln + drei Regel-Schärfungen aus 16/9 explizit auf `"off"` (siehe ADR-047 §E).
+- `src/middleware.ts` → `src/proxy.ts` umbenannt (`git mv`), named export `middleware` → `proxy`. `tests/middleware.test.ts` → `tests/proxy.test.ts` (Import + describe-Block angepasst). Build-Output bestätigt: `ƒ Proxy (Middleware)` wird erkannt.
+- `src/styles/globals.css`: `@import "maplibre-gl/dist/maplibre-gl.css"` an den Anfang verschoben — Turbopack-CSS-Parser ist strenger als Webpack/PostCSS (`@import` muss vor allen anderen Regeln stehen). Funktional identisch.
+- `tsconfig.json`: Next-16-Build-Hook hat `jsx: "preserve"` → `jsx: "react-jsx"` aktualisiert (mandatory) und `.next/dev/types/**/*.ts` zu `include` hinzugefügt (durch Next-16 dev/build-Verzeichnistrennung). Beide Änderungen sind dokumentierte 16-Erfordernisse.
+- `src/lib/rxdb/database.ts` und `src/lib/rxdb/provider.tsx`: zwei `// eslint-disable-next-line no-console`-Direktiven entfernt (waren mit ESLint 9 als „unused" markiert — die `no-console`-Regel feuerte nicht mehr durch die neue Konfig).
+- `docs/architecture.md`: Schutz-Beschreibung von „Middleware (`middleware.ts`)" auf „Proxy (`proxy.ts`)" mit Migrations-Hinweis aktualisiert.
+- Verifikation: `pnpm typecheck` clean, `pnpm lint` clean, `pnpm test` 261/261 grün, `pnpm build` clean (Turbopack, 16 Routen + Proxy, kompiliert in 2.6s).
+- **Browser-Smoke** (preview_start frontend, ohne Backend): Dev-Overlay zeigt **keinen** „Next.js (15.0.4) is outdated"-Banner mehr (war Auslöser, siehe Blocker #001). Stattdessen Header „Next.js 16.2.4 Turbopack". Pre-existierender ECONNREFUSED gegen Backend bleibt unverändert (orthogonal). Server-Bereitschaft `Ready in 220ms` (vorher 1863ms).
+- **Bekannte Folgewarnung:** React 19.2 emittiert in `<ThemeProvider>` (next-themes@0.4.6) eine Console-Warnung über `<script>`-Tag-Rendering. Library-bedingt, latest verfügbar. Adressiert im ADR-047-Folgeschritt zusammen mit Code-Quality-Sweep.
+- ADR-047 Status `Accepted`. Blocker #001 Punkt 1 nach „Gelöste Blocker" verschoben (Punkte 2 und 3 bleiben offen).
+- README/CHANGELOG: README enthält keinen Next-Versions-Badge (Inspektion); CHANGELOG ergänzt unter `[Unreleased]`.
 
 ---
 

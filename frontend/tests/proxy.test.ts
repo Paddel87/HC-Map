@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { describe, expect, test } from "vitest";
 
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 
 function buildRequest(pathname: string, cookieValue?: string): NextRequest {
   const url = `http://localhost:3000${pathname}`;
@@ -12,9 +12,9 @@ function buildRequest(pathname: string, cookieValue?: string): NextRequest {
   return new NextRequest(url, { headers });
 }
 
-describe("middleware", () => {
+describe("proxy", () => {
   test("redirects to /login when session cookie is missing", () => {
-    const response = middleware(buildRequest("/profile"));
+    const response = proxy(buildRequest("/profile"));
     expect(response.status).toBe(307);
     const location = response.headers.get("location");
     expect(location).toBeTruthy();
@@ -23,22 +23,22 @@ describe("middleware", () => {
   });
 
   test("does not redirect when session cookie is present", () => {
-    const response = middleware(buildRequest("/profile", "hcmap_session=abc"));
+    const response = proxy(buildRequest("/profile", "hcmap_session=abc"));
     expect(response.headers.get("location")).toBeNull();
   });
 
   test("does not redirect /login itself", () => {
-    const response = middleware(buildRequest("/login"));
+    const response = proxy(buildRequest("/login"));
     expect(response.headers.get("location")).toBeNull();
   });
 
   test("does not redirect API routes", () => {
-    const response = middleware(buildRequest("/api/health"));
+    const response = proxy(buildRequest("/api/health"));
     expect(response.headers.get("location")).toBeNull();
   });
 
   test("omits next param when redirecting from /", () => {
-    const response = middleware(buildRequest("/"));
+    const response = proxy(buildRequest("/"));
     expect(response.status).toBe(307);
     const location = response.headers.get("location")!;
     expect(new URL(location).searchParams.get("next")).toBeNull();

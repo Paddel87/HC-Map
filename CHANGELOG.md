@@ -7,6 +7,63 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **STACK-001 — Next.js 15.0.4 → 16.2.4 (ADR-047, Pfad C aus Blocker #001 + Variante Z2):**
+  Frontend-Stack-Bump auf aktuelle Major-Linie. Auslöser: Dev-Overlay-Banner
+  „Next.js (15.0.4) is outdated" empirisch im Live-Preview verifiziert
+  (Blocker #001 vom 2026-04-29). Migrationsumfang:
+  - **Pakete:** `next` `15.0.4` → `16.2.4`, `react` / `react-dom`
+    `19.0.0` → `19.2.5`, `@types/react` `19.0.2` → `19.2.14`,
+    `@types/react-dom` `19.0.2` → `19.2.3`, `eslint-config-next`
+    `15.0.4` → `16.2.4`, `eslint` `8.57.1` → `9.39.4` (Peer-Dep
+    von `eslint-config-next@16` erzwingt ESLint 9; Variante Z2
+    am 2026-04-30 freigegeben), neu `@eslint/eslintrc@3.3.5` und
+    `@eslint/js@9.39.0`.
+  - **Lint-Toolchain:** `next lint`-Subcommand ist in 16 entfernt;
+    `package.json`-Skripte umgestellt auf `eslint .`. Legacy
+    [`.eslintrc.json`](frontend/.eslintrc.json) durch
+    [`eslint.config.mjs`](frontend/eslint.config.mjs) ersetzt
+    (Flat Config, native Imports aus `eslint-config-next/core-web-vitals`
+    und `eslint-config-next/typescript` — kein FlatCompat nötig).
+    Drei in 16 neu aktivierte React-19-Regeln explizit auf `"off"`
+    gepinnt (`react-hooks/set-state-in-effect`, `react-hooks/refs`,
+    `react/display-name`); Code-Quality-Sweep dafür ist eigener
+    Folgeschritt nach M8 (siehe ADR-047 §Folge-Arbeit).
+  - **`middleware.ts` → `proxy.ts`:** `frontend/src/middleware.ts`
+    umbenannt zu `frontend/src/proxy.ts`, named export
+    `middleware` → `proxy`.
+    [`tests/middleware.test.ts`](frontend/tests/middleware.test.ts)
+    umbenannt zu
+    [`tests/proxy.test.ts`](frontend/tests/proxy.test.ts) mit
+    angepasstem Import-Pfad. Edge-runtime nicht im Einsatz —
+    `nodejs`-Runtime von `proxy` ist vertragsgemäß. Build bestätigt
+    Erkennung via Output-Zeile `ƒ Proxy (Middleware)`.
+  - **CSS-Reihenfolge:**
+    [`src/styles/globals.css`](frontend/src/styles/globals.css):
+    `@import "maplibre-gl/dist/maplibre-gl.css"` an den Anfang
+    verschoben — Turbopack-CSS-Parser ist strenger als Webpack
+    (`@import` muss vor allen anderen Regeln stehen).
+  - **`tsconfig.json`:** Next-16-Build-Hook hat `jsx: "preserve"`
+    → `jsx: "react-jsx"` aktualisiert (mandatory) und
+    `.next/dev/types/**/*.ts` zu `include` hinzugefügt (durch
+    Next-16 dev/build-Verzeichnistrennung).
+  - **README:** Versions-Badge Next.js 15 → 16.
+  - **Verifikation:** `pnpm typecheck`, `pnpm lint`, `pnpm test`
+    (261/261), `pnpm build` (Turbopack, 16 Routen + Proxy,
+    kompiliert in 2.6s) clean. Browser-Smoke (preview_start
+    frontend) bestätigt: „outdated"-Banner verschwunden, Header
+    zeigt 16.2.4 Turbopack, Server `Ready in 220ms` (vorher 1863ms).
+  - **Bekannte Folgewarnung:** React 19.2 emittiert in
+    `<ThemeProvider>` (next-themes@0.4.6) eine Console-Warnung
+    über `<script>`-Tag-Rendering; Library-bedingt, latest
+    verfügbar, Folgeschritt im ADR §Folge-Arbeit dokumentiert.
+  - **Blocker #001 Punkt 1 gelöst** (Punkte 2 und 3 bleiben
+    aktiv): CLAUDE.md-Methodik-Härtung gegen künftigen Drift,
+    Audit-Ausweitung Backend / Container / Runtimes inklusive
+    `engines: ">=22 <23"`-Pin in
+    [`frontend/package.json`](frontend/package.json).
+
 ### Added
 
 - **M7.5 Followups — Edit-Form-Restraint-Picker + Position-Picker (ADR-046 Followup-Sektion):**

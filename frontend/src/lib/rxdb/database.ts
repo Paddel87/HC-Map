@@ -104,7 +104,6 @@ export function getDatabase(): Promise<HCMapDatabase> {
       // Visible warn — silent failures here used to hide RxDB-init bugs
       // (no DB in IndexedDB, no replication requests, but UI thinks
       // everything's fine because Provider stays in default state).
-      // eslint-disable-next-line no-console
       console.warn("[hcmap-rxdb] buildDatabase failed:", error);
       // Reset so the next call can retry from a clean slate.
       dbPromise = null;

@@ -24,6 +24,8 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
 
 ### Blocker #001: Stack-Drift Frontend-Abhängigkeiten — Setup mit veralteten Versionen
 
+> **Teilauflösung 2026-04-30:** Punkt 1 (Next.js-Update-Pfad) **gelöst** mit STACK-001 / ADR-047 — Pfad C + Variante Z2 (Next.js 15.0.4 → 16.2.4, React 19.0.0 → 19.2.5, ESLint 8.57.1 → 9.39.4 wegen `eslint-config-next@16`-Peer-Dep, Flat Config, `middleware.ts` → `proxy.ts`). Punkte 2 (CLAUDE.md-Härtung) und 3 (Backend-/Container-/Runtime-Audit inkl. `engines: ">=22 <23"`-Pin) bleiben **aktiv**. Eintrag bleibt vorerst hier, bis auch Punkt 2 und 3 erledigt sind, dann gesamter Eintrag nach „Gelöste Blocker" mit Lösungsverweis auf alle drei.
+
 - **Datum:** 2026-04-29
 - **Fahrplan-Referenz:** M0 (Initial-Setup `frontend/package.json` im Commit `3e30a0c` vom 2026-04-25); querschnittlich gegen alle Folge-Meilensteine, die auf demselben Pin-Stand aufbauen.
 - **Modul:** Frontend (primär); methodisch projektübergreifend (CLAUDE.md).

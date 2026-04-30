@@ -3770,4 +3770,101 @@ Backend **+1** in `tests/test_sync_application_restraints.py` (`test_editor_upda
 
 ---
 
+## ADR-047 — Next.js 15.0.4 → 16.2.4 Migration (Pfad C aus Blocker #001)
+
+**Status:** Accepted
+**Datum:** 2026-04-30
+**Kategorie:** Externe Abhängigkeit, Major-Version-Update mit Breaking Changes (CLAUDE.md §4.3)
+
+### Kontext
+
+Die am 2026-04-29 dokumentierte Aktualitätsprüfung (Blocker #001) hat ergeben, dass `frontend/package.json` mit Versionen aus Dezember 2024 gepinnt ist (`next@15.0.4`, `react@19.0.0`). Im Live-Preview blendet Next.js direkt das Dev-Overlay-Statusmeldung „Next.js (15.0.4) is outdated" ein — empirisch verifiziert am 2026-04-30 via `preview_start frontend` + Browser-Snapshot.
+
+Drei Update-Pfade standen zur Wahl (A=Patch in 15.0.x, B=Minor auf 15.5.15, C=Major auf 16.2.4). Empfehlung der Recherche: **C**, weil:
+- der Frontend-Code 16-ready ist (alle Async-Request-APIs werden bereits awaited; keine 16er-Removal-Trigger im Code wie `next/legacy/image`, `serverRuntimeConfig`, `images.domains`, AMP, `unstable_*`-Imports, `experimental_ppr`, `revalidateTag`/`updateTag`),
+- Migrationsaufwand auf zwei kosmetische Codemod-Schritte begrenzt ist (`middleware.ts` → `proxy.ts`, `next lint` → ESLint Flat Config),
+- der Zeitpunkt günstig ist: der Frontend-Code ist klein, die Test-Suite eng (261 grün), M8 (Admin-Bereich) als nächste Phase kommt erst danach,
+- B nur ~12 Monate kauft, danach eine zweite Migrations-Runde fällig wäre.
+
+Patrick hat am 2026-04-30 Pfad C freigegeben. Diese ADR fixiert den Migrationsumfang und die Verifikationsstrategie.
+
+### Entscheidungen
+
+**A. Versionssprünge.**
+- `next` `15.0.4` → `16.2.4` (latest, Release 2026-04-15).
+- `react` / `react-dom` `19.0.0` → `19.2.5` (latest, Release 2026-04-08). React 19.2 ist die im Next-16-Upgrade-Guide empfohlene React-Linie; bringt zusätzlich `useEffectEvent`, `Activity`, View Transitions, ohne Code-Migration zu erzwingen.
+- `@types/react` / `@types/react-dom` an die jeweils aktuelle 19.2-Linie.
+- `eslint-config-next` `15.0.4` → `16.2.4` (folgt Major).
+
+**B. `middleware.ts` → `proxy.ts` umbenennen.**
+Der `middleware`-Dateiname und der named export `middleware` sind in 16 deprecated. Umbenennung jetzt, weil:
+- der Codemod (`@next/codemod@canary upgrade latest`) die Aktion deckt,
+- HC-Map nutzt **kein** edge-runtime in `src/middleware.ts` (reines Cookie-Check + Redirect — kompatibel mit dem in `proxy` festgelegten `nodejs`-Runtime),
+- die einzige Test-Datei `tests/middleware.test.ts` ist isoliert und mit umbenanntem Import-Pfad einfach anzupassen.
+
+`config.matcher` bleibt unverändert. `NextResponse.next()` / `NextResponse.redirect(...)` sind in `proxy` identisch zu `middleware` — kein API-Vertragsbruch.
+
+**C. ESLint 8 → 9, Flat Config, Entfernung von `next lint`.**
+Die `next lint`-Subcommand-Implementierung ist in 16 entfernt; `package.json` `"lint": "next lint"` würde scheitern. `eslint-config-next@16.x` deklariert zudem `eslint>=9.0.0` als harte Peer-Dependency — ein Festhalten an ESLint 8.57.1 ist mit `eslint-config-next@16` technisch nicht möglich. ESLint 8.57.1 ist zudem offiziell EOL (npm-Hinweis: „This version is no longer supported"). Damit wird ESLint mit-migriert; ein Festhalten an Major-8 würde dasselbe Drift-Symptom in der Lint-Toolchain konservieren, das diese Migration auflöst.
+
+Vorgehen:
+- `eslint` `8.57.1` → `9.39.4` (maintenance-Linie; geringeres Plugin-Kompat-Risiko als 10.x bei vergleichbarem Sicherheits- und Feature-Stand).
+- `eslint-config-prettier` ist bereits `9.1.0` (ESLint-9-fähig, kein Bump nötig).
+- `.eslintrc.json` (Legacy) wird durch `eslint.config.mjs` (Flat) ersetzt.
+- Inhalte 1:1 portiert: `next/core-web-vitals` + `next/typescript` (über `FlatCompat` aus `@eslint/eslintrc`, weil `eslint-config-next` v16 noch keinen reinen Flat-Export anbietet — aktueller Stand gemäß Next-Doku-Setup-Beispiel) plus `prettier` als Last-Layer-Override und die zwei Repo-eigenen Regeln (`@typescript-eslint/consistent-type-imports`, `@typescript-eslint/no-unused-vars` mit `argsIgnorePattern: "^_"`).
+- `package.json`-Skripte: `"lint": "eslint ."`, `"lint:fix": "eslint . --fix"`.
+
+Diese Erweiterung gegenüber der initialen ADR-Form (ESLint-Major war zunächst out-of-scope) wurde am 2026-04-30 freigegeben (Patrick, Variante Z2), nachdem die Peer-Dep-Anforderung empirisch beim ersten `pnpm add eslint-config-next@16.2.4` aufgetreten war.
+
+**D. `next.config.mjs` Anpassungen.**
+Aktueller Stand ist minimal: `output: "standalone"`, `reactStrictMode: true`, `poweredByHeader: false`, dev-only `rewrites()` zum Backend. Keine `experimental.turbopack`-, keine `experimental.ppr`-, keine `images`-, keine custom `webpack`-Optionen. **Keine Anpassung nötig.** Turbopack-Default in Dev und Build ist mit dieser Konfiguration konfliktfrei (kein custom Webpack-Block, der einen Fehlschlag triggern würde).
+
+**E. Out-of-Scope.**
+Diese ADR begrenzt Scope explizit:
+- **Kein** Backend-Audit (Blocker #001 Punkt 3 bleibt offen).
+- **Keine** CLAUDE.md-Methodik-Härtung (Blocker #001 Punkt 2 bleibt offen).
+- **Keine** Anpassung des `engines: ">=22 <23"`-Pin in `package.json`. Der Mismatch zur lokalen Node-24-Installation ist ein eigenständiger Befund; er wird im Folgeschritt zusammen mit dem Runtime-Audit adressiert.
+- **Keine** shadcn/ui-Refactor (`forwardRef`-Warnings sind in React 19 Hinweise, keine Errors — werden bei nächstem shadcn-Sweep adressiert).
+- **Keine** Codemod-Optimierung (`reactCompiler`, Cache Components / `cacheComponents`-Flag, `next-devtools-mcp`) — alle drei sind opt-in, kein Default-Bruch.
+- **Keine** Code-Quality-Refactorings für die in eslint-config-next 16 neu aktivierten Regeln. Konkret: `react-hooks/set-state-in-effect` (13 Treffer in Bestandskomponenten), `react-hooks/refs` (2 Treffer in `map-view.tsx`), `react/display-name` (8 Treffer in Test-Wrapper-Komponenten). Diese Regeln waren unter `eslint-config-next@15.0.4` nicht aktiv. Sie werden in `eslint.config.mjs` mit `"off"` gepinnt; ein gezielter Code-Quality-Sweep folgt als eigener Schritt nach M8. Begründung: Refactoring-Aufwand für `set-state-in-effect`-Treffer ist nicht trivial (echte React-19-Pattern-Migration nötig), gehört nicht in einen Stack-Bump.
+- **Keine** `next-themes`-Migration. React 19.2 produziert eine Console-Warnung „Encountered a script tag while rendering React component" aus `<ThemeProvider>` (next-themes@0.4.6, latest, Theme-Hydration-Script-Pattern). Library-bedingt, nicht funktional brechend. Folgeschritt zusammen mit dem Code-Quality-Sweep.
+
+**F. Verifikationsstrategie.**
+DoD nach CLAUDE.md §9:
+1. `pnpm install` durchläuft mit aktualisiertem Lockfile.
+2. `pnpm typecheck` clean.
+3. `pnpm lint` (jetzt direkt `eslint .`) clean.
+4. `pnpm test` — alle 261 Vitest-Cases bleiben grün. Erwartung: Migration berührt keine Test-Logik direkt; einzig `tests/middleware.test.ts` braucht eine Import-Pfad-Anpassung auf den umbenannten Modul-Pfad.
+5. `pnpm build` clean — Turbopack-Production-Build statt Webpack. Erwartung: alle 12 Routen weiterhin baubar.
+6. Browser-Smoke via `preview_start frontend` + `preview_eval`/`preview_snapshot`: Login-Seite rendert, das „is outdated"-Overlay ist verschwunden, keine neue Deprecation-Meldung in Console oder Dev-Overlay.
+
+### Verworfene Alternativen
+
+- **Pfad A (Patch 15.0.4 → 15.0.8):** schließt 16 Monate Patches nicht und entfernt das Dev-Overlay-Outdated-Banner nicht — keine Auflösung des Auslöser-Symptoms.
+- **Pfad B (Minor 15.0.4 → 15.5.15):** geringeres Risiko, aber kauft nur ~12 Monate. Verschiebt die identische Migrationsentscheidung in M-Phase 2/3, in der der Frontend-Code größer und die Migration entsprechend riskanter wäre. Keine technische Notwendigkeit, am 15-Major zu bleiben.
+- **Codemod via `@next/codemod@canary upgrade latest` ausschließlich:** Codemod erledigt mechanisches Suchen-Ersetzen (Turbopack-Config-Move, `next lint` → eslint-cli, `middleware` → `proxy`, `unstable_`-Stripping, PPR-Segments). Wir nutzen den Codemod gezielt für `middleware` → `proxy` und ESLint-Migration, prüfen die Patches manuell. Unkontrollierte Anwendung auf einen produktiven Code-Stand wäre ein Verstoß gegen CLAUDE.md §6 „Determinismus vor Kreativität".
+- **Sofortige Aktivierung von `cacheComponents` / React Compiler:** beides opt-in in 16, beides würde zusätzliche Verhaltens-/Performance-Validierung erfordern. Kein DoD-Mehrwert für Pfad A der Codebasis. Bleibt für M-Phase 2 offen.
+
+### Lessons Learned
+
+**Beobachtung:** Die Stack-Drift wurde am 2026-04-29 spät-session entdeckt — fünf Monate nach M0-Setup, zwei Major-Releases von Next zu spät, und nur dadurch sichtbar, dass eine separate React-19-Inkompatibilität (Sonner v1, ADR-042) zur manuellen Aktualitätsprüfung führte. Nach erstem Bericht (Blocker #001) war das Dev-Overlay-Banner „Next.js (15.0.4) is outdated" empirisch der einzige Next-eigene Hinweis im Live-Preview — eine Information, die der initiale M0-Setup-Schritt nicht eingespeist hatte, weil er ohne Registry-Lookup arbeitete.
+
+**Ableitung:**
+1. Pin-Werte in `package.json`/`pyproject.toml` sind ohne aktiven Registry-Lookup nicht vertrauenswürdig, auch wenn sie aus einem KI-Modell stammen, das auf jüngeren Trainingsdaten beruht. Modell-Trainingsstände driften gegen den Releasestand.
+2. Dev-Server-Statusmeldungen sind ein **belastbarer** Indikator für Update-Bedarf — sie sind die schnellste Feedback-Quelle, sobald eine Lib-Version „latest" deutlich unterschreitet. Die periodische Sichtkontrolle des Dev-Overlay ist eine sehr günstige Audit-Maßnahme.
+
+**Abgeleitete Regel (gilt ab dieser ADR, projektintern bis zur möglichen CLAUDE.md-Härtung in Blocker #001 Punkt 2):**
+- **Regel — Dev-Overlay-Sichtprüfung im DoD:** Beim Setup oder Major-Update einer Frontend-Lib mit Dev-Overlay (Next.js, Vite-basierte Stacks, …) ist eine kurze Sichtprüfung des Dev-Overlay Pflicht-DoD-Bestandteil. Auftretende „outdated"-/„deprecated"-Banner werden im Implementierungs-Bericht referenziert und entweder im selben Schritt aufgelöst oder als Folge-Ticket erfasst.
+
+### Folge-Arbeit
+
+- README-Badges: Versions-Badge `Next.js 15.0.4` (falls vorhanden) auf `16.2.4` aktualisieren — siehe CLAUDE.md §6 „README-Badges spiegeln den Ist-Zustand".
+- Blocker #001 Punkt 1 wird mit dieser ADR gelöst und nach „Gelöste Blocker" verschoben (Punkte 2 und 3 bleiben aktiv).
+- M8 (Admin-Bereich, `[OFFEN]`) startet auf der 16.x-Linie.
+- Pfad B/C des Audit-Themas (Backend, Container-Image-Tags, Sprach-Runtimes inklusive `engines: ">=22 <23"`-Pin-Anpassung) bleibt als eigenständiger Folge-Schritt offen. Keine implizite Mit-Erledigung in dieser ADR.
+- **Code-Quality-Sweep (Folgeschritt nach M8):** Die in `eslint.config.mjs` deaktivierten Regeln (`react-hooks/set-state-in-effect`, `react-hooks/refs`, `react/display-name`) werden iterativ angegangen. Pro Komponente: `useEffect` → `useEvent` / Memoisierung / Ref-Update außerhalb Render. Ziel: Regeln wieder als `"error"` aktivieren und Treffer auf 0 senken.
+- **next-themes-Folgeschritt:** Console-Warnung „Encountered a script tag while rendering React component" durch React 19.2 — Workaround-Optionen: (a) Beobachten, ob `next-themes` v1.0 (aktuell beta) die Warnung auflöst, (b) eigene Theme-Initialisierung via Server-Component schreiben, (c) Warnung akzeptieren, da nicht funktional brechend. Entscheidung mit Code-Quality-Sweep treffen.
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

@@ -9,6 +9,26 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M10.3 — Projektlizenz AGPLv3 (ADR-051 §A, 2026-05-01).**
+  - `LICENSE`-File mit dem unveränderten AGPLv3-Volltext (Quelle:
+    https://www.gnu.org/licenses/agpl-3.0.txt) im Repo-Root.
+  - SPDX-Identifier `AGPL-3.0-only` in
+    [`backend/pyproject.toml`](backend/pyproject.toml) und
+    [`frontend/package.json`](frontend/package.json) gesetzt
+    (vorher Backend `UNLICENSED`, Frontend ohne Feld).
+  - README: Lizenz-Badge auf `AGPL-3.0-only` aktualisiert (vorher
+    `lizenz-offen-red`), Phase-Badge auf `M10.3-erledigt`.
+    Lizenz-Abschnitt umformuliert mit kurzer Zusammenfassung der
+    Multi-Instanz-Implikationen (selbst hosten erlaubt, proprietäre
+    Forks nicht — entspricht der Multi-Instanz-Linie aus ADR-051).
+  - **Compliance-Check:** `pip-licenses` (76 Backend-Pakete) und
+    `pnpm licenses list --prod` (Frontend-Prod-Tree) ad-hoc
+    durchlaufen. Keine GPL-Treffer außer LGPL-Bibliotheken
+    (`psycopg`/`psycopg-binary` über dynamisches Linking aus Python,
+    `@img/sharp-libvips-darwin-arm64` als optionale Native-Lib für
+    `sharp`) — alle drei sind AGPLv3-kompatibel über
+    LGPL-Dynamic-Linking-Ausnahme. Keine proprietären Treffer.
+
 - **M10.2 — produktiver Mail-Versand und Passwort-Reset-UI (ADR-051 §C, 2026-05-01).**
   - Backend-Dep `aiosmtplib>=5,<6` (asyncio-natives SMTP). Neuer
     `SMTPMailer` in [`backend/app/auth/mail.py`](backend/app/auth/mail.py)

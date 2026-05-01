@@ -3,9 +3,9 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-STACK--002--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M10.3--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
-[![Lizenz](https://img.shields.io/badge/lizenz-offen-red)](./docs/project-context.md#6-constraints-operationalisierbar)
+[![Lizenz](https://img.shields.io/badge/lizenz-AGPL--3.0--only-blue)](./LICENSE)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
 [![Scope](https://img.shields.io/badge/scope-Pfad%20A%20(%3C20%20Nutzer)-informational)](./docs/project-context.md#pfad-a-vs-pfad-b-zwei-scope-stufen)
 
@@ -240,6 +240,12 @@ Das Repository wird aktuell von einer Person (Admin, Repository-Eigentümer) bet
 
 ## Lizenz
 
-**Noch nicht festgelegt.** Die Entscheidung fällt vor M11 (Go-Live Pfad A). Realistische Optionen sind AGPLv3, MIT oder proprietär — abhängig davon, ob eine Multi-Instanz-Variante für andere Gruppen aktiv unterstützt werden soll (siehe [`project-context.md` §6](./docs/project-context.md#6-constraints-operationalisierbar)).
+HC-Map steht unter der **GNU Affero General Public License, Version 3 (AGPLv3)** — siehe [`LICENSE`](./LICENSE).
 
-Bis dahin gilt: **Keine öffentliche Veröffentlichung, alle Rechte vorbehalten.**
+Kurz zusammengefasst:
+
+- **Du darfst** HC-Map verwenden, modifizieren, weiterverteilen und auf einem eigenen Server (Multi-Instanz-Modell) für eine eigene Gruppe betreiben.
+- **Du musst** den Quellcode samt eigener Änderungen unter derselben AGPLv3-Lizenz weitergeben — auch wenn du HC-Map nur als Netzwerkdienst (z. B. eigene Web-Instanz) für andere bereitstellst (das ist die spezifische AGPLv3-Klausel).
+- Diese Wahl ist Konsequenz aus dem Multi-Instanz-Anspruch (ADR-051): jeder darf HC-Map deployen, niemand darf eine geschlossene proprietäre Variante daraus machen.
+
+Diese Zusammenfassung ist nicht rechtsverbindlich; verbindlich ist ausschließlich der englische Originaltext in [`LICENSE`](./LICENSE).

@@ -3,7 +3,7 @@ name = "hc-map-backend"
 version = "0.0.0"
 description = "HC-Map backend (FastAPI). Self-hosted, geo-referenced bondage event log."
 requires-python = ">=3.12,<3.13"
-license = { text = "UNLICENSED" }
+license = "AGPL-3.0-only"
 dependencies = [
     "fastapi>=0.136,<0.137",
     "uvicorn[standard]>=0.46,<0.47",

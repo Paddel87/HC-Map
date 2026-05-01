@@ -15,7 +15,10 @@
 #
 # Backend image runs alembic migrations under a Postgres advisory lock on
 # startup; override with HCMAP_SKIP_MIGRATIONS=1 for emergency rollbacks.
-# Backup service ships in M10.6 and will join this file as a fourth service.
+# Backup service (M10.6) is the fourth default service; it requires
+# docker/secrets/{age-recipients.txt,rclone.conf} to be present and the
+# HCMAP_BACKUP_REMOTE/HCMAP_BACKUP_PREFIX env vars to be set. See
+# ops/runbook.md (M10.8).
 
 name: hc-map
 
@@ -88,6 +91,46 @@ services:
       - backend
     networks:
       - internal
+
+  # Backup service (M10.6, ADR-051 §D): pg_dump | age | rclone via cron.
+  # Schedule (UTC): daily 03:17, weekly Sun 03:33, monthly 1st 03:47,
+  # retention sweep 04:00 (14d/56d/365d).
+  #
+  # Source build during M10.6; M10.7 will publish
+  # ghcr.io/paddel87/hc-map-backup:${HCMAP_IMAGE_TAG} alongside backend +
+  # frontend, after which `image:` replaces `build:` here.
+  backup:
+    <<: *restart
+    build:
+      context: ..
+      dockerfile: docker/backup.Dockerfile
+    environment:
+      HCMAP_BACKUP_REMOTE: ${HCMAP_BACKUP_REMOTE:?HCMAP_BACKUP_REMOTE is required (rclone remote name)}
+      HCMAP_BACKUP_PREFIX: ${HCMAP_BACKUP_PREFIX:?HCMAP_BACKUP_PREFIX is required (path prefix on remote)}
+      HCMAP_BACKUP_RUN_ON_START: ${HCMAP_BACKUP_RUN_ON_START:-0}
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${HCMAP_DB_USER}
+      PGPASSWORD: ${HCMAP_DB_PASSWORD}
+      PGDATABASE: ${HCMAP_DB_NAME}
+    secrets:
+      - source: age-recipients
+        target: age-recipients.txt
+        mode: "0440"
+      - source: rclone-conf
+        target: rclone.conf
+        mode: "0440"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+secrets:
+  age-recipients:
+    file: ./secrets/age-recipients.txt
+  rclone-conf:
+    file: ./secrets/rclone.conf
 
 networks:
   internal:

@@ -11,6 +11,13 @@ docker/Caddyfile
 docker/traefik/traefik.yml
 docker/traefik/dynamic.yml
 
+# --- Production backup secrets (M10.6) -----------------------------------
+# Operators replace the .example files in docker/secrets/ with their real
+# age recipients and rclone config. Examples stay tracked, working copies
+# stay out of git.
+docker/secrets/age-recipients.txt
+docker/secrets/rclone.conf
+
 # --- Python (backend) ----------------------------------------------------
 __pycache__/
 *.py[cod]

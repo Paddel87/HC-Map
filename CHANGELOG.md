@@ -29,6 +29,65 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M10.6 — Backup-Service (`pg_dump | age | rclone` via cron, ADR-051 §D, 2026-05-01).**
+  - Neues Image
+    [`docker/backup.Dockerfile`](docker/backup.Dockerfile):
+    `debian:bookworm-slim` + `postgresql-client-16` (aus PGDG) +
+    `age` + `rclone` + `cron` + `tini`. Multi-arch-fähig.
+  - Skripte unter [`docker/backup/`](docker/backup/):
+    `backup.sh` (parameterisiert nach `daily|weekly|monthly`),
+    `retention.sh` (14d/56d/365d via `rclone delete --min-age`,
+    Skip auf nicht-existente Buckets via `rclone lsf`-Probe),
+    `restore.sh` (rclone-Pull + age-Decrypt + `pg_restore`),
+    `entrypoint.sh` (Env-/Secret-Validierung +
+    `rclone listremotes`-Probe + Render `/etc/hc-map/backup.env`
+    als Cron-Brücke + optional Sofort-Backup via
+    `HCMAP_BACKUP_RUN_ON_START=1`), `run-backup`/`run-retention`
+    (Cron-Wrapper), `crontab` (UTC: 03:17 daily, 03:33 Sun
+    weekly, 03:47 1st monthly, 04:00 daily retention sweep —
+    Job-Output via `> /proc/1/fd/1 2>&1` an tini →
+    `docker logs`).
+  - Operator-Templates
+    [`docker/secrets/age-recipients.txt.example`](docker/secrets/age-recipients.txt.example) und
+    [`docker/secrets/rclone.conf.example`](docker/secrets/rclone.conf.example)
+    (Hetzner Storage Box / Backblaze B2 / Generic S3 / lokales
+    Filesystem als Vorlagen). Working-Copies `age-recipients.txt`
+    und `rclone.conf` über [`.gitignore`](.gitignore)
+    ausgeschlossen.
+  - [`docker/compose.prod.yml`](docker/compose.prod.yml) um
+    `backup`-Service erweitert: build aus
+    `docker/backup.Dockerfile` (M10.7 wird auf GHCR-Image
+    umstellen), Pflicht-Env mit `:?`-Marker
+    (`HCMAP_BACKUP_REMOTE`, `HCMAP_BACKUP_PREFIX`), `PG*`-Env aus
+    den DB-Vars abgeleitet, Secrets-Block (`age-recipients` →
+    `secrets/age-recipients.txt`, `rclone-conf` →
+    `secrets/rclone.conf`), `depends_on: db service_healthy`.
+  - [`.env.example`](.env.example) Backup-Block überarbeitet:
+    `HCMAP_BACKUP_AGE_RECIPIENTS` entfernt (Recipients laufen
+    über Docker-Secret, nicht Env), `HCMAP_BACKUP_RUN_ON_START`
+    ergänzt, Doku-Header erklärt rclone-Remote- und
+    Prefix-Mechanik.
+  - **Restore-Mechanik:** Private-Key (`AGE_IDENTITY_FILE`) wird
+    vom Operator manuell gemountet, **nicht** im Container
+    aufbewahrt. `restore.sh` zeigt im Header ein vollständiges
+    `docker run`-Beispiel und weist darauf hin, dass die Ziel-DB
+    aus `template0` erstellt werden muss (PostGIS-Image
+    pre-installiert tiger/topology in `template1`, was
+    `pg_restore --exit-on-error` sonst kollidiert).
+  - **Verifikation:** Roundtrip-Test gegen zwei Postgres-Container
+    (PostGIS 16-3.5) im eigenen Bridge-Netz, rclone-Remote
+    `local:` → Schema-Diff (`pg_dump --schema-only` Source vs.
+    Restore) = **0 Zeilen**, Daten-Diff (sortierte
+    `INSERT`-Statements) = **0 Zeilen**, PostGIS-Extension,
+    GIST-Index, GEOGRAPHY/GEOMETRY-Spalten, NULL-Werte und
+    TIMESTAMPTZ-Defaults alle erhalten. Cron-Daemon-Smoke:
+    tini PID 1, cron PID 7, Crontab korrekt geladen,
+    `run-backup`-Wrapper aus laufendem Container exec-bar
+    (sourced `/etc/hc-map/backup.env` und schreibt zweites
+    Backup-File). Retention-Skript exit 0 wenn weekly/monthly
+    noch leer. Compose-Validierung mit beiden
+    Reverse-Proxy-Overlays clean.
+
 - **M10.5 — Produktions-Compose + Reverse-Proxy-Overlays + Migrations-Auto-Run (ADR-051 §B/§F, 2026-05-01).**
   - Neue Datei [`docker/compose.prod.yml`](docker/compose.prod.yml):
     `db`, `backend`, `frontend` am internen Bridge-Netz, kein

@@ -129,9 +129,9 @@ Modularer Monolith: ein FastAPI-Backend, ein Next.js-Frontend, eine PostgreSQL-D
 
 ### Compliance und Lizenz
 
-- **Projektlizenz:** Noch offen — wird vor M11 entschieden. Realistische Optionen: AGPLv3 (wenn Multi-Instanz-Selfhosting für andere Gruppen ermutigt werden soll), MIT (wenn maximaler Spielraum gewünscht), proprietär (wenn ausschließlich für eigene Gruppe). Vorerst keine öffentliche Veröffentlichung.
-- **Erlaubte Abhängigkeitslizenzen:** MIT, BSD-2/3, Apache-2.0, MPL-2.0, ISC, BSD-3-Clause, LGPL (bei dynamischem Linking).
-- **Ausgeschlossene Lizenzen:** GPL/AGPL ohne explizite Freigabe pro Fall, kommerzielle proprietäre Lizenzen.
+- **Projektlizenz:** **AGPL-3.0-only** seit M10.3 / ADR-051 §A (2026-05-01). Konsequenz aus dem Multi-Instanz-Anspruch („deployment-ready durch jedermann"): selbst hosten und forken erlaubt, proprietäre Closed-Source-Forks nicht. `LICENSE`-File im Repo-Root, SPDX-Identifier in `backend/pyproject.toml` und `frontend/package.json`.
+- **Erlaubte Abhängigkeitslizenzen:** MIT, BSD-2/3, Apache-2.0, MPL-2.0, ISC, BSD-3-Clause, LGPL (bei dynamischem Linking), GPL/AGPL (mit AGPLv3 als Hauptprojekt kompatibel).
+- **Ausgeschlossene Lizenzen:** kommerzielle proprietäre Lizenzen, „source-available"-Lizenzen mit Nutzungsbeschränkungen (BSL, SSPL, Commons Clause), unklare/fehlende Lizenz.
 
 ## 7. Qualitätsziele (messbar)
 

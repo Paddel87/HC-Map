@@ -3,7 +3,7 @@
 **Selbst gehostetes, geo-referenziertes Logbuch für Fesselungs-Ereignisse einer geschlossenen Gruppe.**
 
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M10.3--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M10.4--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-AGPL--3.0--only-blue)](./LICENSE)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)
@@ -29,7 +29,9 @@
 Folgende Stack-Bestandteile sind in ADRs fixiert, aber noch nicht im Code
 verbaut. Sie bekommen wieder ein Badge, sobald sie produktiv sind
 (CLAUDE.md §6: keine Wunsch-Zustände):
-  - Caddy (TLS-Reverse-Proxy)      → mit M10
+  - Caddy / Traefik (TLS-Reverse-Proxy, Wahl pro Instanz)  → mit M10.5
+  - GitHub-Actions-CI + GHCR-Multi-Arch-Image-Pull         → mit M10.7
+  - aiosmtplib (Mail-Backend) — produktiv seit M10.2, Badge-würdig sobald die README einen "Test-Status"-Badge bekommt
 -->
 
 
@@ -68,11 +70,29 @@ HC-Map ist ein **Full-Stack-Web-Projekt** (Mobile-First-PWA) zur strukturierten 
 
 | Phase | Stand |
 |---|---|
-| Phase 1 — MVP / Go-Live Pfad A | M0–M4 erledigt, M5a komplett, M5b komplett, M5c komplett, M6 komplett, M7.1 erledigt, M7.2 erledigt, M7.3 erledigt, **HOTFIX-002 erledigt** (Karten-DoD-Härtung: Backend-Glyph-Proxy + RxDB-v17-Strict-Checks-Fix — Marker + Cluster + Beschriftungen rendern jetzt produktiv; ADR-044; Frontend 230/230 + Backend 174/174 + Drift 9/9 grün); M7.4–M7.5 (Freigabe-Queue, Restraint-Picker) als nächstes |
+| Phase 1 — MVP / Go-Live Pfad A | M0–M8 erledigt, M9 verworfen (ADR-050), **M10 in Arbeit** (RC-Bündel: M10.1–M10.4 erledigt, M10.5–M10.9 offen). M11 (Go-Live) folgt nach RC-Stabilisierung. |
 | Phase 2 — Konsolidierung (Tileserver, Backups, Monitoring, Medien, Statistik) | offen |
 | Phase 3 — Pfad-B-Vorbereitung | nicht aktiviert |
 
-Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md). M0–M4 sind abgeschlossen: Backend mit Schema/Migrations/RLS, Auth+CSRF+RBAC, Domain-API (Events, Applications, Persons, Catalog, Search, Throwbacks, Export), und ein Next.js-Frontend mit Login, Cookie-Session, geschütztem Layout (Sidebar Desktop / Bottom-Nav Mobile), Dark-Mode und Stub-Seiten für die kommenden Meilensteine. M5a.1 ergänzt sechs Backend-Live-Routen (events/start, events/{id}/end, applications/start, applications/{id}/end, persons/quick) und einen MapTiler-Tile-Proxy (`/api/tiles/{z}/{x}/{y}`). M5a.2 fügt eine globale Volltextsuche (Suchleiste in der App-Shell, `/search?q=…`-Seite mit RLS-konformen Treffern und sicherem Snippet-Highlighting), das Datensouveränitäts-Export-UI im Profil (JSON + CSV, admin-Vollexport) und einen Bug-Fix am Dashboard-Throwback-Schema hinzu — alles als reiner Frontend-Konsum bestehender M3-Endpoints. M5a.3 ergänzt den Frontend-Live-Modus: `LocationPickerMap` (MapLibre + react-map-gl), `/events/new`-Flow mit GPS, Karten-Korrektur, Recipient-Picker und on-the-fly-Personenanlage, sowie `/events/[id]`-Live-Ansicht mit Wakelock, Sekunden-Timer, Application-Erfassung und Schnellaktionen. Eine kleine additive Backend-Erweiterung (`GET /api/events/{event_id}/applications`) liefert die Anwendungs-Liste pro Event. M5a.4 schließt die M5a-Serie mit einer clientseitigen App-PIN-Sperre (PBKDF2-SHA-256 via Web Crypto API, 600.000 Iterationen, 4–6-Ziffern-PIN in IndexedDB, Inaktivitäts-Timer, Zwangs-Logout nach 5 Fehlversuchen) — Schutz gegen Schulterblick und kurze fremde Übernahme eines entsperrten Geräts. M5b.1 legt das Datenmodell-Fundament für die RxDB-Replication: ADR-029 (Conflict-Resolution Live-First mit Reconciliation), ADR-030 (Soft-Delete mit Cascade-Trigger Event→Application + Cursor-Index `(updated_at, id)`), ADR-031 (RxDB-Schema-Source-of-Truth: hand gepflegt + Drift-Test) und ADR-032 (keine IndexedDB-Encryption in Pfad A) plus die zugehörige Alembic-Migration. M5b.2 ergänzt die vier Backend-Sync-Endpoints `GET/POST /api/sync/{events,applications}/{pull,push}` mit Cursor-Pagination, Tombstone-Replikation und Pro-Feld-Conflict-Resolution. Im Zuge der Implementierung wurde ein latent-Bug aus der M2-Strict-RLS aufgedeckt und behoben (neue Owner-SELECT-Policies via Migration `20260426_1830_m5b2_owner_select`); zusätzlich filtern die regulären CRUD-/Search-/Export-Routes ab sofort Soft-Deletes raus, während die Sync-Endpoints Tombstones bewusst durchreichen. Backend-Suite 125/125 grün, `app/sync/`-Coverage 91 %. M5b.3 schließt die Sync-Schicht im Frontend: RxDB v17 mit Dexie-Storage in `lib/rxdb/{database,schemas,replication,provider}.tsx`, Replication-Worker pro Collection mit CSRF-Cookie-Echo und aggregiertem Sync-Status, Live-Modus-Refactor von TanStack-Query/REST auf RxDB-Schreibpfad und reactive Subscriptions (`events.findOne(id).$`, `applications.find({event_id, _deleted=false}).$`), und ein kleiner Sync-Indikator (Cloud / Loader / CloudOff / TriangleAlert) in Sidebar und Mobile-Header. Frontend-Suite 60/60, ESLint und tsc clean, Build und Browser-Verifikation erfolgreich. **M5b.4** schließt die Sub-Schritt-Reihe mit dem End-to-End-Offline-Beweis: Vitest + `fake-indexeddb` + In-Process-Mock-Server fahren drei Replication-Szenarien (offline → reconnect → genau einmal, Re-Sync-Idempotenz, Pull-Round-Trip server-bumpter Felder); Backend ergänzt drei Idempotenz-Tests, die die „exakt einmal"-Eigenschaft auf Protokoll-Ebene festklemmen. Coverage Frontend `lib/rxdb/**` 92.43 % Lines / 80 % Branches / 100 % Functions, Backend 128/128 grün, alle Lints clean. **M5c** schließt die nachträgliche Erfassung und Bearbeitung ab (Detail-Page Client-only, `event_participant` als RxDB-Sync-Collection, unified `EventDetailView` mit Applications-Timeline und Frontend-Maskierung, `EventBackfillForm` für Backfills, `/events/[id]/edit` mit RBAC-Server-Gate, Diff-basiertem Patchen und Soft-Delete via RxDB-Push). **M6 (Kartenansicht)** ergänzt einen Backend-Geocoding-Proxy `GET /api/geocode` mit In-Memory-Token-Bucket pro User (`HCMAP_GEOCODE_RATE_PER_MINUTE`, Default 30) und Frontend-`MapView` mit RxDB-Marker-Subscription, nativen MapLibre-Cluster (kein `supercluster` — ADR-041 §C, `architecture.md` mitgezogen), Popup mit Detail-Link, URL-State (`lat`/`lon`/`zoom`/`from`/`to`/`p`-UUIDs), debounced URL-Sync via `router.replace({ scroll: false })`, Filter-Drawer (Zeitraum + Beteiligte über `/api/persons`-REST) und Geocoding-Suchbox mit `flyTo` zur Adresse + Toast-Mapping für 429/503/502. Coverage `lib/map/**` 99.12 % Lines / 93.1 % Branches, Backend-Suite 150/150, Frontend-Suite 194/194 grün.
+Der vollständige Meilensteinplan liegt in [`fahrplan.md`](./docs/fahrplan.md), die Architektur-Entscheidungen in [`decisions.md`](./docs/decisions.md). Aktueller Test-Stand: Backend pytest **231/231 grün**, Frontend vitest **278/278 grün**, `ruff`/`mypy --strict`/`tsc --noEmit`/`eslint` clean.
+
+**Kurzüberblick erledigte Phase-1-Meilensteine:**
+
+- **M0–M4** — Setup, DB-Schema mit RLS, Auth+CSRF+RBAC (fastapi-users, Cookie-Sessions, Argon2id), Domain-API (Events, Applications, Persons, Catalog, Search, Export, Throwbacks), Next.js-Frontend mit Login, geschütztem Layout (Sidebar Desktop / Bottom-Nav Mobile) und Dark-Mode.
+- **M5a** — Live-Modus mobil: GPS, `LocationPickerMap` (MapLibre), `/events/new`-Flow mit on-the-fly-Personenanlage, Sekunden-Timer + Wakelock, MapTiler-Tile-Proxy `/api/tiles/{z}/{x}/{y}`, App-PIN-Sperre (PBKDF2 via Web Crypto API, Inaktivitäts-Timer, Zwangs-Logout).
+- **M5b** — Offline-Resilienz: vier Backend-Sync-Endpoints `/api/sync/{events,applications}/{pull,push}` mit Cursor-Pagination, Tombstones und Pro-Feld-Conflict-Resolution; RxDB v17 mit Dexie-Storage im Frontend; Live-Modus läuft auf RxDB-Schreibpfad mit reactive Subscriptions; End-to-End-Offline-Tests + Idempotenz-Tests gegen die „exakt einmal"-Eigenschaft.
+- **M5c** — Nachträgliche Erfassung und Bearbeitung: Detail-Page client-only, `event_participant` als RxDB-Collection, unified `EventDetailView` mit Applications-Timeline und Frontend-Maskierung, `EventBackfillForm`, `/events/[id]/edit` mit RBAC-Server-Gate und Diff-basiertem Patchen, Soft-Delete via RxDB-Push.
+- **M6** — Kartenansicht: Backend-Geocoding-Proxy `/api/geocode` mit Token-Bucket-Rate-Limit pro User; Frontend-`MapView` mit RxDB-Marker-Subscription, nativen MapLibre-Clustern, Popup-Detail-Link, URL-State, Filter-Drawer (Zeitraum + Beteiligte) und Geocoding-Suchbox.
+- **HOTFIX-001/002, STACK-001/002** — Karten-DoD-Härtung (Glyph-Proxy + RxDB-v17-Strict-Checks; ADR-044), Sonner v1→v2 (React-19-Kompat; ADR-042), Frontend-Voll-Sweep auf Next.js 16.2.4 + React 19.2 (ADR-047), Backend-Voll-Sweep mit aktuellen Pin-Bumps (ADR-048).
+- **M7** — Katalog-Verwaltung & Vorschlags-Workflow: Editoren schlagen Restraints/Positionen vor, Admin gibt frei oder lehnt ab (Status-Maschine `proposed` → `approved`/`rejected`); Restraint-Picker und Positionen-Picker in Application-Erfassung über `LookupPicker`.
+- **M8** — Admin-Bereich (zwei-schichtig nach ADR-016/049): Backend-SQLAdmin für Stammdaten-CRUD und Daten-Inspektion; Next.js-Workflow-UI mit Dashboard (Statistik), `/admin/users` (Linkable-Person-Picker), `/admin/persons` (Filter, Merge-Wizard, Anonymisierungs-Dialog) und Admin-Export.
+- **M9** — Verworfen (ADR-050). Datenbestand wird manuell über die M5c-Backfill-UI nachgetragen, kein Migrationsskript. Spalte `event.legacy_external_ref` (ehemals `w3w_legacy`) bleibt als optionales Feld erhalten; UI-Anbindung folgt als M5c-NACH (nicht-blockierend für M10/M11).
+- **M10 (in Arbeit, Release-Candidate-Bündel — ADR-051):**
+  - **M10.1** ✅ Strategie-ADR-051 freigegeben — Multi-Instanz-Anspruch („deployment-ready durch jedermann"), AGPLv3, Caddy + Traefik wahlweise via Compose-Overlays, Mail-Backend `aiosmtplib`, Backup `pg_dump | age | rclone`, GHCR Multi-Arch public, RC-Versionsschema `v0.1.0-rc.1`.
+  - **M10.2** ✅ Mail-Backend SMTP produktiv: `aiosmtplib` + `SMTPMailer` neben bestehendem `LoggingBackend`, Frontend-Pages `/forgot-password` + `/reset-password` mit no-enumeration-Verhalten, „Passwort vergessen?"-Link in Login-Form, voller Browser-Smoke-Roundtrip lokal verifiziert.
+  - **M10.3** ✅ Projektlizenz AGPLv3 — `LICENSE`-File, SPDX-Identifier in `pyproject.toml`/`package.json`, README-Lizenz-Block; Compliance-Check über 76 Backend- + Frontend-Prod-Pakete ohne GPL-/proprietäre Treffer.
+  - **M10.4** ✅ Einwilligungs-Vorlage [`docs/templates/consent-de.md`](./docs/templates/consent-de.md) mit acht Platzhaltern und 12 Abschnitten, deckt ADR-001/002/014/015/032 + Phase-2-Foto-Platzhalter + Auskunfts-/Widerrufsrechte ab.
+  - **M10.5–M10.9** ⏳ offen: `compose.prod.yml` + Caddy/Traefik-Overlays + Migrations-Auto-Run mit Advisory-Lock; Backup-Service-Container; GitHub-Actions-CI mit GHCR-Push (Multi-Arch); `ops/runbook.md` + README-Operator-Quickstart; RC-Voll-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release.
 
 ---
 
@@ -94,11 +114,12 @@ Die Auswahl ist über ADRs (siehe [`decisions.md`](./docs/decisions.md)) fixiert
 | Karten | MapLibre GL JS via `react-map-gl` |
 | Karten-Tiles | MapTiler Cloud (Phase 1) → Self-Hosted (Phase 2, M12) |
 | Offline-Sync | RxDB + Dexie-Storage (siehe ADR-017) |
-| Admin-UI | SQLAdmin unter `/admin` + Next.js-Admin-Dash unter `/admin-dash` (siehe ADR-016) |
-| Reverse Proxy | Caddy (automatisches TLS via Let's Encrypt) |
-| Laufzeit | Docker Compose (lokal und VPS-Produktion) |
+| Admin-UI | Zwei Schichten: SQLAdmin im Backend (Stammdaten-Pflege) + Next.js-Workflow-UI im Frontend (Dashboard, User-Verwaltung, Personen-Merge, Anonymisierung); siehe ADR-016, ADR-049 |
+| Mail-Versand | SMTP via `aiosmtplib` (Passwort-Reset und Verify); LoggingBackend als Default in Dev/Test (ADR-051 §C) |
+| Reverse Proxy | Caddy oder Traefik — Wahl pro Instanz via Compose-Overlay, beide mit Auto-TLS via Let's Encrypt (ADR-051 §B) |
+| Laufzeit | Docker Compose (lokal und VPS-Produktion); Multi-Arch-Images (`linux/amd64`, `linux/arm64`) auf GHCR ab M10.7 |
 
-**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words in der Produktion (vormals Migrations-Brücke geplant; verworfen mit ADR-050), GPL-/AGPL-Abhängigkeiten ohne Freigabe. Details in [`project-context.md`](./docs/project-context.md#3-technischer-stack).
+**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words (Migrations-Brücke ursprünglich für M9 geplant, verworfen mit ADR-050), proprietäre/kommerzielle Abhängigkeitslizenzen. GPL-/AGPL-Abhängigkeiten sind seit ADR-051 (AGPLv3-Hauptlizenz) zulässig. Details in [`project-context.md`](./docs/project-context.md#3-technischer-stack).
 
 ---
 
@@ -115,7 +136,7 @@ hc-map/
 └── docs/           # Projekt-Dokumentation (siehe unten)
 ```
 
-M0–M6 sind umgesetzt: `backend/` enthält Schema, Migrations, RLS-Policies, Auth-Layer, Domain-API plus Live-Endpoints, RxDB-Sync-Endpoints, MapTiler-Tile-Proxy, MapTiler-Geocoding-Proxy mit Rate-Limit, Search/Throwbacks/Export; `frontend/` enthält Login-Flow, geschütztes Layout (Sidebar Desktop / Bottom-Nav Mobile mit globaler Suchleiste), Dark-Mode, `/search`-Seite mit sicherem Snippet-Highlighting, Datenexport-UI im Profil, Dashboard mit „Neues Event starten"- und „Nachträglich erfassen"-CTAs, `/events/new`-Live-Erfassung mit MapLibre-Karten-Picker und on-the-fly-Personenanlage, `/events/new/backfill` für nachträgliche Eingaben, einheitliche `/events/[id]`-Detail-Ansicht (live wie beendet), `/events/[id]/edit` mit RBAC-Server-Gate und RxDB-Diff-Patching, Vollbild-`/map` mit nativen MapLibre-Cluster, Filter-Drawer (Zeitraum + Beteiligte) und Geocoding-Suchbox sowie eine clientseitige App-PIN-Sperre als querliegender Schutz gegen Schulterblick; `docker/` startet Postgres+PostGIS, Backend und Frontend lokal. `ops/` und der eigene Tileserver folgen mit M10/M12.
+**Stand:** `backend/`, `frontend/` und `docker/` sind voll umgesetzt. Backend liefert Schema/Migrations/RLS, Auth, Domain-API, Sync-Endpoints, Tile-/Geocoding-Proxy, Admin-API, Mail-Backend (M10.2). Frontend bietet Login + Reset-Flow, Dashboard, Live-Modus, Backfill, Detail- und Edit-Pages, Vollbild-Karte mit Cluster und Suchbox, Admin-Dashboard mit User-/Personen-Verwaltung. Lokale Compose-Konfig in `docker/`; Produktiv-Compose mit Caddy-/Traefik-Overlays folgt mit M10.5. `ops/` (Backup-Skripte, Runbook) wird mit M10.6/M10.8 angelegt. Self-hosted Tileserver bleibt Phase 2 (M12).
 
 ---
 
@@ -136,6 +157,10 @@ cd hc-map
 
 # Environment vorbereiten
 cp .env.example .env
+# Pflicht für Kartenfunktion: HCMAP_MAPTILER_API_KEY in .env eintragen
+# (Free-Tier-Key auf https://cloud.maptiler.com — leer lassen = Karten zeigen 503).
+# Optional für Mail-Versand: HCMAP_SMTP_HOST setzen — sonst loggt der
+# LoggingBackend Reset-/Verify-Links nur ins Backend-Log (Dev-Default).
 
 # Stack starten (Backend + Frontend + Postgres/PostGIS)
 docker compose -f docker/docker-compose.yml up --build
@@ -197,7 +222,7 @@ pre-commit run --all-files
 HC-Map verarbeitet Daten der Kategorie Art. 9 DSGVO (Sexualleben). Die Betriebsgrundlage ist bewusst restriktiv:
 
 - **Hosting:** Eigener VPS mit EU-Standort, Full-Disk-Encryption, TLS-Pflicht, Fail2ban, SSH-Key-Only.
-- **Auth:** fastapi-users mit Cookie-Sessions, CSRF-Schutz via Double-Submit-Token, Argon2id für Passwörter (min. 12 Zeichen).
+- **Auth:** fastapi-users mit Cookie-Sessions, CSRF-Schutz via Double-Submit-Token, Argon2id für Passwörter (min. 12 Zeichen). Passwort-Reset per Mail produktiv (`aiosmtplib`-SMTP-Backend, no-enumeration-Verhalten — siehe M10.2).
 - **Zugriffskontrolle:** Row-Level-Security auf DB-Ebene, GUC-basierte User-Identität pro Request (100 % Test-Abdeckung für RLS-Policies vorgeschrieben).
 - **Client-Härtung:** App-PIN mit Zwangs-Logout nach 5 Fehlversuchen, Sperre nach Inaktivität.
 - **Logging:** Strukturiertes Logging mit Redaction-Liste — **keine personenbezogenen Daten in Logs** (Namen, Notizen, Koordinaten werden entfernt).

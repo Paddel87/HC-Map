@@ -7,6 +7,26 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **README + project-context.md auf aktuellen Stand gebracht (2026-05-01).**
+  Status-Tabelle und der lange Beschreibungs-Block standen bei M6/M7.3
+  und kannten weder M7-M10 noch M9-Verwerfung. Repo-Struktur-Block
+  ähnlich veraltet. Komplett umgeschrieben: kompakter Phase-1-Überblick
+  (M0–M8 erledigt, M9 verworfen, M10 RC-Bündel mit Sub-Step-Status),
+  Test-Stand und Sub-Step-Liste M10.1–M10.9 explizit. Phase-Badge
+  M10.3-erledigt → M10.4-erledigt. Tech-Stack-Tabelle: Reverse-Proxy
+  „Caddy oder Traefik via Compose-Overlay", Admin-UI-Pfad korrigiert
+  (zwei Schichten gemäß ADR-049, kein erfundener `/admin-dash`-Pfad),
+  Mail-Versand-Zeile ergänzt, Multi-Arch-Hinweis. „Explizit nicht
+  erlaubt" ohne Selbstwiderspruch zur AGPLv3-Wahl umformuliert.
+  Sicherheits-Abschnitt: Passwort-Reset als produktiv markiert.
+  Setup: Hinweis auf MapTiler-Key und SMTP-Default ergänzt.
+  Konsistent dazu in `project-context.md` §6: Projektlizenz von
+  „noch offen" auf AGPL-3.0-only fixiert (Verweis auf ADR-051),
+  Ausschlussliste umformuliert (proprietäre/source-available
+  statt GPL).
+
 ### Added
 
 - **M10.4 — Einwilligungs-Vorlage (ADR-051 §G, 2026-05-01).**

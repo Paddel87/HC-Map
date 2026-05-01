@@ -7,6 +7,30 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **M10.7.1 — GitHub-Actions-Major-Bumps auf Node-24-fähige Runtimes (2026-05-01).**
+  Beide Workflows ([.github/workflows/ci.yml](.github/workflows/ci.yml) +
+  [.github/workflows/release.yml](.github/workflows/release.yml)) ziehen
+  alle neun GitHub-Actions auf Node-24-Major-Tags um:
+  `actions/checkout@v4 → @v6`, `actions/cache@v4 → @v5`,
+  `actions/setup-node@v4 → @v6`,
+  `astral-sh/setup-uv@v5 → @v8.1.0` (immutable Pin per astral-Empfehlung —
+  v8 hat keine floating major-/minor-Tags mehr, Supply-Chain-Hardening),
+  `docker/build-push-action@v6 → @v7`,
+  `docker/login-action@v3 → @v4`,
+  `docker/metadata-action@v5 → @v6`,
+  `docker/setup-buildx-action@v3 → @v4`,
+  `docker/setup-qemu-action@v3 → @v4`. Audit lief live gegen die
+  GitHub-Releases-API plus `action.yml`-Contents-API; alle neun
+  `using: node24` direkt aus den Ziel-Tags verifiziert. `actionlint
+  v1.7.12` clean. Kein Anwendungscode berührt — Test-Stand unverändert
+  (Backend pytest 246/246, Frontend vitest 278/278). Beide Stichtage
+  aus Blocker #002 entschärft (2026-06-02 Runner-Default Node 24,
+  2026-09-16 Node-20-Entfernung). Auflösung von
+  [Blocker #002](docs/blockers.md#blocker-002-github-actions-runtime-deprecation-nodejs-20)
+  per [ADR-052](docs/decisions.md#adr-052--github-actions-major-bumps-auf-node-24-fähige-runtimes-m1071).
+
 ### Added
 
 - **M10.8 — `ops/runbook.md` als Operator-Dokumentation neu angelegt (2026-05-01).**

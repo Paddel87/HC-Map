@@ -4652,4 +4652,81 @@ Detaillierte Schritt-für-Schritt-Anleitung wandert in `ops/runbook.md` (M10.7) 
 
 ---
 
+## ADR-052 — GitHub-Actions-Major-Bumps auf Node-24-fähige Runtimes (M10.7.1)
+
+**Status:** Accepted
+**Datum:** 2026-05-01
+**Freigabe:** 2026-05-01 (Patrick — „jettz M10.7.1")
+**Kategorie:** §4.3 externe Abhängigkeiten (neun GitHub-Action-Major-Bumps), §4.7 Build-/Deploy-Pipeline (`.github/workflows/ci.yml` + `release.yml`).
+**Vorgänger:** Blocker #002 (GitHub-Actions-Runtime-Deprecation Node.js 20, 2026-05-01) — die im Blocker-Eintrag aufgeworfene Entscheidungsfrage „M10.7.1 als kurzer Audit-Sub-Step vor M10.9?" wird mit dieser ADR positiv beantwortet.
+
+### Kontext
+
+Beim ersten produktiven CI-Lauf der M10.7-Pipeline (Run `25225432180` ff., 2026-05-01) annotierte GitHub auf jedem Job:
+
+> Node.js 20 actions are deprecated. Actions will be forced to run with Node.js 24 by default starting **June 2nd, 2026**. Node.js 20 will be removed from the runner on **September 16th, 2026**.
+
+Neun in den beiden Workflows referenzierte Actions hängen an Node-20-Runtimes. Drei Wege standen offen:
+
+- **Abwarten bis 2026-06-02** — würde unter Umständen einen kurzfristigen Notfall-Bump während der RC-Phase erzwingen.
+- **Per `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` Workflow-Env** — verschiebt das Problem, aber das Risiko bleibt: Action-Code, der unter Node 20 entwickelt wurde, kann unter Node 24 brechen.
+- **Mechanischer Tag-Bump auf Major-Versionen, die offiziell auf Node 24 laufen** — günstig, planbar, vor M10.9-RC-Tag erledigt.
+
+Pfad C wurde gewählt. Der Audit fand am 2026-05-01 live gegen die GitHub-API statt (kein Verlass auf Trainingsdaten, CLAUDE.md §6).
+
+### Entscheidungen
+
+**A. Mapping aller neun Actions auf Node-24-Major-Versionen:**
+
+| Action                          | Vorher | Nachher  | `using:` (verifiziert) | Begründung Detail-Pin                                                        |
+|---------------------------------|--------|----------|-----------------------|------------------------------------------------------------------------------|
+| `actions/checkout`              | `@v4`  | `@v6`    | `node24`              | floating Major; v5 übersprungen, weil v6 die aktuelle Major-Linie ist        |
+| `actions/cache`                 | `@v4`  | `@v5`    | `node24`              | floating Major; reine Node-Bump-Major, kein Cache-Key-Schema-Bruch           |
+| `actions/setup-node`            | `@v4`  | `@v6`    | `node24`              | floating Major; v6 limitiert Auto-Cache auf npm — kollidiert nicht mit unserem expliziten pnpm-Store-Cache (in v5 hätte das `packageManager`-Feld Auto-Cache aktiviert) |
+| `astral-sh/setup-uv`            | `@v5`  | `@v8.1.0`| `node24`              | **immutable Tag**, nicht floating: astral hat mit v8 die floating major-/minor-Tags eingestellt (Supply-Chain-Hardening, vgl. `tj-actions`-Vorfall). Pin auf exakte Release-Version per astral-Empfehlung. |
+| `docker/build-push-action`      | `@v6`  | `@v7`    | `node24`              | floating Major; nur Node-Bump + ESM-intern, keine Input/Output-Änderungen, die wir nutzen |
+| `docker/login-action`           | `@v3`  | `@v4`    | `node24`              | floating Major; analog                                                        |
+| `docker/metadata-action`        | `@v5`  | `@v6`    | `node24`              | floating Major; analog                                                        |
+| `docker/setup-buildx-action`    | `@v3`  | `@v4`    | `node24`              | floating Major; v4 entfernt deprecated Inputs/Outputs — wir nutzen kein `with:`-Block, daher unkritisch |
+| `docker/setup-qemu-action`      | `@v3`  | `@v4`    | `node24`              | floating Major; analog                                                        |
+
+Alle neun `using:`-Werte wurden direkt aus `action.yml` der jeweiligen Major-Tags via GitHub-Contents-API verifiziert.
+
+**B. `setup-uv` als einziger immutable Pin — Sonderfall.**
+
+`astral-sh/setup-uv@v8.0.0` (Release-Notes, 2026-03-29): „No more major and minor tags. You won't be able to use `@v8` or `@v8.0` any longer. We do this because pinning to major releases opens up users to supply chain attacks like what happened to tj-actions." Empfohlene Pinning-Form: `astral-sh/setup-uv@v8.1.0` (immutable Tag) oder `@<sha>`.
+
+Wir folgen dieser Empfehlung für `setup-uv` — alle anderen acht Actions bleiben auf floating Major-Tags. Eine projekt-weite Umstellung auf immutable Pins wäre ein eigenständiger Sub-Step (Aufwand: alle `uses:`-Zeilen + Renovate-/Dependabot-Konfig); wird **nicht** in M10.7.1 umgesetzt, sondern als Follow-up nach M11 vorgemerkt.
+
+**C. Verträgliche Inputs unverändert.** `setup-uv@v8.1.0` akzeptiert weiterhin `version`, `enable-cache`, `cache-dependency-glob` (in v6/v7/v8 unverändert). `setup-node@v6` braucht **kein** explizites `package-manager-cache: false` (Auto-Cache ist in v6 auf npm beschränkt). Alle anderen Verträge sind in den Release-Notes als unverändert dokumentiert.
+
+**D. Node-22-Toolchain im Frontend-Job bleibt.** `setup-node@v6` installiert weiterhin Node 22 (Wert aus `with: node-version: "22"`); die Action selbst läuft auf Node 24 (Runner-Runtime), liefert aber Node 22 als Toolchain — beides ist orthogonal. Konsequenz: Frontend-Build/-Test fährt unverändert auf Node 22 (entspricht Production-Image, ADR-048 §C).
+
+### Konsequenzen
+
+- Beide Stichtage aus Blocker #002 entschärft: **2026-06-02** (Runner-Default Node 24) und **2026-09-16** (Node 20 entfernt). CI bleibt grün, ohne Notfall-Workaround.
+- Blocker #002 wird mit dem M10.7.1-Commit aufgelöst und nach „Gelöste Blocker" verschoben.
+- `setup-uv` ist ab jetzt der einzige immutable-gepinnte Action-Eintrag im Repo. Beim nächsten Patch-Release (`v8.1.1` o. ä.) muss der Pin manuell mitgezogen werden — Renovate/Dependabot werden bei einem späteren Sub-Step entsprechend konfiguriert (Folge-Aufgabe).
+- Keine Änderungen an Workflow-Logik, Tag-Schema, Image-Build-Matrix oder GHCR-Push-Pfad — reine `uses:`-Zeilen-Bumps + ein Inline-Kommentar an der `setup-uv`-Stelle, der die immutable-Pin-Begründung trägt.
+
+### Verifikation
+
+- `actionlint v1.7.12` (rhysd/actionlint) gegen beide Workflow-Files: **0 errors**.
+- Live-CI-Run nach Push verifiziert: Node-20-Deprecation-Annotation verschwindet, alle drei Jobs grün, Pull der Multi-Arch-Images aus GHCR identisch zu M10.7-Run.
+- Backend-Test-Stand unverändert: pytest **246/246** grün, vitest **278/278** grün (M10.7.1 berührt ausschließlich CI, kein Anwendungscode).
+
+### Abgrenzung
+
+- **Nicht im Scope:** Renovate/Dependabot-Konfig, immutable-Pins für andere Actions, GitHub-Actions-Version-Pin via SHA, SBOM/Provenance — siehe Folge-Aufgaben.
+- **Nicht freigabepflichtig in dieser ADR:** der bereits in ADR-051 §E festgelegte Image-Tag-Schema-Plan und das Reverse-Proxy-Overlay-Konzept.
+
+### Referenzen
+
+- [Blocker #002 — GitHub-Actions-Runtime-Deprecation Node.js 20](./blockers.md#blocker-002-github-actions-runtime-deprecation-nodejs-20)
+- [ADR-051 — Implementierungsstrategie M10](#adr-051--implementierungsstrategie-m10-release-candidate-bündel-deployment-ready-durch-jedermann) (CI/CD-Mechanik)
+- [astral-sh/setup-uv v8.0.0 release notes](https://github.com/astral-sh/setup-uv/releases/tag/v8.0.0) — immutable-Tag-Begründung
+- GitHub: „Required Node version on JavaScript actions" (Deprecation-Notice 2026-05-01-Annotation)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

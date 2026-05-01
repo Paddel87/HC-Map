@@ -74,37 +74,6 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
      - **Ja** — als Querschnitts-Aufgabe vor M8, Ergebnis ggf. weitere Update-Anträge.
      - **Nein** — auf Symptom-Basis bleiben (heutiges Verhalten).
 
-### Blocker #002: GitHub-Actions-Runtime-Deprecation Node.js 20
-
-- **Datum:** 2026-05-01
-- **Fahrplan-Referenz:** M10.7 (`.github/workflows/ci.yml`, `.github/workflows/release.yml`); querschnittlich gegen alle Folge-Meilensteine, die auf der CI aufbauen.
-- **Modul:** CI / GitHub Actions (`.github/workflows/`).
-- **Blocker-Typ:** Freigabebedarf (CLAUDE.md §4.7 — Build-/Deploy-Pipeline). Aktuell **nicht-blockierend**, mit zwei harten Stichtagen (siehe unten).
-- **Beschreibung:**
-  Die ersten produktiven CI-Runs (`gh run 25225432180`, `25225805748`, `25226275568`, `25226975480`, alle 2026-05-01) emittieren auf jedem Job dieselbe Annotation:
-
-  > Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: `actions/checkout@v4`, `actions/cache@v4`, `actions/setup-node@v4`, `astral-sh/setup-uv@v5`, `docker/build-push-action@v6`, `docker/login-action@v3`, `docker/metadata-action@v5`, `docker/setup-buildx-action@v3`, `docker/setup-qemu-action@v3`. Actions will be forced to run with Node.js 24 by default starting **June 2nd, 2026**. Node.js 20 will be removed from the runner on **September 16th, 2026**.
-
-  Damit existieren zwei Stichtage:
-  - **2026-06-02:** GitHub-Runner zwingt Node 24 als Default. Bis dahin lauffähige Major-Tag-Releases der genutzten Actions abwarten und auf den neuen Tag pinnen, oder per `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` aktiv mitziehen.
-  - **2026-09-16:** Node 20 wird vom Runner entfernt. Spätestens dann müssen alle JavaScript-basierten Actions auf Node-24-fähigen Versionen sein, sonst bricht CI vollständig.
-
-  Nicht alle Actions in der Liste werden gleichzeitig nachziehen. Erfahrungswert: die `docker/*`- und `actions/*`-Actions ziehen schnell nach (typ. innerhalb weniger Wochen nach Stichtag), die kleineren Communities (`astral-sh/setup-uv`) gegebenenfalls langsamer.
-- **Reproduktion:**
-  ```
-  $ gh run view 25226975480 2>&1 | grep -i "node"
-  ! Node.js 20 actions are deprecated. ...
-  ```
-- **Offene Hypothesen:**
-  - Bis 2026-06-02 sind alle 9 Actions auf Node-24-fähige Major-Tags gehoben → Bumps in `.github/workflows/ci.yml` + `release.yml`, kein Verhaltenstest nötig (Actions bleiben API-stabil über Node-Bump).
-  - Falls 2026-06-02 erreicht wird ohne dass alle 9 Actions nachgezogen sind → temporäres `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` als Workflow-Env, mit Risiko dass eine der Actions unter Node 24 nicht mehr funktioniert.
-  - `ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true` als Notausstieg, falls eine Action zwischen 2026-06-02 und ihrem Node-24-Update einen Fix braucht.
-- **Benötigt zur Auflösung:**
-  - Vor 2026-06-02: Audit der neun Actions auf der Liste, prüfen welche bereits Node-24-fähige Major-Tags haben, betroffene `uses:`-Zeilen aktualisieren. Schritt ist mechanisch (Tag-Bumps, kein Verhaltens-Audit), passt in einen einzelnen Followup-Commit.
-  - Empfohlener Trigger-Punkt: **vor M10.9** (RC-Tag-Push), damit der erste echte Release-Workflow auf Node-24-fähigen Actions läuft und nicht später nachgezogen werden muss.
-- **Vorgeschlagene Entscheidungsfrage:**
-  Sub-Schritt **M10.7.1 — Action-Versions-Audit + Node-24-Bumps** als eigener Eintrag im Fahrplan zwischen M10.7 und M10.9 anlegen, oder erst aktiv werden, wenn die 2026-06-02-Frist näher rückt? Empfehlung: vorziehen — die Bumps sind günstig, das Risiko steigt erst bei dichteren Stichtagen.
-
 ---
 
 <!-- Bei neuem Blocker: Eintrag nach folgendem Format anlegen.
@@ -139,7 +108,22 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
 
 ## Gelöste Blocker
 
-Noch keine gelösten Blocker.
+### Blocker #002: GitHub-Actions-Runtime-Deprecation Node.js 20
+
+- **Datum:** 2026-05-01
+- **Lösungsdatum:** 2026-05-01
+- **Fahrplan-Referenz:** M10.7 → aufgelöst durch M10.7.1.
+- **Modul:** CI / GitHub Actions (`.github/workflows/`).
+- **Blocker-Typ:** Freigabebedarf (CLAUDE.md §4.7 — Build-/Deploy-Pipeline). War **nicht-blockierend**, mit zwei harten Stichtagen (2026-06-02, 2026-09-16).
+- **Beschreibung (zur Historie):**
+  Die ersten produktiven CI-Runs (`gh run 25225432180`, `25225805748`, `25226275568`, `25226975480`, alle 2026-05-01) emittierten auf jedem Job dieselbe Annotation:
+
+  > Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: `actions/checkout@v4`, `actions/cache@v4`, `actions/setup-node@v4`, `astral-sh/setup-uv@v5`, `docker/build-push-action@v6`, `docker/login-action@v3`, `docker/metadata-action@v5`, `docker/setup-buildx-action@v3`, `docker/setup-qemu-action@v3`. Actions will be forced to run with Node.js 24 by default starting **June 2nd, 2026**. Node.js 20 will be removed from the runner on **September 16th, 2026**.
+
+  Zwei Stichtage: **2026-06-02** (Runner zwingt Node 24 als Default) und **2026-09-16** (Node 20 vollständig entfernt).
+- **Lösung:** Sub-Step **M10.7.1 (Action-Versions-Audit + Node-24-Bumps)** am 2026-05-01 ausgeführt. Live-Audit gegen die GitHub-API (Releases-API + `action.yml`-Contents-API für `using:`-Verifikation), dann mechanische `uses:`-Tag-Bumps in beiden Workflows: `actions/checkout@v6`, `actions/cache@v5`, `actions/setup-node@v6`, `astral-sh/setup-uv@v8.1.0` (immutable Pin per astral-Empfehlung — v8 hat keine floating major-Tags mehr), `docker/build-push-action@v7`, `docker/login-action@v4`, `docker/metadata-action@v6`, `docker/setup-buildx-action@v4`, `docker/setup-qemu-action@v4`. `actionlint v1.7.12` clean. CI-Run nach Push: alle drei Jobs grün, Node-20-Annotation verschwindet.
+- **ADR:** [ADR-052 — GitHub-Actions-Major-Bumps auf Node-24-fähige Runtimes (M10.7.1)](./decisions.md#adr-052--github-actions-major-bumps-auf-node-24-fähige-runtimes-m1071).
+- **Abgeleitete Regel:** Beim Anlegen eines Workflows immer Live-API-Lookup für Action-Versionen statt Annahme aus Trainingsdaten (analog Lehre aus Blocker #001 für Frontend-Pins). Folge-Aufgabe nach M11: Renovate-/Dependabot-Konfig für GitHub-Actions, ggf. projektweite Umstellung auf immutable SHA-/Tag-Pins.
 
 <!-- Nach Auflösung von oben hierher verschieben mit zusätzlichen Feldern:
 - **Lösungsdatum:** YYYY-MM-DD

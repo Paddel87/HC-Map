@@ -7,6 +7,37 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M10.2 — produktiver Mail-Versand und Passwort-Reset-UI (ADR-051 §C, 2026-05-01).**
+  - Backend-Dep `aiosmtplib>=5,<6` (asyncio-natives SMTP). Neuer
+    `SMTPMailer` in [`backend/app/auth/mail.py`](backend/app/auth/mail.py)
+    neben dem bestehenden `LoggingBackend`. Auswahl per
+    `HCMAP_SMTP_HOST` — leer = Logging (Dev/Test), gesetzt = SMTP (Prod).
+    Validiert beim Konstruktor: `smtp_host`, `smtp_from`, plus
+    `starttls`-vs.-`use_tls`-Exklusivität.
+  - Neue Settings in [`backend/app/config.py`](backend/app/config.py):
+    `HCMAP_SMTP_{HOST,PORT,USER,PASSWORD,STARTTLS,USE_TLS,FROM,FROM_NAME}`,
+    plus `HCMAP_BASE_URL` (Frontend-Origin für Reset-/Verify-Links).
+  - Plain-Text-Templates `password_reset.txt` und `verify.txt` in
+    `backend/app/auth/templates/`, deutsch.
+  - Frontend-Pages
+    [`(public)/forgot-password/page.tsx`](frontend/src/app/(public)/forgot-password/page.tsx)
+    und
+    [`(public)/reset-password/page.tsx`](frontend/src/app/(public)/reset-password/page.tsx)
+    inkl. Form-Komponenten in `src/components/auth/`. „Passwort vergessen?"-Link
+    in der Login-Form.
+  - No-Enumeration-Verhalten: Forgot-Form zeigt immer „Falls die E-Mail
+    existiert …", auch bei Server-Fehlern.
+  - **Tests:** Backend +15 Tests (`tests/test_auth_mail.py`, 231/231
+    grün). Frontend +7 Tests (`tests/forgot-password-form.test.tsx`,
+    `tests/reset-password-form.test.tsx`, 278/278 grün). `ruff`/`mypy
+    --strict`/`tsc --noEmit`/`eslint` clean.
+  - **Browser-Smoke:** voller Reset-Roundtrip lokal verifiziert
+    (`POST /api/auth/forgot-password 202` → Reset-URL aus Backend-Log →
+    `POST /api/auth/reset-password 200` → Re-Login mit neuem Passwort →
+    `POST /api/auth/login 204` → RxDB-Sync grün).
+
 ### Changed
 
 - **M9 (w3w-Migration) verworfen — ADR-050 (2026-05-01).** Kein

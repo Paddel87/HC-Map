@@ -24,6 +24,7 @@ dependencies = [
     "httpx>=0.28,<0.29",
     "sqladmin>=0.25,<0.26",
     "itsdangerous>=2.2,<3",
+    "aiosmtplib>=5,<6",
 ]
 
 [dependency-groups]

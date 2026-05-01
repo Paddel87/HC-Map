@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -111,10 +112,13 @@ export function LoginForm() {
               )}
             />
           </CardContent>
-          <CardFooter>
+          <CardFooter className="flex flex-col gap-3">
             <Button type="submit" className="w-full" disabled={login.isPending}>
               {login.isPending ? "Anmelden…" : "Anmelden"}
             </Button>
+            <Link href="/forgot-password" className="text-sm underline">
+              Passwort vergessen?
+            </Link>
           </CardFooter>
         </form>
       </Form>

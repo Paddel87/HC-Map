@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import EmailStr, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,6 +69,58 @@ class Settings(BaseSettings):
             "Per-user token-bucket limit for /api/geocode requests "
             "(rolling 60 s window). 0 disables rate limiting."
         ),
+    )
+
+    # --- Public base URL (M10.2, ADR-051 §C) ----------------------------
+    base_url: str = Field(
+        default="http://localhost:3000",
+        description=(
+            "Public origin of the frontend, used to build links in outgoing "
+            "mail (e.g. password-reset URLs). MUST point at the frontend "
+            "origin, not the backend."
+        ),
+    )
+
+    # --- SMTP / Mail (M10.2, ADR-051 §C) --------------------------------
+    smtp_host: str = Field(
+        default="",
+        description=(
+            "SMTP server hostname. Empty disables SMTP and falls back to the "
+            "logging mail backend (development/test)."
+        ),
+    )
+    smtp_port: int = Field(
+        default=587,
+        ge=1,
+        le=65535,
+        description="SMTP server port. 587 = STARTTLS, 465 = implicit TLS, 25 = plain.",
+    )
+    smtp_user: str = Field(
+        default="",
+        description="SMTP username. Empty = unauthenticated SMTP.",
+    )
+    smtp_password: SecretStr = Field(
+        default=SecretStr(""),
+        description="SMTP password. Empty when smtp_user is empty.",
+    )
+    smtp_starttls: bool = Field(
+        default=True,
+        description="Use STARTTLS (typical for port 587). Disable for port 465.",
+    )
+    smtp_use_tls: bool = Field(
+        default=False,
+        description="Use implicit TLS (typical for port 465). Mutually exclusive with starttls.",
+    )
+    smtp_from: EmailStr | None = Field(
+        default=None,
+        description=(
+            "Envelope and From-header sender address. Required when smtp_host "
+            "is set; otherwise unused."
+        ),
+    )
+    smtp_from_name: str = Field(
+        default="HC-Map",
+        description="Display name for the From-header.",
     )
 
 

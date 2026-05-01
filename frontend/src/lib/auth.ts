@@ -75,3 +75,30 @@ export function useLogout() {
     },
   });
 }
+
+export function useForgotPassword() {
+  return useMutation({
+    mutationFn: async (email: string) => {
+      await apiFetch<void>("/api/auth/forgot-password", {
+        method: "POST",
+        body: { email },
+      });
+    },
+  });
+}
+
+export interface ResetPasswordPayload {
+  token: string;
+  password: string;
+}
+
+export function useResetPassword() {
+  return useMutation({
+    mutationFn: async ({ token, password }: ResetPasswordPayload) => {
+      await apiFetch<void>("/api/auth/reset-password", {
+        method: "POST",
+        body: { token, password },
+      });
+    },
+  });
+}

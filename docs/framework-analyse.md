@@ -104,9 +104,11 @@
 **Status:** In ADR-008 gewählt.
 **Alternative für Self-Hosting (Phase 2):** Nominatim auf eigenem VPS. Setup-Aufwand mittelhoch (OSM-Daten-Import), aber dann komplett unabhängig.
 
-### w3w-Migration (M9)
-**Status:** Eigenbau-Skript.
-**Bibliothek nötig?** Nein. w3w-API für Konvertierung in Lat/Lon, dann lokal Plus Codes. Einmalig, kann als reines Script-Projekt umgesetzt werden.
+### w3w-Migration (M9) — verworfen
+**Status:** Verworfen mit ADR-050 (2026-05-01). Bestand wird manuell über die
+M5c-Erfassungs-UI nachgetragen; kein Skript-Projekt nötig. Spalte
+`event.legacy_external_ref` (vormals `w3w_legacy`) bleibt für freiwillige
+Selbstreferenz-Eingabe erhalten.
 
 ### Foto-Anhänge (M15)
 **Status:** Phase 2.

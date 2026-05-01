@@ -35,7 +35,7 @@ def _new_event_doc(note: str | None = None) -> dict:
         "ended_at": None,
         "lat": 52.5,
         "lon": 13.4,
-        "w3w_legacy": None,
+        "legacy_external_ref": None,
         "reveal_participants": False,
         "note": note,
         "created_by": None,

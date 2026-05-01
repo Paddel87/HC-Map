@@ -160,7 +160,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         ended_at: endedIso,
         lat: coords!.lat,
         lon: coords!.lon,
-        w3w_legacy: null,
+        legacy_external_ref: null,
         reveal_participants: false,
         note: note.trim() || null,
         created_by: user.id,

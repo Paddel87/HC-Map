@@ -18,7 +18,7 @@ class EventBase(BaseModel):
     lon: Decimal = Field(..., ge=Decimal("-180"), le=Decimal("180"))
     reveal_participants: bool = False
     note: str | None = None
-    w3w_legacy: str | None = None
+    legacy_external_ref: str | None = None
 
 
 class EventCreate(EventBase):
@@ -47,6 +47,7 @@ class EventUpdate(BaseModel):
     lon: Decimal | None = Field(default=None, ge=Decimal("-180"), le=Decimal("180"))
     reveal_participants: bool | None = None
     note: str | None = None
+    legacy_external_ref: str | None = None
 
 
 class EventListItem(EventBase):

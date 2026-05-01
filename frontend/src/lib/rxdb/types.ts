@@ -20,7 +20,7 @@ export interface EventDocType {
   ended_at: string | null;
   lat: number;
   lon: number;
-  w3w_legacy: string | null;
+  legacy_external_ref: string | null;
   reveal_participants: boolean;
   note: string | null;
   created_by: string | null;

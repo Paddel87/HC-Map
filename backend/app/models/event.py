@@ -63,7 +63,7 @@ class Event(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
         Computed("ST_SetSRID(ST_MakePoint(lon, lat), 4326)::geography", persisted=True),
         nullable=False,
     )
-    w3w_legacy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legacy_external_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     reveal_participants: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default="false"
     )

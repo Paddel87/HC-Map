@@ -246,7 +246,7 @@ function synthesizeFromRxdb(doc: EventDocType, participantIds: string[]): EventD
     lon: doc.lon,
     reveal_participants: doc.reveal_participants,
     note: doc.note,
-    w3w_legacy: doc.w3w_legacy,
+    legacy_external_ref: doc.legacy_external_ref,
     created_by: doc.created_by,
     created_at: doc.created_at,
     updated_at: doc.updated_at,

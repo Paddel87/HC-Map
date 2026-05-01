@@ -17,13 +17,14 @@ Push
 ``[{assumedMasterState, newDocumentState}, ...]`` and applies the
 per-field conflict-resolution rules from ADR-029:
 
-* **immutable-after-create:** id, started_at, lat, lon, w3w_legacy,
-  created_by, created_at, event_id, sequence_no. Any mismatch between
-  the existing row and ``newDocumentState`` raises a conflict.
+* **immutable-after-create:** id, started_at, lat, lon, created_by,
+  created_at, event_id, sequence_no. Any mismatch between the existing
+  row and ``newDocumentState`` raises a conflict.
 * **first-write-wins:** ended_at. Once the server holds a non-null
   value, a different non-null push is a conflict.
-* **last-write-wins:** note, reveal_participants, performer/recipient,
-  position FKs, ``_deleted`` (false → true only).
+* **last-write-wins:** note, reveal_participants, legacy_external_ref
+  (ADR-050), performer/recipient, position FKs, ``_deleted``
+  (false → true only).
 * **server-authoritative:** updated_at, geom, sequence_no on insert,
   created_by/created_at on insert.
 
@@ -230,7 +231,7 @@ async def _insert_event_or_conflict(
         ended_at=new_doc.ended_at,
         lat=Decimal(str(new_doc.lat)),
         lon=Decimal(str(new_doc.lon)),
-        w3w_legacy=new_doc.w3w_legacy,
+        legacy_external_ref=new_doc.legacy_external_ref,
         reveal_participants=new_doc.reveal_participants,
         note=new_doc.note,
         created_by=user.id,
@@ -260,7 +261,6 @@ def _check_event_update(
         existing.started_at != new_doc.started_at
         or float(existing.lat) != new_doc.lat
         or float(existing.lon) != new_doc.lon
-        or existing.w3w_legacy != new_doc.w3w_legacy
         or existing.created_by != new_doc.created_by
     ):
         return _event_to_doc(existing)
@@ -284,6 +284,7 @@ def _apply_event_update(existing: Event, new_doc: EventDoc) -> None:
     # LWW.
     existing.note = new_doc.note
     existing.reveal_participants = new_doc.reveal_participants
+    existing.legacy_external_ref = new_doc.legacy_external_ref
     # Soft-delete flip.
     if new_doc.deleted and not existing.is_deleted:
         existing.is_deleted = True
@@ -490,7 +491,7 @@ def _event_to_doc(row: Event) -> EventDoc:
         ended_at=row.ended_at,
         lat=float(row.lat),
         lon=float(row.lon),
-        w3w_legacy=row.w3w_legacy,
+        legacy_external_ref=row.legacy_external_ref,
         reveal_participants=row.reveal_participants,
         note=row.note,
         created_by=row.created_by,
@@ -728,7 +729,7 @@ def _synthetic_event_tombstone(event_id: uuid.UUID) -> EventDoc:
         ended_at=None,
         lat=0.0,
         lon=0.0,
-        w3w_legacy=None,
+        legacy_external_ref=None,
         reveal_participants=False,
         note=None,
         created_by=None,

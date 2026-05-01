@@ -271,7 +271,7 @@ async def _build_detail(session: AsyncSession, event_id: uuid.UUID, user: User) 
         lon=event.lon,
         reveal_participants=event.reveal_participants,
         note=event.note,
-        w3w_legacy=event.w3w_legacy,
+        legacy_external_ref=event.legacy_external_ref,
         created_by=event.created_by,
         created_at=event.created_at,
         updated_at=event.updated_at,

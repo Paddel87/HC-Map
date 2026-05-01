@@ -147,7 +147,7 @@ def _event_to_dict(e: Event) -> dict[str, Any]:
         "lon": str(e.lon),
         "reveal_participants": e.reveal_participants,
         "note": e.note,
-        "w3w_legacy": e.w3w_legacy,
+        "legacy_external_ref": e.legacy_external_ref,
         "created_by": str(e.created_by) if e.created_by else None,
         "created_at": e.created_at.isoformat(),
     }

@@ -87,7 +87,7 @@ function makeEvent(overrides: Partial<EventDetail> = {}): EventDetail {
     lon: 13.4,
     reveal_participants: false,
     note: null,
-    w3w_legacy: null,
+    legacy_external_ref: null,
     created_by: null,
     created_at: "2026-04-27T12:00:00Z",
     updated_at: "2026-04-27T12:00:00Z",

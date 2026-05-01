@@ -54,7 +54,7 @@ Diese Bibliotheken sind in den ADRs als Stack-Bestandteile festgelegt und werden
 ### Explizit nicht erlaubt
 
 - **Externe Cloud-Services für Datenhaltung** (Self-Hosting-Prinzip; Ausnahme: MapTiler in Phase 1 für Tile-Auslieferung, anonyme Tile-Requests, kein Daten-Upload; Phase 2 Self-Hosting der Tiles).
-- **what3words-API in der Produktion** nach abgeschlossener Migration — proprietär, kollidiert mit Datensouveränitäts-Motiv.
+- **what3words-API** — proprietär, kollidiert mit Datensouveränitäts-Motiv. Die ursprünglich für M9 vorgesehene einmalige Migrationsabfrage entfällt (ADR-050, manuelle Nacherfassung).
 - **Google Maps, Mapbox GL ab v2** — Vendor-Lock-in, Datenschutz-Risiko.
 - **GPL-lizenzierte Abhängigkeiten** ohne explizite Freigabe (siehe Abschnitt 6 / Compliance).
 - **localStorage/sessionStorage für Anwendungsdaten** — wird durch RxDB/IndexedDB abgelöst, sonst inkonsistent.
@@ -86,7 +86,6 @@ Modularer Monolith: ein FastAPI-Backend, ein Next.js-Frontend, eine PostgreSQL-D
 |---|---|---|---|
 | MapTiler Cloud | Karten-Tiles in Phase 1 | API-Key serverseitig | Karte zeigt Fallback-Hinweis; Ablöse durch Self-Hosting in M12 |
 | MapTiler Geocoding | Adress-Suche | API-Key serverseitig | Adress-Suche temporär nicht verfügbar; Plus-Code- und Karten-Klick-Eingabe funktionieren weiter |
-| what3words API | Einmalige Migration in M9 | API-Key | Nicht relevant nach Migration; Account wird gekündigt |
 | Let's Encrypt (via Caddy) | TLS-Zertifikate | ACME | Bestehendes Zertifikat bleibt 90 Tage gültig; Renewal-Fehler = Alarmierung |
 | Off-Site Backup-Storage | Backup-Ziel (Wahl in M13) | Anbieter-spezifisch | Backup-Job schlägt fehl, wird im Monitoring sichtbar; lokales Backup bleibt |
 
@@ -94,7 +93,6 @@ Modularer Monolith: ein FastAPI-Backend, ein Next.js-Frontend, eine PostgreSQL-D
 
 - **MapTiler Cloud Tiles:** Free-Tier 100.000 Requests/Monat, EU-Hoster, bei Überschreitung pausieren Karten ohne Überraschungsrechnung.
 - **MapTiler Geocoding:** Gleiches Tier, auf nicht-kommerzielle Nutzung beschränkt — passt für Hobby; bei Pfad-B-Wechsel neu zu bewerten.
-- **what3words API:** Nur einmalige Migrationsabfrage; kein Failure Mode in Produktion.
 
 ## 6. Constraints (operationalisierbar)
 

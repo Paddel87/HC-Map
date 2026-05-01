@@ -25,9 +25,9 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-05-01 (Sessionende — M8.5 / M8 [ERLEDIGT]. Commit `3b4f4eb` per Fast-Forward auf `main` gemergt und gepusht; `origin/main` zeigt auf `3b4f4eb`. Worktree-Branch `claude/fervent-tu-7e2dfd` deckt sich mit main, kann aufgeräumt werden.)
+- **Stand vom:** 2026-05-01 (Session — ADR-050 angenommen, M9 verworfen, Spalte umgewidmet. M8.5 / M8 [ERLEDIGT] auf main gepusht.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M9 (w3w-Migration) [OFFEN].** Nächste konkrete Aktion: Migrationsskript-Entwurf nach Akzeptanzkriterien M9 (Dry-Run, Idempotenz, Report). Voraussetzung: Personenverwaltung aus M8.5 ist verfügbar (linkable-Verknüpfung, Person-Merge, Anonymisierung). Direkt vor Start: Quelldaten-Format aus w3w klären (CSV-Export vs. API-Replay).
+- **Aktiver Schritt:** **M10 (VPS-Deployment) [OFFEN]** rückt vor — M9 ist [VERWORFEN] gemäß ADR-050 (manuelle Nacherfassung des kleinen w3w-Bestands statt Skript). Sub-Folgearbeit aus ADR-050: **M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) [OFFEN]**, nicht-blockierend für M10. **Spalten-Rename `event.w3w_legacy → event.legacy_external_ref`** (Alembic-Migration `20260501_1200_legacy_ref`, Backend + RxDB-Schema v0→v1 + Frontend-Komponenten + Tests umgestellt) ist Bestandteil dieser Session, **uncommitted** — noch keinem Branch übertragen. **Verifikation:** Backend pytest **216/216 grün** auf frischer DB (vorheriger Lauf hatte einen Test-Pollution-Failure in `test_admin_approves_restraint_type`, der auf einer aufgeräumten DB grün ist), Frontend vitest **271/271 grün**, `pnpm typecheck` + `pnpm lint` clean, Drift-Test **10/10** (RxDB-JSON-Schema ↔ Pydantic-EventDoc synchron). Browser-Verifikation entfällt — keine UI-Änderung in dieser Session, UI-Anbindung kommt mit M5c-NACH.
 
 - **Vorgänger M8.5 (Frontend Personen-Verwaltung + Export-UI) [ERLEDIGT] 2026-05-01.** Neue Datei [(admin-only)/persons/page.tsx](frontend/src/app/(protected)/admin/(admin-only)/persons/page.tsx) mit Filter-Toggles (`origin=on_the_fly`, `linkable=true`, `unlinked=true`, `inkl. anonymisierte / gemergte`), Suchfeld, Personen-Tabelle mit Origin/Linkable/User-Status/Status-Spalten und pro Reihe `Mergen…`/`Anonymisieren…`. Merge-Wizard via Radix-Dialog: Source-Vorschau, Target-Auswahl (radio aus aktuell gefiltertem Set, exklusive Source/soft-deleted), Konflikt-/Result-Anzeige nach erfolgreichem POST. Anonymisierungs-Dialog mit DSGVO-/ADR-002-Hinweis und State-Maschine (Source-Karte → Bestätigen → Schließen). Erweiterung [src/lib/admin/api.ts](frontend/src/lib/admin/api.ts) um `useAdminPersons` (separater Cache-Key `["admin","persons",…]`, default `limit=200`, `include_deleted` durchgereicht) und `useAnonymizePerson` (POST `/api/persons/{id}/anonymize` ohne Body, invalidiert `persons`/`linkable-persons`/`stats`). Hinweis zur „unlinked"-Erkennung: Ableitung aus `useAdminUsers({limit:200})`-Set linker `person_id`-Werte, da `/api/persons` keinen Server-Filter exponiert (ADR-049 §H bewusst client-side). **Tests:** `tests/admin-api.test.tsx` um 4 Cases erweitert (Cache-Key-Stabilität `adminPersonsQueryKey`, GET `/api/persons` mit `include_deleted`, POST `merge`-Body, POST `anonymize` ohne Body) — 10/10 grün. Volle Suite **271/271** grün, `pnpm typecheck`/`pnpm lint` clean. **Browser-Verifikation:** Backend+DB+Frontend hochgefahren (preview_*), Admin-Login, `/admin/persons` lädt 169 Personen (`limit=200`), Triple-Filter `origin=on_the_fly` ∧ `linkable=true` ∧ `unlinked=true` reduziert korrekt auf 2 (seed: OTF Alpha, OTF Charlie); Merge-Wizard OTF Alpha → OTF Charlie POSTed `/api/admin/persons/{id}/merge` 200, Source in DB nun `[merged → <target-uuid>]` mit `is_deleted=t`; Anonymize OTF Bravo POSTed `/api/persons/{id}/anonymize`, DB zeigt `name='[gelöscht]'`, `alias=NULL`, `note=NULL`, `is_deleted=t`, `deleted_at` gestempelt. Export-Roundtrip `GET /api/admin/export/all` → 200, `schema_version=1`, alle 11 Collections vorhanden, kein `hashed_password` im User-Dump. **Hinweis Format-Check:** `pnpm format:check` schlägt mit 47 Files an, davon 46 unverändert seit M7.x — Re-Lauf nach `git stash` mit identisch 46 Files reproduzierbar. Ursache: Lokales Node v24.15 statt im Docker-Image gepinnte Node 22 (`engines: ">=22 <23"`); `prettier-plugin-tailwindcss@0.6.9` produziert auf Node 24 marginal andere Wrap-Entscheidungen. Meine 3 berührten Files (`persons/page.tsx`, `lib/admin/api.ts`, `tests/admin-api.test.tsx`) sind Prettier-clean (`prettier --check` per-file = pass). Backend-Tests bewusst **nicht** lokal nochmal ausgeführt (kein Backend-Touch in M8.5; Stand 215/215 aus M8.3-Verifikation gilt). **Nächster Schritt:** M9 (w3w-Migration).
 
@@ -105,7 +105,8 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M8.3        | └─ Backend `/api/admin/*` (users CRUD, stats, export/all, persons/merge; anonymize re-used aus M2) | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M8.4        | └─ Frontend `/admin` Dashboard + `/admin/users` (Linkable-Person-Picker) | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M8.5        | └─ Frontend `/admin/persons` (Filter, Merge-Wizard, Anonymisierung) + Export-UI | [ERLEDIGT] 2026-05-01 |
-| 1 MVP   | M9          | w3w-Migration                                    | [OFFEN]     |
+| 1 MVP   | M9          | w3w-Migration                                    | [VERWORFEN] (ADR-050) |
+| 1 MVP   | M5c-NACH    | Legacy-External-Ref im Edit/Backfill-UI (ADR-050 §S3) | [OFFEN], nicht-blockierend |
 | 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
 | 1 MVP   | M11         | Go-Live Pfad A                                   | [OFFEN]     |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
@@ -1705,27 +1706,52 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 ---
 
-### M9 — w3w-Migration
+### M9 — w3w-Migration — [VERWORFEN] 2026-05-01 (ADR-050)
 
-**Ziel:** Alle bestehenden Ereignisdaten aus w3w sind in HC-Map übernommen.
+**Ursprüngliches Ziel:** Alle bestehenden Ereignisdaten aus w3w über ein Skript
+in HC-Map übernehmen (CSV-/API-Quelle, Personen-Mapping, Application-Heuristik,
+Idempotenz, Dry-Run, Report).
+
+**Begründung der Verwerfung (ADR-050, 2026-05-01):** Datenbestand ist klein
+genug für manuelle Nacherfassung über die bestehende M5c-Erfassungs-UI. Das
+Skript-, Test- und Sicherheitsbudget steht nicht im Verhältnis zum Nutzen.
+ADR-004 bleibt gültig (Lat/Lon + Plus Codes als Geokodierungs-Strategie); nur
+die einmalige Migrations-Brücke entfällt. w3w-Account kann sofort gekündigt
+werden.
+
+**Folge-Arbeit:** M5c-NACH (siehe unten) bringt die UI-Anbindung für die
+umgewidmete Spalte `event.legacy_external_ref` (vormals `w3w_legacy`).
+
+---
+
+### M5c-NACH — Legacy-External-Ref im Edit/Backfill-UI
+
+**Status:** [OFFEN] — nicht-blockierend für M10/M11.
+
+**Ziel:** Optionales Eingabefeld für eine externe Legacy-Referenz an
+Events (z. B. die ursprüngliche 3-Wort-Adresse aus w3w, eine Projekt-ID
+oder URL). Eingabe in „Nachträgliche Erfassung" und im Edit-Modus,
+Anzeige im Detail-View, wenn nicht null. Kein Eingabefeld im Live-Modus
+(ADR-050 §S3-A).
 
 **Deliverables:**
-- Migrationsskript (Python, getrennt vom Hauptcode).
-- Eingabe: Export aus w3w (CSV oder API-Abruf).
-- Für jede 3-Wort-Adresse: einmalige API-Abfrage → Lat/Lon, Plus Code lokal berechnet.
-- Zuordnung der Beteiligten (Name → Person in HC-Map).
-- Zuordnung der Maßnahmen (freier Text → strukturierte Applications, soweit automatisch möglich; Rest als Notiz, später manuell nachbearbeiten).
-- Backup der Quelldaten vor Ausführung.
-- Dry-Run-Modus.
-- Idempotenz: Skript darf mehrfach laufen, ohne Duplikate zu erzeugen.
-- Report nach Lauf: X Events importiert, Y übersprungen, Z Fehler.
+- `event-backfill-form.tsx`: Eingabefeld `legacy_external_ref` (Text,
+  optional, kein Format-Constraint).
+- `event-edit-form.tsx`: gleiches Feld für nachträgliches Setzen/Ändern.
+- `events/[id]/page.tsx` (Detail-View): bedingte Anzeige der Referenz,
+  wenn `legacy_external_ref !== null`.
+- Tests: Render, Wert-Persistierung über RxDB-Push (LWW), Keine-Anzeige
+  bei null.
 
 **Akzeptanzkriterien:**
-- Testlauf mit Teilmenge importiert Daten korrekt.
-- Produktivlauf ist reproduzierbar und hinterlegt Log.
-- Nach Migration: w3w-Account kann gekündigt werden.
+- Eingabefeld erscheint in Backfill und Edit, nicht im Live-Modus.
+- Wert landet via RxDB-Sync auf dem Server (`legacy_external_ref` in
+  `event`-Spalte).
+- Edit überschreibt den Wert (LWW, ADR-050).
+- Volle Test-Suite bleibt grün.
 
-**Abhängigkeiten:** M3 (API vorhanden), M8 (Personenverwaltung).
+**Abhängigkeiten:** ADR-050 implementiert (Backend + RxDB-Schema v1) —
+erledigt 2026-05-01.
 
 ---
 
@@ -1759,15 +1785,19 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 
 **Deliverables:**
 - Einwilligungstext liegt den Mitgliedern vor (außerhalb des Systems), Einwilligungen dokumentiert.
-- Produktive w3w-Migration ausgeführt (aus M9).
+- Bestand der vorher bei w3w geführten Events ist von den Mitgliedern manuell
+  über M5c (Nachträgliche Erfassung) eingepflegt — Fortschritt wird gruppenintern
+  nachgehalten, kein systemseitiger Vollständigkeits-Check (ADR-050).
 - Alle Mitglieder als User angelegt und mit Personen verknüpft.
 - Kurz-Onboarding-Doku für die Gruppe (1 Seite).
-- w3w-Account kann gekündigt werden (optional, nach Migrationsbestätigung).
+- w3w-Account ist gekündigt (kann unabhängig vom Go-Live-Termin geschehen,
+  ADR-050).
 
 **Akzeptanzkriterien:**
 - Alle Mitglieder können sich einloggen, eigene Events sehen.
 - Admin hat Vollzugriff, Freigabe-Workflows funktionieren.
-- Keine Daten aus w3w fehlen (Stichprobenprüfung).
+- Mitglieder bestätigen, dass die für sie relevanten Bestands-Events eingepflegt
+  sind (informell, kein automatischer Abgleich).
 
 **Abhängigkeiten:** M0 – M10.
 

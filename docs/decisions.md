@@ -74,6 +74,8 @@ Status-Legende:
 | ADR-046 | Restraint-IDs als Array auf ApplicationDoc (M7.5 Sync-Erweiterung)       | Accepted | 2026-04-29 |
 | ADR-047 | Next.js 15.0.4 → 16.2.4 Migration (Pfad C aus Blocker #001)              | Accepted | 2026-04-30 |
 | ADR-048 | Backend-Stack-Drift Voll-Sweep (Variante B aus Audit Blocker #001 Punkt 3) | Accepted | 2026-04-30 |
+| ADR-049 | Implementierungsstrategie M8 (Admin-Bereich: SQLAdmin + Next.js-Workflow)   | Accepted | 2026-04-30 |
+| ADR-050 | M9 (w3w-Migration) verworfen — `event.w3w_legacy` → `legacy_external_ref` | Accepted | 2026-05-01 |
 
 ---
 
@@ -245,16 +247,20 @@ Eine weitere Nutzung ohne w3w-API bedeutet:
   Kernmotiv des Projekts (Datensouveränität).
 
 ### Entscheidung
-1. **Einmalige Migration:** Mit dem bestehenden w3w-Zugang werden alle vorhandenen
-   3-Wort-Adressen in Lat/Lon-Koordinaten umgewandelt. Die 3-Wort-Strings werden
-   optional als Legacy-Label (`w3w_legacy`) mitgeführt, aber nicht mehr funktional genutzt.
+1. **Bestand wird manuell nacherfasst, kein Migrationsskript** (siehe ADR-050,
+   2026-05-01). Ursprünglich vorgesehen war ein einmaliger Skriptlauf gegen die
+   w3w-API; die geringe Datenmenge macht das unverhältnismäßig. Die optionale
+   Mitführung der alten 3-Wort-Adresse erfolgt über die umgewidmete Spalte
+   `event.legacy_external_ref` (vormals `w3w_legacy`).
 2. **Interne Primärspeicherung:** Lat/Lon (Dezimalgrad, WGS84).
 3. **Primäres UI-Format:** Plus Codes (Open Location Codes). Lokal aus Lat/Lon
    berechnet, keine API-Abhängigkeit, Apache-2.0-lizenziert. Lat/Lon bleibt
    im UI als technische Zusatzanzeige verfügbar (Export, Developer-Tools).
 4. **Eingabemodi:** offen für Plus Code, Karten-Klick und Adress-Suche — konkrete
    Umsetzung wird in `architecture.md` / `fahrplan.md` festgelegt.
-5. **Nach Migration:** w3w-Account kann gekündigt werden, keine laufende Abhängigkeit mehr.
+5. **w3w-Account kann sofort gekündigt werden**, keine laufende Abhängigkeit mehr.
+   Mitglieder, die alte 3-Wort-Adressen erhalten möchten, sichern sie vor der
+   Kündigung extern (außerhalb des Systems).
 
 ### Begründung
 - Eliminiert Anbieter-Lock-in und Lizenzkosten.
@@ -1006,7 +1012,6 @@ Die ursprüngliche Skizze sah „IndexedDB-Zwischenspeicherung und Sync-Worker" 
 Folgende Punkte werden als ADRs dokumentiert, sobald sie in der Architekturphase oder bei Start der Umsetzung anstehen:
 
 - Deployment-/Hosting-Setup auf dem VPS (Reverse Proxy, Container-Strategie, Prozessmanagement, TLS-Zertifikate, CI/CD).
-- Migrationsstrategie für den w3w-Bestand (Script-Ort, Batch-Größe, Backup vor Migration, Wiederholbarkeit).
 - Backup- und Restore-Konzept (Frequenz, Off-Site-Speicherort, Restore-Test-Rhythmus).
 - Logging, Monitoring und Alerting.
 - Test-Strategie (Unit, Integration, E2E, RLS-Tests).
@@ -1213,7 +1218,7 @@ braucht konkrete Festlegungen zu Scope-Schnitt, Struktur und Hilfsverhalten.
 4. **Service-Layer (D1):** Module unter `backend/app/services/`. Routes
    bleiben dünn (Pydantic-Validierung + Auth-Dependency + Service-
    Aufruf). Services kapseln SQL/ORM und Business-Regeln. Erleichtert
-   Tests und CLI-Wiederverwendung (Bootstrap, w3w-Migration).
+   Tests und CLI-Wiederverwendung (Bootstrap-Admin).
 
 5. **Auto-Participant-Regel (E1, ADR-012):** Service-Layer
    (`applications.create`) fügt Performer und Recipient implizit als
@@ -2525,7 +2530,7 @@ Pro-Feld-Strategie nach **Variante B (Live-First mit Reconciliation)** aus dem M
 | `started_at` | immutable-after-create |
 | `lat`, `lon` | immutable-after-create |
 | `geom` | server-authoritative (generiert aus `lat`/`lon`) |
-| `w3w_legacy` | server-authoritative (Migrations-Artefakt) |
+| `legacy_external_ref` | LWW (optionale Selbstreferenz, vom User editierbar; vormals `w3w_legacy`, vgl. ADR-050) |
 | `ended_at` | first-write-wins |
 | `reveal_participants` | LWW |
 | `note` | LWW |
@@ -4254,10 +4259,162 @@ Soft-deleted Rows werden mit-exportiert (Backup-Charakter — siehe ADR-015 §G 
 
 ### Folge-Arbeit
 
-- M9 (w3w-Migration) baut auf der Personen-Pflege auf — Linkable-Verknüpfung ist nach M8.5 verfügbar.
+- M9 (w3w-Migration) ist verworfen (siehe ADR-050) — Bestand wird manuell über die bestehende Erfassungs-UI nachgetragen.
 - M11 (Go-Live) verlangt User-Anlage-Workflow als Akzeptanzkriterium — wird in M8.4 erfüllt.
 - Phase-2-Foto-Anhänge (M15) erweitern ggf. die Person-Anonymisierung um Medien-Löschung — kein M8-Scope.
 - README-Badges: Falls SQLAdmin-Version-Badge aufgenommen wird, im selben Commit pflegen (siehe CLAUDE.md §6).
+
+---
+
+## ADR-050 — M9 (w3w-Migration) verworfen, `event.w3w_legacy` zu `legacy_external_ref` umgewidmet
+
+**Status:** Accepted
+**Datum:** 2026-05-01
+
+### Kontext
+M9 sah laut [`fahrplan.md`](./fahrplan.md) ein Skript vor, das den w3w-Bestand
+über die what3words-API in HC-Map überführt (Dry-Run, Idempotenz, Report,
+Personen-Mapping, Application-Heuristik). ADR-004 (2026-04-22) beschrieb diese
+einmalige Migration und die Kündigung des w3w-Accounts danach.
+
+Bei der Sessionplanung am 2026-05-01 wurde geklärt, dass der reale w3w-Bestand
+klein genug ist, um von den Mitgliedern manuell über die bestehende
+Erfassungs-UI (M5c „Nachträgliche Erfassung") nachgetragen zu werden. Das
+Skript-, Test- und Sicherheitsbudget für M9 steht nicht mehr im Verhältnis zum
+Nutzen.
+
+Gleichzeitig existiert das Schema-Feld `event.w3w_legacy` (Spaltentyp
+`text NULL`) als geplantes Migrations-Artefakt aus ADR-004. Wird M9 ersatzlos
+gestrichen, bleibt die Spalte zwecklos im Schema.
+
+### Entscheidung
+
+**1. M9 wird verworfen.**
+- Status im [`fahrplan.md`](./fahrplan.md): `[VERWORFEN]` mit Verweis auf
+  diesen ADR.
+- M11 (Go-Live) wird angepasst: Voraussetzung „Produktive w3w-Migration
+  ausgeführt (aus M9)" entfällt. Bestand wird vor oder nach Go-Live manuell
+  nacherfasst, das ist nicht blockierend für M11.
+- w3w-Account kann sofort gekündigt werden. Mitglieder, die alte
+  3-Wort-Adressen behalten möchten, müssen sie vor der Kündigung extern
+  sichern (Screenshot, Notiz, Account-Export). Verantwortung liegt beim
+  jeweiligen Mitglied, nicht beim System.
+
+**2. `event.w3w_legacy` wird umbenannt zu `event.legacy_external_ref`** und
+allgemein als optionale Selbstreferenz für nachträglich erfasste Events
+gewidmet (z. B. die ursprüngliche 3-Wort-Adresse, eine externe Event-URL,
+eine Projekt-ID). Konkret:
+
+- **Schema:** Eigenständige Alembic-Migration mit
+  `op.alter_column('event', 'w3w_legacy', new_column_name='legacy_external_ref')`
+  und symmetrischer Down-Migration. Typ und Nullability bleiben unverändert
+  (`text NULL`). Keine Datenmigration nötig — die Spalte enthält im aktuellen
+  Stand ausschließlich `NULL`-Werte (kein Bestand wurde je migriert).
+- **Backend:** `Event.w3w_legacy` (SQLAlchemy) → `Event.legacy_external_ref`.
+  Pydantic-Schemas (`EventRead/Create/Update`, `EventDoc`), Sync-Service,
+  Routes, Services und Exports werden konsistent umbenannt. Validierung
+  bleibt: nullable text, keine Format-Vorgabe (offen für 3-Wort-Adresse,
+  URL oder Freitext).
+- **RxDB-Schema:** `frontend/src/lib/rxdb/schemas/event.schema.json` bekommt
+  einen `version`-Bump (0 → 1) mit `migrationStrategies[1]`-Mapping
+  `(oldDoc) => ({ ...oldDoc, legacy_external_ref: oldDoc.w3w_legacy ?? null,
+  w3w_legacy: undefined })`. Property-Name im Schema wird zu
+  `legacy_external_ref`; Drift-Test (ADR-031) erkennt einen Mismatch zur
+  Pydantic-`EventDoc` automatisch.
+- **Sync-Strategie:** Wechsel von `server-authoritative (Migrations-Artefakt)`
+  zu **LWW** (last-write-wins). Begründung: Das Feld ist jetzt
+  user-eingegeben und über den Edit-Modus nachträglich änderbar.
+  ADR-029-Pro-Feld-Tabelle wird in der `event`-Sektion entsprechend
+  aktualisiert.
+
+**3. UI-Anbindung als eigener Fahrplan-Schritt M5c-NACH** (`[OFFEN]`,
+nicht-blockierend für M10/M11). Eingabefeld nur in „Nachträgliche
+Erfassung" (`event-backfill-form.tsx`) und im Edit-Modus
+(`event-edit-form.tsx`); Anzeige im Detail-View, wenn nicht null. Keine
+Live-Modus-Eingabe (Live-Modus ist für neue Events, Legacy-Referenz
+sinnlos).
+
+### Begründung
+- Geringer Datenbestand (Größenordnung deutlich unterhalb M9-Skript-Schwelle).
+- Manuelle Nacherfassung nutzt die bereits abgenommene M5c-UI, kein
+  Sonderpfad.
+- Spalten-Umwidmung (statt Entfernung) hält die Möglichkeit offen, dass
+  Mitglieder beim Nachtragen die ursprüngliche 3-Wort-Adresse oder
+  eine andere Legacy-Quelle als Selbstreferenz speichern.
+- Generische Spaltenbezeichnung `legacy_external_ref` entkoppelt von w3w
+  und ist für künftige Importe (CSV, API) wiederverwendbar, ohne erneute
+  Schema-Migration.
+- Sofortige Kündigung des w3w-Accounts spart laufende Kosten und entfernt
+  eine externe Abhängigkeit aus Phase 1 vollständig.
+
+### Konsequenzen
+
+**Positiv:**
+- M9-Aufwand entfällt (kein Skript, keine API-Mocks, keine Personen-Mapping-
+  Heuristik, keine Test-Suite-Erweiterung für einen Einmal-Lauf).
+- Direkte Brücke von M8.5 zu M10 (Deployment) — eine Fahrplan-Stufe weniger.
+- Schema-Semantik wird klarer (`legacy_external_ref` statt w3w-spezifisch).
+- ADR-004-Strategie (Lat/Lon + Plus Codes) bleibt unverändert gültig — nur
+  die Übergangsstrategie wird vereinfacht.
+
+**Negativ:**
+- Mitglieder erfassen ihren Bestand manuell. Kein automatisierter
+  Geokodier-Roundtrip mehr; jede 3-Wort-Adresse muss vor w3w-Account-
+  Kündigung extern aufgelöst und dann manuell als Lat/Lon (Karten-Klick
+  oder Plus-Code) eingegeben werden.
+- Schema-Migration (Spalten-Rename) und Code-Refactor an ~30 Stellen
+  (Backend + Frontend + Tests + RxDB-Schema-Bump). Aufwand einmalig,
+  reversibel, Test-Suite deckt das Verhalten ab.
+- `legacy_external_ref` ist textfrei: Mitglieder können beliebige Werte
+  eintragen, was die Datenqualität reduziert, falls niemand die Konvention
+  pflegt. Akzeptiert in Pfad A (eingeschworene Gruppe, <20 Personen).
+
+### Verworfene Alternativen
+
+- **A — M9 wie geplant umsetzen:** Verhältnis Aufwand/Nutzen unverhältnismäßig
+  bei kleinem Bestand. Zudem laufende w3w-API-Abhängigkeit länger als nötig.
+- **B — M9 streichen, Spalte `w3w_legacy` belassen:** Tote Spalte mit
+  irreführendem Namen widerspricht CLAUDE.md §6 („Determinismus vor
+  Kreativität"); Schema sammelt Zombie-Felder.
+- **C — M9 streichen, Spalte komplett entfernen:** Verbaut die optionale
+  Mitführung der ursprünglichen 3-Wort-Adresse für nachträglich erfasste
+  Events. Mitglieder hätten keinen Ort, an dem sie die Selbstreferenz
+  ablegen könnten, außer `event.note` (vermischt mit Freitext).
+- **D — M9 verschieben, Skript erst bei Bedarf entwickeln:** Belässt die
+  Entscheidung in der Schwebe und blockiert die ADR-004-Account-Kündigung.
+
+### Folge-Aktionen
+
+1. ADR-049-Pro-Feld-Tabelle: `w3w_legacy` → `legacy_external_ref` mit
+   LWW-Strategie. *(in diesem Commit)*
+2. [`fahrplan.md`](./fahrplan.md): M9 → `[VERWORFEN]` mit Verweis auf
+   ADR-050; M11-Voraussetzung anpassen; Phasen-Übersicht aktualisieren;
+   neuer Eintrag „M5c-NACH — Legacy-External-Ref im UI"
+   (`[OFFEN]`, nicht-blockierend).
+3. [`project-context.md`](./project-context.md) §5: what3words-API-Zeile
+   entfernen; §11 verweist auf erfolgte Klärung.
+4. [`architecture.md`](./architecture.md): `migrate_w3w.py` aus dem
+   Skript-Inventar entfernen; Datenmodell-Spaltenname auf
+   `legacy_external_ref` aktualisieren; externe-Abhängigkeiten-Tabelle
+   bereinigen.
+5. Alembic-Migration `20260501_HHMM_rename_w3w_legacy.py` (Up + Down).
+6. Backend-Refactor (Models, Schemas, Sync, Routes, Services, Exports,
+   Tests).
+7. Frontend-Refactor (Types, RxDB-Schema mit Version-Bump und
+   Migration-Strategy, Komponenten, Tests).
+8. [`framework-analyse.md`](./framework-analyse.md): M9-Abschnitt als
+   verworfen kennzeichnen.
+9. [`README.md`](../README.md): Hinweis „nach der Migration" präzisieren —
+   w3w-API ist nicht mehr Teil des Plans, kein Migrationslauf.
+10. [`CHANGELOG.md`](../CHANGELOG.md): Eintrag.
+
+### Referenzen
+- [ADR-004](#adr-004--geokodierung-abschied-von-what3words-latlon--plus-codes)
+  (präzisiert).
+- [ADR-029](#adr-029--konfliktlösungsstrategie-m5b-live-first-mit-reconciliation)
+  (Pro-Feld-Tabelle aktualisiert).
+- [ADR-031](#adr-031--rxdb-schema-source-of-truth-hand-gepflegt--drift-test)
+  (Drift-Test deckt Schema-Bump automatisch ab).
 
 ---
 

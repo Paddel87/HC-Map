@@ -70,7 +70,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
         ended_at: null,
         lat: coords.lat,
         lon: coords.lon,
-        w3w_legacy: null,
+        legacy_external_ref: null,
         reveal_participants: false,
         note: note.trim() || null,
         // Server overrides created_by with the authenticated user (ADR-029).

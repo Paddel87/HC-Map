@@ -53,7 +53,7 @@ class Person(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     linkable: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
 
     # Override CreatedByMixin to allow person creation before any user exists
-    # (admin-bootstrap, w3w migration). FK is still enforced when set.
+    # (admin-bootstrap, manual backfill). FK is still enforced when set.
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(

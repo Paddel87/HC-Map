@@ -18,7 +18,7 @@ export interface EventListItem {
   lon: number | string;
   reveal_participants: boolean;
   note: string | null;
-  w3w_legacy: string | null;
+  legacy_external_ref: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;

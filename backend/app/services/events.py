@@ -60,7 +60,7 @@ async def create_event(
         lon=payload.lon,
         reveal_participants=payload.reveal_participants,
         note=payload.note,
-        w3w_legacy=payload.w3w_legacy,
+        legacy_external_ref=payload.legacy_external_ref,
         created_by=created_by,
     )
     session.add(event)

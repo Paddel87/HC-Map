@@ -200,7 +200,7 @@ function makeDoc(overrides: Partial<EventDocType>): EventDocType {
     ended_at: null,
     lat: 52.52,
     lon: 13.405,
-    w3w_legacy: null,
+    legacy_external_ref: null,
     reveal_participants: false,
     note: null,
     created_by: null,

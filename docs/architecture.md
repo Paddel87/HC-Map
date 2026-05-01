@@ -112,8 +112,7 @@ hc-map/
 │   │   ├── hand_positions.py
 │   │   └── hand_orientations.py
 │   ├── scripts/
-│   │   ├── bootstrap_admin.py       # Initialer Admin-User
-│   │   └── migrate_w3w.py           # w3w-Migrationsskript (M9)
+│   │   └── bootstrap_admin.py       # Initialer Admin-User
 │   └── tests/
 │       ├── conftest.py
 │       ├── test_auth.py
@@ -242,7 +241,7 @@ Bei Anonymisierung: `name = '[gelöscht]'`, `alias = NULL`, `note = NULL`, `is_d
 | lat                   | numeric(9,6)                 | NOT NULL, CHECK -90 ≤ lat ≤ 90                                 |
 | lon                   | numeric(9,6)                 | NOT NULL, CHECK -180 ≤ lon ≤ 180                               |
 | geom                  | geography(Point, 4326)       | GENERATED ALWAYS AS (ST_MakePoint(lon, lat)::geography) STORED |
-| w3w_legacy            | text                         | NULL — Migrations-Artefakt                                     |
+| legacy_external_ref   | text                         | NULL — optionale Selbstreferenz zu externer Quelle (vormals `w3w_legacy`, ADR-050) |
 | reveal_participants   | boolean                      | NOT NULL DEFAULT false                                         |
 | note                  | text                         | NULL                                                           |
 | created_by            | uuid                         | FK → user.id                                                   |
@@ -1030,7 +1029,6 @@ app.hc-map.example {
 |-------------------------|------------------------------------|--------------------------------------------|
 | MapTiler Cloud (Tiles)  | Karten-Tiles in Phase 1            | Free-Tier 100k req/mo, Self-Host in Phase 2 (M12) |
 | MapTiler Geocoding      | Adress-Suche                       | Gleicher Anbieter, gleiches Risiko-Profil  |
-| what3words API          | Einmalig für Migration (M9)        | Nach Migration kündbar                     |
 | Let's Encrypt (via Caddy)| TLS-Zertifikate                   | Etabliert, Fallback bei Ausfall überschaubar |
 | Off-Site Backup-Storage | Backup-Ziel                        | Wahl in M13                                |
 

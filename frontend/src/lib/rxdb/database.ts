@@ -74,7 +74,18 @@ async function buildDatabase(): Promise<HCMapDatabase> {
     ignoreDuplicate: false,
   });
   await db.addCollections({
-    events: { schema: eventSchema },
+    events: {
+      schema: eventSchema,
+      // Schema v0 → v1 (ADR-050): rename `w3w_legacy` to
+      // `legacy_external_ref`. Old field is dropped, new field carries
+      // the same value (or null for docs that never had one).
+      migrationStrategies: {
+        1: (doc: Record<string, unknown>) => {
+          const { w3w_legacy, ...rest } = doc;
+          return { ...rest, legacy_external_ref: w3w_legacy ?? null };
+        },
+      },
+    },
     applications: {
       schema: applicationSchema,
       // Schema v0 → v1 (M7.5, ADR-046): add the optional

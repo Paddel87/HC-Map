@@ -98,7 +98,7 @@ Die Auswahl ist über ADRs (siehe [`decisions.md`](./docs/decisions.md)) fixiert
 | Reverse Proxy | Caddy (automatisches TLS via Let's Encrypt) |
 | Laufzeit | Docker Compose (lokal und VPS-Produktion) |
 
-**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words in der Produktion nach der Migration, GPL-/AGPL-Abhängigkeiten ohne Freigabe. Details in [`project-context.md`](./docs/project-context.md#3-technischer-stack).
+**Explizit nicht erlaubt:** Google Maps, Mapbox GL ab v2, externe Cloud-Services für Datenhaltung, what3words in der Produktion (vormals Migrations-Brücke geplant; verworfen mit ADR-050), GPL-/AGPL-Abhängigkeiten ohne Freigabe. Details in [`project-context.md`](./docs/project-context.md#3-technischer-stack).
 
 ---
 

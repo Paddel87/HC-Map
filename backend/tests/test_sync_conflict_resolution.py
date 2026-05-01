@@ -6,8 +6,9 @@ Maps directly to ADR-029:
   changes those fields receives the server's master doc as a conflict.
 * First-write-wins on ``ended_at``: once set, a different non-null value
   triggers a conflict.
-* Last-write-wins on ``note`` and ``reveal_participants``: server
-  accepts the new value, ``updated_at`` is bumped server-side.
+* Last-write-wins on ``note``, ``reveal_participants`` and
+  ``legacy_external_ref`` (ADR-050): server accepts the new value,
+  ``updated_at`` is bumped server-side.
 * Restore (``_deleted`` true → false) is rejected for non-admin callers.
 """
 
@@ -41,7 +42,7 @@ def _new_event_doc(**overrides):
         "ended_at": None,
         "lat": 52.5,
         "lon": 13.4,
-        "w3w_legacy": None,
+        "legacy_external_ref": None,
         "reveal_participants": False,
         "note": None,
         "created_by": None,
@@ -180,6 +181,31 @@ async def test_last_write_wins_on_note(
     assert refreshed["note"] == "second"
     # updated_at advanced server-side.
     assert refreshed["updated_at"] != master["updated_at"]
+
+
+async def test_last_write_wins_on_legacy_external_ref(
+    client: AsyncClient,
+    async_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """ADR-050: legacy_external_ref is LWW (was immutable as w3w_legacy)."""
+    _, csrf = await login_as(client, async_session_factory, role=UserRole.EDITOR)
+    doc = _new_event_doc(legacy_external_ref="three.word.address")
+    master = await _push_and_pull_master(client, csrf, doc)
+
+    new_state = dict(master)
+    new_state["legacy_external_ref"] = "different.three.words"
+    resp = await post_with_csrf(
+        client,
+        csrf,
+        "/api/sync/events/push",
+        json=[{"assumedMasterState": master, "newDocumentState": new_state}],
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []  # accepted, no conflict
+
+    pull = await client.get("/api/sync/events/pull")
+    refreshed = next(d for d in pull.json()["documents"] if d["id"] == doc["id"])
+    assert refreshed["legacy_external_ref"] == "different.three.words"
 
 
 async def test_editor_cannot_restore_soft_deleted_event(

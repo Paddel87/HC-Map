@@ -7,6 +7,30 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **M9 (w3w-Migration) verworfen — ADR-050 (2026-05-01).** Kein
+  Migrationsskript mehr; Bestand wird manuell über die M5c-Erfassungs-UI
+  nachgetragen. Folge:
+  - Spalte `event.w3w_legacy` umbenannt zu `event.legacy_external_ref`
+    (Alembic-Migration `20260501_1200_legacy_external_ref`, reversibel,
+    keine Datenmigration nötig).
+  - Sync-Strategie für das Feld geändert von `server-authoritative
+    (Migrations-Artefakt)` zu **LWW** (last-write-wins) — Spalte ist
+    jetzt user-eingebbar im Edit/Backfill-Modus (UI-Anbindung als
+    eigener Fahrplan-Schritt M5c-NACH, nicht-blockierend für M10/M11).
+  - RxDB-Schema-Bump v0 → v1 mit Migration-Strategy (alter Feldwert
+    wandert auf das neue Property, fehlt-zu-null-Default für Docs ohne
+    Eintrag).
+  - Backend (Models, Pydantic, Sync-Service inkl. immutable→LWW-Wechsel,
+    Routes, Services, Exports), Frontend (TypeScript-Types, RxDB-Schema,
+    Edit-/Backfill-/Detail-Komponenten) und Tests (8 Backend, 6 Frontend
+    + 1 neuer LWW-Test) konsistent umgestellt.
+  - what3words-API ist keine geplante externe Abhängigkeit mehr —
+    `project-context.md` §5 und `architecture.md`-Tabelle bereinigt.
+  - M11-Akzeptanzkriterium „keine Daten aus w3w fehlen" entfällt;
+    Mitglieder bestätigen Vollständigkeit informell.
+
 ### Added
 
 - **M8.5 — Frontend Personen-Verwaltung und Export-UI (ADR-049 §H, M8 abgeschlossen):**

@@ -35,7 +35,7 @@ class EventDoc(BaseModel):
     ended_at: datetime | None = None
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    w3w_legacy: str | None = None
+    legacy_external_ref: str | None = None
     reveal_participants: bool = False
     note: str | None = None
     created_by: uuid.UUID | None = None

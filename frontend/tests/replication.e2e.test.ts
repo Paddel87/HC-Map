@@ -108,7 +108,7 @@ function buildEvent(): EventDocType {
     ended_at: null,
     lat: 52.5,
     lon: 13.4,
-    w3w_legacy: null,
+    legacy_external_ref: null,
     reveal_participants: false,
     note: null,
     created_by: null,

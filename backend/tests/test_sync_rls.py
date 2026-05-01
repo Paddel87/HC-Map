@@ -36,7 +36,7 @@ def _new_event_doc(**overrides):
         "ended_at": None,
         "lat": 52.5,
         "lon": 13.4,
-        "w3w_legacy": None,
+        "legacy_external_ref": None,
         "reveal_participants": False,
         "note": None,
         "created_by": None,

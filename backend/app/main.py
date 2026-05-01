@@ -7,7 +7,8 @@ Domain routers (events, applications, …) follow in M3.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
@@ -16,8 +17,9 @@ from pydantic import BaseModel
 from app.admin_ui import register_admin
 from app.auth.manager import generate_csrf_token
 from app.auth.routes import build_auth_router
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.logging import configure_logging
+from app.migrations_runner import run_migrations_with_advisory_lock
 from app.routes.admin import router as admin_router
 from app.routes.applications import router as applications_router
 from app.routes.catalog import (
@@ -77,6 +79,24 @@ def _csrf_cookie_setter(
     return middleware
 
 
+def _build_lifespan(
+    settings: Settings,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """Lifespan that auto-runs alembic migrations on production startup.
+
+    Gated by ``HCMAP_ENVIRONMENT`` and ``HCMAP_SKIP_MIGRATIONS`` (see
+    ``app.migrations_runner``). Tests skip via the environment guard so
+    they continue to own their own schema lifecycle.
+    """
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await run_migrations_with_advisory_lock(settings)
+        yield
+
+    return lifespan
+
+
 def create_app() -> FastAPI:
     """Build and return the FastAPI application."""
     settings = get_settings()
@@ -90,6 +110,7 @@ def create_app() -> FastAPI:
         version="0.0.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        lifespan=_build_lifespan(settings),
     )
 
     app.middleware("http")(

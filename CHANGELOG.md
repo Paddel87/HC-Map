@@ -29,6 +29,54 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M10.5 — Produktions-Compose + Reverse-Proxy-Overlays + Migrations-Auto-Run (ADR-051 §B/§F, 2026-05-01).**
+  - Neue Datei [`docker/compose.prod.yml`](docker/compose.prod.yml):
+    `db`, `backend`, `frontend` am internen Bridge-Netz, kein
+    Host-Port-Mapping. Backend zieht
+    `ghcr.io/paddel87/hc-map-{backend,frontend}:${HCMAP_IMAGE_TAG:-rc}`,
+    Pflicht-Env mit `:?`-Marker (`HCMAP_DB_*`, `HCMAP_SECRET_KEY`,
+    `HCMAP_BASE_URL`). Backend startet uvicorn mit
+    `--proxy-headers --forwarded-allow-ips=*`.
+  - Neue Reverse-Proxy-Overlays:
+    [`docker/compose.caddy.yml`](docker/compose.caddy.yml) +
+    [`docker/Caddyfile.example`](docker/Caddyfile.example) für
+    Caddy v2 (Auto-TLS via Let's Encrypt, Routing
+    `/api/*`+`/admin/*` → backend, sonst frontend) und
+    [`docker/compose.traefik.yml`](docker/compose.traefik.yml) +
+    [`docker/traefik/traefik.yml.example`](docker/traefik/traefik.yml.example) +
+    [`docker/traefik/dynamic.yml.example`](docker/traefik/dynamic.yml.example)
+    für Traefik v3.1 (Routing per Service-Labels,
+    Secure-Headers-Middleware, TLS-1.2+-Mindestversion).
+    Operator kombiniert per `docker compose -f compose.prod.yml -f
+    compose.caddy.yml --env-file .env.prod up -d` (analog Traefik).
+  - [`.env.example`](.env.example) Prod-Block ergänzt:
+    `HCMAP_DOMAIN`, `HCMAP_ACME_EMAIL`, `HCMAP_COOKIE_DOMAIN`,
+    `HCMAP_IMAGE_TAG` (default `rc`), `HCMAP_SKIP_MIGRATIONS`,
+    `HCMAP_BACKUP_REMOTE`/`_PREFIX`/`_AGE_RECIPIENTS` (forward-
+    kompatibel für M10.6).
+  - Neues Modul
+    [`backend/app/migrations_runner.py`](backend/app/migrations_runner.py):
+    `alembic upgrade head` läuft beim FastAPI-Lifespan-Startup unter
+    Postgres-Advisory-Lock `pg_try_advisory_lock(47_110_815)`. Bei
+    Lock-Hold blockiert ein zweiter Backend-Container auf
+    `pg_advisory_lock` und gibt sofort wieder frei (kein
+    Re-Upgrade). Aktiv nur bei `HCMAP_ENVIRONMENT=production`,
+    Override `HCMAP_SKIP_MIGRATIONS=1` für Notfälle. Tests skippen
+    via Environment-Gating, ihre eigene Schema-Lifecycle bleibt
+    intakt.
+  - [`backend/app/main.py`](backend/app/main.py): FastAPI-Lifespan
+    `_build_lifespan(settings)` führt den Migrations-Runner vor dem
+    ersten Request aus.
+  - [`.gitignore`](.gitignore): Operator-Working-Copies
+    `docker/Caddyfile`, `docker/traefik/traefik.yml`,
+    `docker/traefik/dynamic.yml` ignoriert; Examples bleiben tracked.
+  - Tests: 15 neue in
+    [`backend/tests/test_migrations_runner.py`](backend/tests/test_migrations_runner.py)
+    (DSN-Helpers, `_should_run`-Gating-Matrix, Lock-ID-Range, Skip
+    ohne DB-Zugriff, Lock-Roundtrip-Integration mit echtem Postgres,
+    Concurrent-Wait-Szenario auf Side-Connection). Backend-Suite
+    246/246 grün, Frontend unverändert 278/278.
+
 - **M10.4 — Einwilligungs-Vorlage (ADR-051 §G, 2026-05-01).**
   - Neue Datei [`docs/templates/consent-de.md`](docs/templates/consent-de.md):
     deutschsprachige Markdown-Vorlage mit Platzhaltern

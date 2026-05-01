@@ -1,0 +1,97 @@
+# Production compose for HC-Map (M10.5, ADR-051 §B/§F).
+#
+# This file ships ONLY the application services (db, backend, frontend).
+# A reverse-proxy is added by composing one of the overlay files:
+#
+#   docker compose -f docker/compose.prod.yml -f docker/compose.caddy.yml \
+#     --env-file .env.prod up -d
+#
+#   docker compose -f docker/compose.prod.yml -f docker/compose.traefik.yml \
+#     --env-file .env.prod up -d
+#
+# Operators with an existing reverse-proxy can publish backend:8000 and
+# frontend:3000 to host loopback themselves and skip the overlays — see
+# ops/runbook.md (M10.8).
+#
+# Backend image runs alembic migrations under a Postgres advisory lock on
+# startup; override with HCMAP_SKIP_MIGRATIONS=1 for emergency rollbacks.
+# Backup service ships in M10.6 and will join this file as a fourth service.
+
+name: hc-map
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  db:
+    <<: *restart
+    image: postgis/postgis:16-3.5
+    environment:
+      POSTGRES_USER: ${HCMAP_DB_USER:?HCMAP_DB_USER is required}
+      POSTGRES_PASSWORD: ${HCMAP_DB_PASSWORD:?HCMAP_DB_PASSWORD is required}
+      POSTGRES_DB: ${HCMAP_DB_NAME:?HCMAP_DB_NAME is required}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HCMAP_DB_USER} -d ${HCMAP_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    <<: *restart
+    image: ghcr.io/paddel87/hc-map-backend:${HCMAP_IMAGE_TAG:-rc}
+    pull_policy: always
+    environment:
+      HCMAP_ENVIRONMENT: production
+      HCMAP_LOG_LEVEL: ${HCMAP_LOG_LEVEL:-INFO}
+      HCMAP_DATABASE_URL: postgresql+asyncpg://${HCMAP_DB_USER}:${HCMAP_DB_PASSWORD}@db:5432/${HCMAP_DB_NAME}
+      HCMAP_SECRET_KEY: ${HCMAP_SECRET_KEY:?HCMAP_SECRET_KEY is required (>=32 chars)}
+      HCMAP_COOKIE_SECURE: "true"
+      HCMAP_COOKIE_DOMAIN: ${HCMAP_COOKIE_DOMAIN:-}
+      HCMAP_COOKIE_LIFETIME_SECONDS: ${HCMAP_COOKIE_LIFETIME_SECONDS:-604800}
+      HCMAP_BASE_URL: ${HCMAP_BASE_URL:?HCMAP_BASE_URL is required (e.g. https://hc-map.example.org)}
+      HCMAP_SKIP_MIGRATIONS: ${HCMAP_SKIP_MIGRATIONS:-0}
+      HCMAP_MAPTILER_API_KEY: ${HCMAP_MAPTILER_API_KEY:-}
+      HCMAP_MAPTILER_STYLE: ${HCMAP_MAPTILER_STYLE:-basic-v2}
+      HCMAP_GEOCODE_RATE_PER_MINUTE: ${HCMAP_GEOCODE_RATE_PER_MINUTE:-30}
+      HCMAP_SMTP_HOST: ${HCMAP_SMTP_HOST:-}
+      HCMAP_SMTP_PORT: ${HCMAP_SMTP_PORT:-587}
+      HCMAP_SMTP_USER: ${HCMAP_SMTP_USER:-}
+      HCMAP_SMTP_PASSWORD: ${HCMAP_SMTP_PASSWORD:-}
+      HCMAP_SMTP_STARTTLS: ${HCMAP_SMTP_STARTTLS:-true}
+      HCMAP_SMTP_USE_TLS: ${HCMAP_SMTP_USE_TLS:-false}
+      HCMAP_SMTP_FROM: ${HCMAP_SMTP_FROM:-}
+      HCMAP_SMTP_FROM_NAME: ${HCMAP_SMTP_FROM_NAME:-HC-Map}
+    # Trust proxy headers from the reverse-proxy overlay (which is the only
+    # service inside the docker network that can set them). External clients
+    # cannot inject them because the backend is not exposed to the host.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--proxy-headers", "--forwarded-allow-ips", "*"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+  frontend:
+    <<: *restart
+    image: ghcr.io/paddel87/hc-map-frontend:${HCMAP_IMAGE_TAG:-rc}
+    pull_policy: always
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_TILE_URL: ${NEXT_PUBLIC_TILE_URL:-/api/tiles/{z}/{x}/{y}}
+      NEXT_PUBLIC_DEFAULT_MAP_CENTER: ${NEXT_PUBLIC_DEFAULT_MAP_CENTER:-52.5200,13.4050}
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  db-data:

@@ -3,6 +3,14 @@
 .env.*
 !.env.example
 
+# --- Production reverse-proxy configs (M10.5) ----------------------------
+# Operators copy the .example files in docker/ to local working copies
+# that pin their domain + ACME email. Keep examples checked in, ignore
+# the working copies.
+docker/Caddyfile
+docker/traefik/traefik.yml
+docker/traefik/dynamic.yml
+
 # --- Python (backend) ----------------------------------------------------
 __pycache__/
 *.py[cod]

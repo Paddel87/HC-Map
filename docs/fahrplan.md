@@ -25,7 +25,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-05-01 (M8.5 erledigt — Branch `claude/fervent-tu-7e2dfd`, noch nicht auf main gepusht. M8 als Ganzes [ERLEDIGT].)
+- **Stand vom:** 2026-05-01 (Sessionende — M8.5 / M8 [ERLEDIGT]. Commit `3b4f4eb` per Fast-Forward auf `main` gemergt und gepusht; `origin/main` zeigt auf `3b4f4eb`. Worktree-Branch `claude/fervent-tu-7e2dfd` deckt sich mit main, kann aufgeräumt werden.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
 - **Aktiver Schritt:** **M9 (w3w-Migration) [OFFEN].** Nächste konkrete Aktion: Migrationsskript-Entwurf nach Akzeptanzkriterien M9 (Dry-Run, Idempotenz, Report). Voraussetzung: Personenverwaltung aus M8.5 ist verfügbar (linkable-Verknüpfung, Person-Merge, Anonymisierung). Direkt vor Start: Quelldaten-Format aus w3w klären (CSV-Export vs. API-Replay).
 

@@ -7,7 +7,53 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M10.8 — `ops/runbook.md` als Operator-Dokumentation neu angelegt (2026-05-01).**
+  Neues Verzeichnis [`ops/`](ops/) mit der Datei
+  [`ops/runbook.md`](ops/runbook.md) (~13 KB, 14 Abschnitte). Deckt den
+  vollen Operator-Workflow für eine fremde HC-Map-Instanz ab:
+  Voraussetzungen-Tabelle (VPS-Mindestgrößen, OS, DNS, SMTP,
+  Backup-Ziel, lokale Tools), SSH-Hardening (Non-Root-User, Key-only
+  sshd-Konfig, ufw + fail2ban), Docker-Engine + Compose-v2-Plugin
+  (offizielles Repo), Repo-Klon und `.env.prod`-Pflichtfeld-Tabelle,
+  Reverse-Proxy-Wahl (Caddy / Traefik / eigener Proxy), SMTP-Backend-
+  Tabelle für die drei typischen TLS-Modi, age-Key-Walkthrough
+  (Generierung lokal, Public-Key auf Server, Private-Key in
+  Passwort-Manager + 2-Personen-Split, jährliche Rotation),
+  rclone-Walkthrough mit den vier Templates aus
+  [`docker/secrets/rclone.conf.example`](docker/secrets/rclone.conf.example)
+  (Hetzner Storage Box / Backblaze B2 / generisches S3 / Local-FS),
+  Stack-Start mit beiden Overlay-Varianten, Admin-Bootstrap,
+  7-Punkte-Smoke-Test, Update-Pfad mit Notfall-`HCMAP_SKIP_MIGRATIONS`
+  und Rollback-Hinweis, **Restore-Drill als Pflichtkapitel vor
+  Go-Live**, Betriebs-Spickzettel + Volume-Tabelle und „Häufige
+  Stolperer"-Tabelle mit 11 Symptom→Ursache-Paaren. Implementiert
+  ADR-051 §H/§I („M10.8") und macht das in M10.5/M10.6 angelegte
+  Compose-Bündel auch ohne ADR-Lektüre für eine fremde Person
+  bedienbar.
+
 ### Changed
+
+- **M10.8 — README umstrukturiert auf Operator-zentrierten Lese-Pfad (2026-05-01).**
+  Inhaltsverzeichnis und Reihenfolge nach
+  [ADR-051 §H](docs/decisions.md#adr-051--implementierungsstrategie-m10-release-candidate-bündel-deployment-ready-durch-jedermann)
+  neu aufgeteilt: **Operator-Quickstart** als oberster Aktions-Abschnitt
+  mit 8 nummerierten Schritten (Hardening → Repo → ENV →
+  Reverse-Proxy → age + rclone → Stack-Start → Bootstrap → Smoke),
+  **Konfiguration** (Pflichtvariablen-Tabelle, Image-Tag-Schema),
+  **Backups** (Schedule-Tabelle, Verschlüsselungs-Kurzhinweis,
+  Restore-Verweis), **Update-Pfad** (Backend-Start-Sequenz mit
+  Advisory-Lock und Alembic, Rollback-Klausel), **Sicherheit und
+  Datenschutz** (unverändert, an Operator-Position verschoben),
+  **Development-Setup** mit Untergliederung (Voraussetzungen, Docker,
+  Backend-ohne-Docker, Frontend-ohne-Docker, Pre-commit) nach unten
+  verlagert. Tech-Stack-Tabelle um Backup-Zeile ergänzt. Projektstatus
+  zeigt M10.8 als ✅. **Architektur und Dokumentation** mit
+  [`ops/runbook.md`](ops/runbook.md) in der Doku-Tabelle. Header bekommt
+  neuen [CI-Status-Badge](https://github.com/Paddel87/hc-map/actions/workflows/ci.yml/badge.svg?branch=main),
+  Phase-Badge auf `M10.7-erledigt` aktualisiert (M10.8 ist Doku, kein
+  Phasenwechsel; CLAUDE.md §6: Badges spiegeln Ist-Zustand).
 
 - **README + project-context.md auf aktuellen Stand gebracht (2026-05-01).**
   Status-Tabelle und der lange Beschreibungs-Block standen bei M6/M7.3

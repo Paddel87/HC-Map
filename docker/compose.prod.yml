@@ -95,15 +95,10 @@ services:
   # Backup service (M10.6, ADR-051 §D): pg_dump | age | rclone via cron.
   # Schedule (UTC): daily 03:17, weekly Sun 03:33, monthly 1st 03:47,
   # retention sweep 04:00 (14d/56d/365d).
-  #
-  # Source build during M10.6; M10.7 will publish
-  # ghcr.io/paddel87/hc-map-backup:${HCMAP_IMAGE_TAG} alongside backend +
-  # frontend, after which `image:` replaces `build:` here.
   backup:
     <<: *restart
-    build:
-      context: ..
-      dockerfile: docker/backup.Dockerfile
+    image: ghcr.io/paddel87/hc-map-backup:${HCMAP_IMAGE_TAG:-rc}
+    pull_policy: always
     environment:
       HCMAP_BACKUP_REMOTE: ${HCMAP_BACKUP_REMOTE:?HCMAP_BACKUP_REMOTE is required (rclone remote name)}
       HCMAP_BACKUP_PREFIX: ${HCMAP_BACKUP_PREFIX:?HCMAP_BACKUP_PREFIX is required (path prefix on remote)}

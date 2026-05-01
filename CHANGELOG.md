@@ -27,6 +27,22 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
   Ausschlussliste umformuliert (proprietäre/source-available
   statt GPL).
 
+### Changed
+
+- **M10.6-Folge-Anpassung — `compose.prod.yml` `backup`-Service auf GHCR-Image umgestellt (2026-05-01).**
+  Nach dem ersten erfolgreichen `build-push`-Run (CI Run #3) und
+  Patricks Umstellung der drei GHCR-Pakete auf „Public" wurde der
+  `backup`-Service in
+  [`docker/compose.prod.yml`](docker/compose.prod.yml) von
+  `build: docker/backup.Dockerfile` auf
+  `image: ghcr.io/paddel87/hc-map-backup:${HCMAP_IMAGE_TAG:-rc}` +
+  `pull_policy: always` umgestellt — analog backend/frontend.
+  Anonymous-`docker pull` aller drei Images verifiziert; Image-Smoke
+  bestätigt die enthaltenen Versionen (backup: pg_dump 16.13, age
+  1.1.1, rclone v1.60.1; backend: Python 3.12.13; frontend: Node
+  22.22.2). `compose.prod.yml`-Validierung mit beiden
+  Reverse-Proxy-Overlays clean.
+
 ### Fixed
 
 - **M10.7-Followup #2 — `frontend/public/.gitkeep` für reproduzierbaren Frontend-Image-Build (2026-05-01).**

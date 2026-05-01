@@ -7,6 +7,78 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **M10.9 RC-Smoke deckt zwei RC-Image-/Compose-Defekte auf (2026-05-02).**
+  Die im lokalen Voll-Compose-Smoke (Variant B per Patrick-Freigabe:
+  Caddy mit `tls internal` + Traefik mit self-signed Cert alternativ)
+  entdeckten Show-Stopper sind im selben Push behoben:
+  - **Blocker #003 — Backend-Image enthielt keine Migrations.**
+    [docker/backend.Dockerfile](docker/backend.Dockerfile) kopierte nur
+    `backend/app` in das Image; der Auto-Migrations-Runner aus
+    [backend/app/migrations_runner.py](backend/app/migrations_runner.py)
+    (ADR-051 §F) crashte beim Startup mit
+    `alembic.util.exc.CommandError: Path doesn't exist: /app/migrations`.
+    Fix: Builder- und Runtime-Stage kopieren zusätzlich
+    `backend/migrations`, `backend/alembic.ini` und `backend/scripts`.
+    Das Skripte-Verzeichnis braucht's für
+    `python -m scripts.bootstrap_admin` aus
+    [ops/runbook.md](ops/runbook.md) §9. Verifikation: lokales Image
+    `hc-map-backend:smoke-fix` fährt alle 7 Migrationen
+    (`20260425_1700_initial` bis `20260501_1200_legacy_ref`) sauber
+    durch und kommt healthy hoch.
+  - **Blocker #004 — Traefik-Overlay mountete `/var/run/docker.sock` nicht.**
+    [docker/compose.traefik.yml](docker/compose.traefik.yml) konfiguriert
+    in [docker/traefik/traefik.yml.example](docker/traefik/traefik.yml.example)
+    den Docker-Provider (Service-Discovery via Labels), reichte den
+    Socket aber nicht in den Traefik-Container — Folge:
+    `Cannot connect to the Docker daemon` bei jedem Request, alle
+    routenbasierten Endpunkte 404. Fix: read-only Bind-Mount
+    `/var/run/docker.sock:/var/run/docker.sock:ro` ergänzt. Auf einer
+    Linux-VPS reicht das (Standard-`docker`-Gruppen-Membership des
+    Sockets greift); für den lokalen macOS-Smoke war zusätzlich ein
+    file-Provider-Routing-Snippet in
+    [docker/traefik/dynamic.yml.example](docker/traefik/dynamic.yml.example)
+    nötig (Docker-Desktop-Permission-Quirk).
+
+### Verified
+
+- **M10.9 — RC-Voll-Smoke gegen lokalen Prod-Compose-Stack (2026-05-02).**
+  Per ADR-051 §I durchgespielt; Voll-Sweep-Variant B (Caddy + Traefik
+  alternativ, Mailpit als SMTP-Sink, lokaler rclone-Remote für die
+  Backup-Pipeline). **Caddy-Pfad voll grün:** Healthcheck (TLS via
+  Caddy-internal-CA), Bootstrap-Admin via
+  `python -m scripts.bootstrap_admin`, Login (CSRF + JWT-Session-Cookie
+  unter HTTPS, beide Cookies mit `Secure`-Flag), Live-Event via
+  `POST /api/events/start`, Backfill-Event mit `legacy_external_ref`
+  (M5c-NACH-Feldpfad), `PATCH /api/events/{id}` (`note`-Update,
+  `updated_at` springt korrekt), Anonymisierung (Person → `name='[gelöscht]'`,
+  `is_deleted=t`, `deleted_at` gestempelt), Person-Merge (Source
+  soft-deleted mit `[merged → <target-uuid>]`-Marker, Target unverändert),
+  Stats (2 Events, 4 Personen, 1 Admin-Role, leere Top-Listen), Export
+  (`schema_version=1`, 11 Collections, 3263 Bytes). **Backup-Roundtrip
+  grün:** `pg_dump --format=custom | age | rclone rcat local:` schreibt
+  73-KB age-encrypted-Dump in Backup-Volume; Restore-Container
+  (`--entrypoint /usr/local/bin/restore.sh`) holt + entschlüsselt + restored
+  in zweite DB `hcmap_restore`; identische Row-Counts (2/4/1/2
+  event/person/user/event_participant). Schema-Diff zeigt 120 Zeilen
+  Differenz, davon 100 % `GRANT … TO app_user` — Folge der bewussten
+  `pg_restore --no-owner --no-acl` Wahl in
+  [docker/backup/restore.sh](docker/backup/restore.sh) (cluster-agnostic
+  Restore). **Mail-Reset-Roundtrip gegen Mailpit grün:**
+  `POST /api/auth/forgot-password` → 202 ohne User-Enumeration; Mail
+  taucht in Mailpit auf (`SUBJECT: HC-Map: Passwort zuruecksetzen`,
+  Plain-Text-Body mit `https://hc-map.localhost/reset-password?token=…`);
+  Token extrahiert; `POST /api/auth/reset-password` → 200; Re-Login mit
+  neuem Passwort → 204 + neue Session. **Traefik-Pfad alternativ grün:**
+  HTTP→HTTPS-Redirect (301), TLS-Termination mit self-signed Cert,
+  Login (Cookie-`Secure` aktiv: `secure=TRUE` für `hcmap_session`
+  + `hcmap_csrf`), Live-Event-Anlage. Verbleibende Limitierung: das
+  Schema-Diff-Erwartungs-`null`-Versprechen aus
+  [ops/runbook.md](ops/runbook.md) §12.4 ist zu stark formuliert —
+  bei `--no-acl`-Restore ist der GRANT-Block immer Differenz; sollte in
+  einem Folge-Doku-Patch präzisiert werden (M10.9-Followup, nicht-blockierend).
+
 ### Changed
 
 - **M10.7.1 — GitHub-Actions-Major-Bumps auf Node-24-fähige Runtimes (2026-05-01).**

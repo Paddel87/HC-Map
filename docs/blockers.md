@@ -108,6 +108,72 @@ Für alle anderen Fälle gilt die Dreifach-Regel aus CLAUDE.md Abschnitt 10.
 
 ## Gelöste Blocker
 
+### Blocker #003: Backend-Image enthielt keine Migrations (RC-Show-Stopper)
+
+- **Datum:** 2026-05-02
+- **Lösungsdatum:** 2026-05-02
+- **Fahrplan-Referenz:** M10.9 (entdeckt im RC-Voll-Smoke); ursächlich M10.7
+  (`build-push`-Job baut Backend-Image ohne Migrations-Pfad).
+- **Modul:** Build / Container-Image (`docker/backend.Dockerfile`).
+- **Blocker-Typ:** Direkter Defekt (kein Dreifach-Versuch nötig — Crashloop
+  beim ersten Backend-Container-Start mit eindeutigem Trace).
+- **Beschreibung (zur Historie):**
+  Beim ersten produktiven `docker compose up -d` mit den GHCR-`:main`-Images
+  crashloopte das Backend mit:
+
+  > `alembic.util.exc.CommandError: Path doesn't exist: /app/migrations.  Please use the 'init' command to create a new scripts folder.`
+
+  Der Migrations-Auto-Runner aus
+  [backend/app/migrations_runner.py](../backend/app/migrations_runner.py)
+  (ADR-051 §F) erwartet `<backend>/alembic.ini` und `<backend>/migrations/`
+  als absolute Pfade auf dem Container-Filesystem. Die `:main`-Image
+  enthielt aber nur `/app/app/...` — `pg_dump`-Output und Verzeichnis-Trace
+  bestätigten: weder `/app/alembic.ini` noch `/app/migrations` noch
+  `/app/scripts` waren im Image vorhanden.
+- **Lösung:** [docker/backend.Dockerfile](../docker/backend.Dockerfile)
+  Builder- und Runtime-Stage um drei zusätzliche `COPY`-Statements
+  erweitert: `backend/migrations`, `backend/alembic.ini`,
+  `backend/scripts`. Verifikation: lokal gebautes
+  `hc-map-backend:smoke-fix`-Image fährt alle 7 Migrationen
+  (`20260425_1700_initial` … `20260501_1200_legacy_ref`) sauber durch
+  und kommt healthy hoch.
+- **Abgeleitete Regel:** RC-Smoke (oder eine analoge "Image-Layer-Funktional-
+  Probe" in CI) sollte jeden Operator-relevanten Path verifizieren —
+  nicht nur den Backend-Health-Probe, der trivialerweise grün geht.
+
+### Blocker #004: Traefik-Overlay mountete `/var/run/docker.sock` nicht
+
+- **Datum:** 2026-05-02
+- **Lösungsdatum:** 2026-05-02
+- **Fahrplan-Referenz:** M10.9 (entdeckt im Smoke-Run #2 mit Traefik-Overlay);
+  ursächlich M10.5 (Compose-Overlay-Definition ohne Provider-Voraussetzung).
+- **Modul:** Reverse-Proxy / Compose (`docker/compose.traefik.yml`).
+- **Blocker-Typ:** Direkter Defekt (Traefik-Logs zeigen Endlos-Retry mit
+  `Cannot connect to the Docker daemon`).
+- **Beschreibung (zur Historie):**
+  [docker/traefik/traefik.yml.example](../docker/traefik/traefik.yml.example)
+  konfiguriert `providers.docker:` für Service-Discovery via Labels (die
+  Labels stehen in
+  [docker/compose.traefik.yml](../docker/compose.traefik.yml) an
+  `backend`/`frontend`). Der Container-Volume-Mount für den Docker-Socket
+  fehlte aber. Folge: Provider-Loop crasht alle ~5 s, keine Routes werden
+  registriert, jeder Request läuft auf die Default-404 von Traefik.
+- **Lösung:** [docker/compose.traefik.yml](../docker/compose.traefik.yml)
+  um Read-Only-Mount `/var/run/docker.sock:/var/run/docker.sock:ro`
+  ergänzt. Auf Linux-VPS reicht das (Standard-`docker`-Gruppen-Membership);
+  beim macOS-Smoke war zusätzlich ein file-Provider-Routing-Snippet in
+  [docker/traefik/dynamic.yml.example](../docker/traefik/dynamic.yml.example)
+  nötig (Docker-Desktop-Symlink-Permission-Quirk, Linux-VPS unbetroffen).
+  Smoke-Verifikation nach Fix: 301 HTTP→HTTPS, TLS via self-signed Cert,
+  Login mit `secure=TRUE` auf beiden Cookies, Live-Event-Anlage 200.
+- **Abgeleitete Regel:** Wenn ein Compose-Overlay einen
+  Provider/Discovery-Mechanismus nutzt, müssen die Voraussetzungen
+  (Sockets, Volumes, Capabilities) im selben File geliefert werden —
+  nicht in der Hoffnung, der Operator weiß, wie's geht. Folge-Aufgabe:
+  prüfen, ob `compose.caddy.yml` ähnliche Voraussetzungen impliziert
+  (Caddy braucht keinen Docker-Socket — Routes hartkodiert im Caddyfile,
+  unkritisch).
+
 ### Blocker #002: GitHub-Actions-Runtime-Deprecation Node.js 20
 
 - **Datum:** 2026-05-01

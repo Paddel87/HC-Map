@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Paddel87/hc-map/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Paddel87/hc-map/actions/workflows/ci.yml)
 [![Status](https://img.shields.io/badge/status-mvp--phase--1-yellow)](./docs/fahrplan.md)
-[![Phase](https://img.shields.io/badge/phase-M10.7--erledigt-blue)](./docs/fahrplan.md#phasen-übersicht)
+[![Phase](https://img.shields.io/badge/phase-M10.9--smoke--gr%C3%BCn-blue)](./docs/fahrplan.md#phasen-übersicht)
 [![Version](https://img.shields.io/badge/version-v0.0.0-lightgrey)](./docs/project-context.md#1-kerndaten)
 [![Lizenz](https://img.shields.io/badge/lizenz-AGPL--3.0--only-blue)](./LICENSE)
 [![Docs](https://img.shields.io/badge/docs-deutsch-yellow)](./docs/project-context.md)

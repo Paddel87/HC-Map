@@ -25,14 +25,17 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-05-01 (laufende Session — neunter Sub-Step **M10.7.1 (Action-Versions-Audit + Node-24-Bumps)** [ERLEDIGT]. Beide Workflows (`ci.yml` + `release.yml`) bumpen alle neun GitHub-Actions auf Node-24-fähige Major-Tags (`actions/checkout@v6`, `actions/cache@v5`, `actions/setup-node@v6`, `astral-sh/setup-uv@v8.1.0`, `docker/build-push-action@v7`, `docker/login-action@v4`, `docker/metadata-action@v6`, `docker/setup-buildx-action@v4`, `docker/setup-qemu-action@v4`). `actionlint v1.7.12` clean. Test-Stand unverändert: Backend pytest **246/246**, Frontend vitest **278/278** (M10.7.1 berührt ausschließlich CI). **Commit-Stand:** Branch `claude/vigorous-brown-550d11` (Worktree).)
+- **Stand vom:** 2026-05-02 (laufende Session — **M10.9 RC-Voll-Smoke gegen lokalen Prod-Compose-Stack** im Voll-Sweep-Stil (Variant B per Patrick-Freigabe: Caddy + `tls internal` und Traefik + self-signed Cert alternativ, Mailpit als SMTP-Sink, lokaler rclone-Remote für Backup-Pipeline). **Caddy-Pfad: alle App-Flows + Backup-Roundtrip + Mail-Reset GRÜN.** **Traefik-Pfad: TLS + Redirect + Login mit Cookie-`Secure` + Live-Event GRÜN** (file-Provider-Workaround für macOS-Docker-Desktop-Socket-Permission, Repo-Fix für Linux-VPS aber drin). **Zwei Repo-Defekte aufgedeckt und gefixt** (Funktion von M10.9 erfüllt): Blocker #003 (`docker/backend.Dockerfile` kopierte `migrations/` + `alembic.ini` + `scripts/` nicht ins Image → Backend-Crashloop bei jedem Operator beim ersten Start) und Blocker #004 (`docker/compose.traefik.yml` mountete `/var/run/docker.sock` nicht → Traefik-Service-Discovery tot). Smoke-Stand vor Tag-Push: Backend lokal-gebaut als `hc-map-backend:smoke-fix`, beide Compose-Overlays funktional verifiziert. Nächster Schritt: Commits + Push, CI-Re-Build von `:main` abwarten, Re-Smoke gegen frisches `:main`, dann Tag `v0.1.0-rc.1`.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Nächste Session — aktiver Schritt:** **M10.9 (RC-Voll-Verifikation, Tag `v0.1.0-rc.1`, GitHub-Pre-Release) [OFFEN]**. Plan gemäß ADR-051 §I:
-  - Voll-Compose-Smoke (lokal, beide Reverse-Proxy-Overlays alternativ): Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog.
-  - Tag `v0.1.0-rc.1` (signiert, falls GPG-Setup verfügbar; sonst unsigned).
-  - GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell erfolgreich.
+- **Aktiver Schritt:** **M10.9 (RC-Voll-Verifikation, Tag `v0.1.0-rc.1`, GitHub-Pre-Release) [IN ARBEIT]**.
+  - **Smoke ✓** — siehe Stand oben.
+  - **Push der zwei Bugfixes auf `main` → CI baut neue `:main`-Images.**
+  - **Re-Smoke gegen frisches `:main`** (verifiziert, dass CI-Build dem lokalen `:smoke-fix` entspricht).
+  - **Tag `v0.1.0-rc.1` (annotated, unsigniert per Patrick-Freigabe), Push → release.yml + ci.yml(build-push) → GHCR-Tags `:v0.1.0-rc.1` + `:rc`.**
+  - **Anonymer Pull** `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell.
+  - **M10 → [ERLEDIGT]** mit Datum.
 - **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M10/M11, sollte aber vor `v0.1.0`-Final stehen.
-- **Übersicht über die noch offenen M10-Sub-Steps:** M10.9 (RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release).
+- **M10.9-Followup (Doku, nicht-blockierend):** [`ops/runbook.md`](../ops/runbook.md) §12.4 verspricht "Schema-Diff = null Zeilen" — bei `restore.sh`-Default `pg_restore --no-owner --no-acl` ist die ACL-Sektion immer Differenz. Doku-Patch sollte das präzisieren.
 
 - **Vorgänger M8.5 (Frontend Personen-Verwaltung + Export-UI) [ERLEDIGT] 2026-05-01.** Neue Datei [(admin-only)/persons/page.tsx](frontend/src/app/(protected)/admin/(admin-only)/persons/page.tsx) mit Filter-Toggles (`origin=on_the_fly`, `linkable=true`, `unlinked=true`, `inkl. anonymisierte / gemergte`), Suchfeld, Personen-Tabelle mit Origin/Linkable/User-Status/Status-Spalten und pro Reihe `Mergen…`/`Anonymisieren…`. Merge-Wizard via Radix-Dialog: Source-Vorschau, Target-Auswahl (radio aus aktuell gefiltertem Set, exklusive Source/soft-deleted), Konflikt-/Result-Anzeige nach erfolgreichem POST. Anonymisierungs-Dialog mit DSGVO-/ADR-002-Hinweis und State-Maschine (Source-Karte → Bestätigen → Schließen). Erweiterung [src/lib/admin/api.ts](frontend/src/lib/admin/api.ts) um `useAdminPersons` (separater Cache-Key `["admin","persons",…]`, default `limit=200`, `include_deleted` durchgereicht) und `useAnonymizePerson` (POST `/api/persons/{id}/anonymize` ohne Body, invalidiert `persons`/`linkable-persons`/`stats`). Hinweis zur „unlinked"-Erkennung: Ableitung aus `useAdminUsers({limit:200})`-Set linker `person_id`-Werte, da `/api/persons` keinen Server-Filter exponiert (ADR-049 §H bewusst client-side). **Tests:** `tests/admin-api.test.tsx` um 4 Cases erweitert (Cache-Key-Stabilität `adminPersonsQueryKey`, GET `/api/persons` mit `include_deleted`, POST `merge`-Body, POST `anonymize` ohne Body) — 10/10 grün. Volle Suite **271/271** grün, `pnpm typecheck`/`pnpm lint` clean. **Browser-Verifikation:** Backend+DB+Frontend hochgefahren (preview_*), Admin-Login, `/admin/persons` lädt 169 Personen (`limit=200`), Triple-Filter `origin=on_the_fly` ∧ `linkable=true` ∧ `unlinked=true` reduziert korrekt auf 2 (seed: OTF Alpha, OTF Charlie); Merge-Wizard OTF Alpha → OTF Charlie POSTed `/api/admin/persons/{id}/merge` 200, Source in DB nun `[merged → <target-uuid>]` mit `is_deleted=t`; Anonymize OTF Bravo POSTed `/api/persons/{id}/anonymize`, DB zeigt `name='[gelöscht]'`, `alias=NULL`, `note=NULL`, `is_deleted=t`, `deleted_at` gestempelt. Export-Roundtrip `GET /api/admin/export/all` → 200, `schema_version=1`, alle 11 Collections vorhanden, kein `hashed_password` im User-Dump. **Hinweis Format-Check:** `pnpm format:check` schlägt mit 47 Files an, davon 46 unverändert seit M7.x — Re-Lauf nach `git stash` mit identisch 46 Files reproduzierbar. Ursache: Lokales Node v24.15 statt im Docker-Image gepinnte Node 22 (`engines: ">=22 <23"`); `prettier-plugin-tailwindcss@0.6.9` produziert auf Node 24 marginal andere Wrap-Entscheidungen. Meine 3 berührten Files (`persons/page.tsx`, `lib/admin/api.ts`, `tests/admin-api.test.tsx`) sind Prettier-clean (`prettier --check` per-file = pass). Backend-Tests bewusst **nicht** lokal nochmal ausgeführt (kein Backend-Touch in M8.5; Stand 215/215 aus M8.3-Verifikation gilt). **Nächster Schritt:** M9 (w3w-Migration).
 
@@ -48,6 +51,8 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 - **Offene Freigabe-Entscheidungen:**
   - **Blocker #001 Punkt 2 — CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift:** offen. Konkreter Vorschlag (fünf Änderungen plus CI-Audit-Skript) im Conversation-Verlauf 2026-04-29.
   - ~~**Blocker #002 — GitHub-Actions-Runtime-Deprecation Node.js 20**~~ → **gelöst 2026-05-01** mit M10.7.1 / ADR-052. Alle neun Actions auf Node-24-Major-Tags gebumpt; beide Stichtage (2026-06-02 Runner-Zwang, 2026-09-16 Node-20-Entfernung) damit entschärft.
+  - ~~**Blocker #003 — Backend-Image enthielt keine Migrations**~~ → **gelöst 2026-05-02** mit Push aus M10.9-RC-Smoke. `docker/backend.Dockerfile` ergänzt um `COPY backend/migrations`, `backend/alembic.ini`, `backend/scripts`.
+  - ~~**Blocker #004 — Traefik-Overlay mountete `/var/run/docker.sock` nicht**~~ → **gelöst 2026-05-02** mit Push aus M10.9-RC-Smoke. `docker/compose.traefik.yml` ergänzt um Read-Only-Socket-Mount.
   - **Runtime-Majors (Postgres 16→17/18, Node 22→24, Python 3.12→3.13):** explizit aus STACK-002 ausgenommen (siehe ADR-048 §E). Werden bei Bedarf als eigenständige ADR-Tickets verhandelt; kein laufender Druck (alle drei Runtimes sind LTS bzw. aktiv gepatcht).
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).
@@ -123,7 +128,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M10.7       | └─ GitHub Actions CI + GHCR-Push (Multi-Arch)    | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.7.1     | └─ Action-Versions-Audit + Node-24-Bumps (Blocker #002 / ADR-052) | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.8       | └─ `ops/runbook.md` + README-Restruktur (Operator-Quickstart) | [ERLEDIGT] 2026-05-01 |
-| 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [OFFEN]   |
+| 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [IN ARBEIT] (Smoke ✓, zwei Repo-Fixes; Tag wartet) |
 | 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
@@ -1860,11 +1865,33 @@ Strategie-ADR: [ADR-052](./decisions.md#adr-052--github-actions-major-bumps-auf-
 - **Verifikation:** `pnpm format:check` clean (Doku-Files sind außerhalb des Prettier-Scopes, aber die Touchpoints im Repo-Root unverändert). README + Runbook gegeneinander cross-referenziert (Quickstart-Schritte 1–8 spiegeln Runbook §2–§10, Backup-Beschreibungen identisch). ADR-051 §H/§I-Punkte abgehakt: §H Punkt 1–8 → README-Reihenfolge identisch; §I-Zelle „M10.8" Deliverables (`ops/runbook.md` mit allen 9 Pflicht-Themen + README-Operator-Quickstart) erfüllt.
 - **Akzeptanz (Patrick):** Lese-Test ausstehend — Lücken werden im selben Sub-Step nachgezogen, sobald Feedback vorliegt.
 
-**M10.9 — RC-Voll-Verifikation, Tag, Pre-Release** [OFFEN]
-- Voll-Compose-Smoke (lokal): Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog.
-- Tag `v0.1.0-rc.1` (signiert, falls GPG-Setup verfügbar; sonst unsigned).
-- GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell erfolgreich.
-- M10 → [ERLEDIGT].
+**M10.9 — RC-Voll-Verifikation, Tag, Pre-Release** [IN ARBEIT] 2026-05-02
+- **Smoke-Setup (lokal, Variant B per Patrick-Freigabe):** eigenes Compose-Project `hc-map-rc`, gitignored `.smoke/`-Verzeichnis (`.env.prod`, `age/hc-map.age.key`, `compose.smoke.yml` für Mailpit + Backup-Volume + Smoke-Overrides, `traefik-certs/` mit selbst-signiertem Cert). `docker/Caddyfile`, `docker/secrets/{age-recipients.txt,rclone.conf}`, `docker/traefik/{traefik,dynamic}.yml` sind die operator-typischen Working-Copies (alle gitignored), gefüllt mit Smoke-Werten (`tls internal`, lokaler rclone-Remote `[local]`, public-key-only). MapTiler-Key bewusst leer (Smoke betrifft keine Karten-Endpunkte).
+- **Smoke-Run #1 (Caddy + `tls internal`)** [GRÜN]:
+  1. Healthcheck: `curl https://hc-map.localhost/api/health` → 200 + `{"status":"ok","environment":"production"}`. Caddy-internal-CA hat Cert für `hc-map.localhost` ausgestellt (Issuer `local`).
+  2. Bootstrap-Admin: `docker compose ... exec backend python -m scripts.bootstrap_admin --email admin@hcmap-smoke.example --password ...` → `Bootstrapped admin user … (role=admin).`
+  3. Login: `POST /api/auth/login` → 204 + `hcmap_session` (HttpOnly + JWT) + `hcmap_csrf` (lesbar) Cookies, beide mit `Secure`-Flag.
+  4. Live-Event: `POST /api/events/start` → 200, `id=019de585-…`, `plus_code` server-side berechnet, `participants` enthält Admin-Person (Auto-Trigger M5c.1b).
+  5. Backfill-Event: `POST /api/events` mit `legacy_external_ref="w3w://demo.alpha.foxtrot"` → 201 (M5c-NACH-Feldpfad funktioniert).
+  6. Edit: `PATCH /api/events/{id}` mit `note`-Update → 200, `updated_at` springt korrekt.
+  7. Anonymisierung: OTF-Person erstellt, `POST /api/persons/{id}/anonymize` → 200, DB zeigt `name='[gelöscht]'`, `alias=NULL`, `note=NULL`, `is_deleted=t`, `deleted_at` gestempelt.
+  8. Merge: zwei OTF-Personen, `POST /api/admin/persons/{src}/merge` mit `{"target_id":"…"}` → 200, Source soft-deleted mit Marker `[merged → <target-uuid>]`, Target unverändert.
+  9. Stats: `GET /api/admin/stats` → `events_total=2`, `users_by_role={admin:1}`, `persons_total=2`, `events_per_month_last_12.length=2`.
+  10. Export: `GET /api/admin/export/all` → 3263 Bytes, `schema_version=1`, alle 11 Collections vorhanden.
+- **Backup-Roundtrip** [GRÜN]: `docker compose ... exec backup /usr/local/bin/run-backup daily` → 73-KB-age-encrypted Dump in Backup-Volume `local:/backups/hc-map/daily/<ts>.dump.age`. Restore-Container (`--entrypoint /usr/local/bin/restore.sh`, mit `AGE_IDENTITY_FILE` + `rclone.conf`) holt + entschlüsselt + `pg_restore` in `hcmap_restore`-DB. Row-Counts identisch (event:2, person:4, user:1, event_participant:2). Schema-Diff = 120 Zeilen, davon 100 % `GRANT … TO app_user` — Folge des bewusst gewählten `pg_restore --no-owner --no-acl` in [`docker/backup/restore.sh`](../docker/backup/restore.sh) (cluster-agnostic Restore). Daten-Roundtrip sauber. *Doku-Followup:* `ops/runbook.md` §12.4 verspricht "null Zeilen" — sollte präzisiert werden.
+- **Mail-Reset-Roundtrip gegen Mailpit** [GRÜN]: `POST /api/auth/forgot-password` → 202 ohne User-Enumeration. Mailpit empfängt 1 Mail von `hc-map@example.org` mit Subject `HC-Map: Passwort zuruecksetzen`, deutscher Plain-Text-Body mit Reset-Link `https://hc-map.localhost/reset-password?token=<JWT>`. Token aus Mail extrahiert; `POST /api/auth/reset-password` mit `{"token":"…","password":"NewSmokePW-Reset-RC1"}` → 200. Re-Login mit neuem Passwort → 204 + neue Session-Cookie.
+- **Smoke-Run #2 (Traefik alternativ + selbst-signiertes Cert)** [GRÜN]: HTTP→HTTPS-Redirect (301), TLS-Termination mit selbst-signiertem Cert (Issuer `CN=hc-map.localhost`), Login (`secure=TRUE` für `hcmap_session` + `hcmap_csrf` in Cookie-Jar), Live-Event-Anlage in Frankfurt → 200. Traefik-Service-Discovery: file-Provider-Routen in `docker/traefik/dynamic.yml` (Workaround für macOS-Docker-Desktop-Socket-Permission-Quirk; auf Linux-VPS reicht der Docker-Provider mit Socket-Mount).
+- **Zwei Repo-Defekte aufgedeckt + gefixt** (siehe [Blocker #003](./blockers.md#blocker-003-backend-image-enthielt-keine-migrations-rc-show-stopper) + [#004](./blockers.md#blocker-004-traefik-overlay-mountete-varrundockersock-nicht)):
+  - **Blocker #003** — `docker/backend.Dockerfile` kopierte nur `backend/app` ins Image, fehlten `migrations/`, `alembic.ini`, `scripts/`. Backend crashloopt beim Start mit `alembic.util.exc.CommandError: Path doesn't exist: /app/migrations`. **Fix:** drei zusätzliche `COPY`-Statements in Builder- und Runtime-Stage.
+  - **Blocker #004** — `docker/compose.traefik.yml` mountete `/var/run/docker.sock` nicht. Traefik-Docker-Provider crasht in Endlos-Retry, alle Routen tot. **Fix:** Read-Only-Bind-Mount `/var/run/docker.sock:/var/run/docker.sock:ro`.
+- **Verifikations-Image:** lokal gebautes `hc-map-backend:smoke-fix` (mit beiden Fixes) erfolgreich. Re-Smoke gegen frische `:main`-Image nach Push erfolgt unten.
+- **Nächste Schritte (in Reihenfolge):**
+  - Push der zwei Bugfixes auf `main` → CI Workflow `ci.yml` baut `:main` neu.
+  - Re-Smoke gegen frische `:main` (kurzer Sub-Smoke: Backend hochfahren + Migrations + Health + Login).
+  - Tag `v0.1.0-rc.1` (annotated, **unsigniert** per Patrick-Freigabe).
+  - Push Tag → `release.yml` (GitHub-Pre-Release) + `ci.yml`-`build-push` (`:v0.1.0-rc.1` + `:rc` GHCR-Tags) parallel.
+  - `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell anonym verifizieren.
+  - M10 + M10.9 → [ERLEDIGT].
 
 **Akzeptanzkriterien M10 gesamt:**
 - Tag `v0.1.0-rc.1` auf GitHub als Pre-Release sichtbar, Release-Notes enthalten Quickstart-Verweis.

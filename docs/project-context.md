@@ -102,7 +102,7 @@ Modularer Monolith: ein FastAPI-Backend, ein Next.js-Frontend, eine PostgreSQL-D
 
 - **Keine personenbezogenen Daten in Logs** → Regel: `structlog`-Wrapper mit Redaction-Liste (Namen, Notizen, Lat/Lon werden vor Log-Ausgabe entfernt).
 - **DSGVO-Art. 17: Anonymisierungsfunktion** für Personen → Regel: API-Endpunkt `POST /api/persons/{id}/anonymize` setzt `name = '[gelöscht]'`, `alias = NULL`, `note = NULL`, `is_deleted = true`, `deleted_at = now()`. Verknüpfungen bleiben erhalten (siehe ADR-002).
-- **Einwilligungspflicht für sensible Daten** → Regel: Vor M11 Go-Live muss schriftlicher Einwilligungstext vorliegen, der Hoster-Vertrauen (ADR-001), Anonymisierungs-Kompromiss (ADR-002), on-the-fly-Personenanlage (ADR-014) und Aggregat-Statistik (ADR-015) explizit benennt.
+- **Einwilligungspflicht für sensible Daten** → Regel: Vor M11 Go-Live muss schriftlicher Einwilligungstext vorliegen, der Hoster-Vertrauen (ADR-001), Anonymisierungs-Kompromiss (ADR-002), on-the-fly-Personenanlage (ADR-014), Aggregat-Statistik (ADR-015) und IndexedDB-Klartextspeicher (ADR-032) explizit benennt. Mitgelieferte Vorlage: [`docs/templates/consent-de.md`](./templates/consent-de.md) (M10.4, ADR-051 §G) — Operator passt Platzhalter an, ggf. juristisch prüfen lassen.
 
 ### Sicherheit
 

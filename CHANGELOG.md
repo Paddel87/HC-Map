@@ -9,6 +9,26 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M10.4 — Einwilligungs-Vorlage (ADR-051 §G, 2026-05-01).**
+  - Neue Datei [`docs/templates/consent-de.md`](docs/templates/consent-de.md):
+    deutschsprachige Markdown-Vorlage mit Platzhaltern
+    (`[GRUPPENNAME]`, `[ADMIN-NAME]`, `[ADMIN-KONTAKT]`,
+    `[INSTANZ-URL]`, `[HOSTING-PROVIDER]`, `[HOSTING-STANDORT]`,
+    `[BACKUP-ZIEL]`, `[DATUM]`).
+  - 12 Abschnitte plus Bestätigungs-Block: Worum es geht, erfasste
+    Daten, Vertrauensmodell (ADR-001), Anonymisierungs-Grenzen
+    (ADR-002), On-the-fly-Erfassung (ADR-014), Aggregat-Statistik
+    in kleinen Gruppen (ADR-015), Auskunfts-/Anonymisierungs-/
+    Berichtigungs-/Beschwerderechte, Speicherdauer,
+    Geräteverschlüsselung als User-Pflicht (ADR-032), Foto-/Medien-
+    Hinweis als Phase-2-Platzhalter, Konsequenz bei Nicht-Zustimmung,
+    Änderungsregel.
+  - Verweis auf die Vorlage aus [`README.md`](README.md) (Datenschutz-
+    Abschnitt) und [`docs/project-context.md`](docs/project-context.md)
+    §6 ergänzt.
+  - Disclaimer im Header des Templates: keine Rechtsberatung,
+    Operator passt Platzhalter an und lässt ggf. juristisch prüfen.
+
 - **M10.3 — Projektlizenz AGPLv3 (ADR-051 §A, 2026-05-01).**
   - `LICENSE`-File mit dem unveränderten AGPLv3-Volltext (Quelle:
     https://www.gnu.org/licenses/agpl-3.0.txt) im Repo-Root.

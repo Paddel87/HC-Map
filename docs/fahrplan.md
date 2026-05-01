@@ -48,6 +48,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 - **Offene STOPP-Situationen:** keine.
 - **Offene Freigabe-Entscheidungen:**
   - **Blocker #001 Punkt 2 — CLAUDE.md-Methodik-Härtung gegen künftigen Stack-Drift:** offen. Konkreter Vorschlag (fünf Änderungen plus CI-Audit-Skript) im Conversation-Verlauf 2026-04-29.
+  - **Blocker #002 — GitHub-Actions-Runtime-Deprecation Node.js 20 (2026-05-01):** alle neun in `ci.yml`/`release.yml` genutzten Actions laufen aktuell auf Node 20. Stichtage: 2026-06-02 (Runner zwingt Node 24) und 2026-09-16 (Node 20 entfernt). Empfehlung: Sub-Schritt **M10.7.1 (Action-Versions-Audit + Node-24-Bumps)** vor M10.9 anlegen; Bumps sind mechanisch.
   - **Runtime-Majors (Postgres 16→17/18, Node 22→24, Python 3.12→3.13):** explizit aus STACK-002 ausgenommen (siehe ADR-048 §E). Werden bei Bedarf als eigenständige ADR-Tickets verhandelt; kein laufender Druck (alle drei Runtimes sind LTS bzw. aktiv gepatcht).
 - **Offene Beobachtungen:**
   - **`HCMAP_MAPTILER_API_KEY` Setup-Voraussetzung:** Karte/Geocoding/Glyphs brauchen den MapTiler-Key in `backend/.env.local` (gitignored). Lokaler Test-Setup-Schritt: `backend/.env.local` mit `HCMAP_MAPTILER_API_KEY=…` anlegen, dann `preview_start backend` (sourct die Datei nicht, Key muss inline beim Start gesetzt werden — siehe HOTFIX-002 Browser-Repro im commit `01215e2`).

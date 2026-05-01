@@ -169,7 +169,7 @@ sich Compose zu starten):
 | `HCMAP_BASE_URL` | `https://hc-map.example.org` | Wird in Reset-Mails als Link-Origin eingesetzt |
 | `HCMAP_BACKUP_REMOTE` | `hetzner` | Name des rclone-Remotes (siehe Abschnitt 7) |
 | `HCMAP_BACKUP_PREFIX` | `hc-map` | Pfadpräfix auf dem Remote |
-| `HCMAP_IMAGE_TAG` | `v0.1.0-rc.1` | Pinne den genauen RC-Tag — `:rc` bewegt sich rolling |
+| `HCMAP_IMAGE_TAG` | `0.1.0-rc.1` | Pinne den genauen RC-Image-Tag (ohne `v`-Prefix — `metadata-action`-Konvention) — `:rc` bewegt sich rolling |
 | `HCMAP_MAPTILER_API_KEY` | `<MapTiler-Cloud-Key>` | Pflicht für Karte und Geocoding (Free-Tier reicht) |
 | `HCMAP_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | s. Abschnitt 5 | Pflicht in Produktion, sonst Reset-Mails landen nur im Log |
 
@@ -616,7 +616,7 @@ docker run --rm -it \
     -e AGE_IDENTITY_FILE=/run/secrets/age-identity.txt \
     -v /srv/hc-map/docker/secrets/rclone.conf:/run/secrets/rclone.conf:ro \
     -v ~/secret/hc-map.age.key:/run/secrets/age-identity.txt:ro \
-    ghcr.io/paddel87/hc-map-backup:v0.1.0-rc.1 \
+    ghcr.io/paddel87/hc-map-backup:0.1.0-rc.1 \
     /usr/local/bin/restore.sh \
         daily/20260501T031700Z.dump.age \
         "postgresql://${HCMAP_DB_USER}:${HCMAP_DB_PASSWORD}@db:5432/hcmap_restore"
@@ -710,7 +710,8 @@ Wichtige Volumes:
 | Reset-Mail kommt nicht an | (a) `HCMAP_SMTP_HOST` ist leer → LoggingBackend; in den Backend-Logs nach `password reset url` greppen. (b) Provider weist die Mail mit `550 5.7.1` ab → SPF/DKIM für `HCMAP_SMTP_FROM` fehlt; im Mail-Provider-Dashboard nachziehen. |
 | Backup-Container `exit 78` mit `rclone remote not found` | `HCMAP_BACKUP_REMOTE` in `.env.prod` passt nicht zum Sektionsnamen in `docker/secrets/rclone.conf`. Beides angleichen. |
 | Backup-Container `exit 78` mit `age recipients secret missing` | `docker/secrets/age-recipients.txt` wurde nicht angelegt oder ist leer. Schritt 6.2 nachholen. |
-| `docker compose pull` schlägt mit `denied` fehl | GHCR-Paket-Sichtbarkeit ist privat; öffentliche RC-Pakete erwartet — `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell muss anonym funktionieren. Falls nicht, Issue auf GitHub eröffnen. |
+| `docker compose pull` schlägt mit `denied` fehl | GHCR-Paket-Sichtbarkeit ist privat; öffentliche RC-Pakete erwartet — `docker pull ghcr.io/paddel87/hc-map-backend:0.1.0-rc.1` aus frischer Shell muss anonym funktionieren. Falls nicht, Issue auf GitHub eröffnen. |
+| `docker compose pull` meldet `manifest unknown` | Wahrscheinlich `HCMAP_IMAGE_TAG=v0.1.0-rc.1` mit `v`-Prefix gesetzt — der GHCR-Tag heißt aber `0.1.0-rc.1` (ohne `v`, `metadata-action`-Default). Das führende `v` aus `.env.prod` entfernen. Der `:rc`-Tag funktioniert immer und ist die robusteste Wahl für die Erstinbetriebnahme. |
 | Migrations-Fehler beim Update | Logs auf `alembic upgrade head` lesen. Nicht panisch deinstallieren — meist hilft, die Tag-Pin zurückzudrehen (Abschnitt 11.2). Wenn das nicht reicht: Restore aus letztem Pre-Update-Snapshot (Abschnitt 12.6). |
 | Neuer Admin-Bootstrap weigert sich (`Refusing to bootstrap`) | Es existiert bereits ein User. Über die Login-UI mit dem ursprünglichen Bootstrap-Account anmelden und dort weiteren Admin anlegen. |
 | `docker logs caddy` zeigt `permission denied: /etc/caddy/Caddyfile` | Die Datei `docker/Caddyfile` fehlt — nur das `.example` ist im Repo. Schritt 4.1 wiederholen. |

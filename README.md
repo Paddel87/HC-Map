@@ -136,7 +136,7 @@ Alle Variablen liegen mit Erklärungen und Defaults in [`.env.example`](./.env.e
 | `HCMAP_DOMAIN` | Public Hostname, identisch zum DNS-A/AAAA-Record | `hc-map.example.org` |
 | `HCMAP_ACME_EMAIL` | Let's-Encrypt-Kontakt (nur Reverse-Proxy nutzt ihn) | `admin@example.org` |
 | `HCMAP_BASE_URL` | Origin der Frontend-URL — wird in Reset-Mails als Link-Origin eingesetzt | `https://hc-map.example.org` |
-| `HCMAP_IMAGE_TAG` | GHCR-Image-Tag, der gepullt wird | `v0.1.0-rc.1` |
+| `HCMAP_IMAGE_TAG` | GHCR-Image-Tag, der gepullt wird (ohne `v`-Prefix — `metadata-action`-Konvention) | `0.1.0-rc.1` |
 | `HCMAP_MAPTILER_API_KEY` | MapTiler-Cloud-Key (Free-Tier reicht für <20 Nutzer) | `<key>` |
 | `HCMAP_SMTP_HOST`, `_PORT`, `_USER`, `_PASSWORD`, `_FROM` | SMTP-Gateway für Passwort-Reset | provider-spezifisch |
 | `HCMAP_BACKUP_REMOTE` / `_PREFIX` | rclone-Remote-Name + Pfadpräfix für Backups | `hetzner` / `hc-map` |
@@ -151,12 +151,19 @@ Alle Variablen liegen mit Erklärungen und Defaults in [`.env.example`](./.env.e
 
 Image-Tag-Schema (gesetzt von der CI in M10.7):
 
-| Tag | Trigger | Wann wählen |
+| Image-Tag | Trigger (Git-Tag) | Wann wählen |
 |---|---|---|
-| `:v0.1.0-rc.1` | RC-Tag-Push | Pinning auf einen genauen RC — empfohlen für Produktion |
-| `:rc` | RC-Tag-Push | Rolling-RC, zieht beim nächsten `pull` automatisch nach |
-| `:v0.1.0` / `:v0.1` / `:0` / `:latest` | Final-Tag-Push (nach RC-Promotion) | Stable-Channels, ab M11 |
+| `:0.1.0-rc.1` | `v0.1.0-rc.1` | Pinning auf einen genauen RC — empfohlen für Produktion |
+| `:rc` | `v0.1.0-rc.1` (oder jeder andere `-rc.*`-Git-Tag) | Rolling-RC, zieht beim nächsten `pull` automatisch nach |
+| `:0.1.0` / `:0.1` / `:0` / `:latest` | `v0.1.0` (Final-Tag, nach RC-Promotion) | Stable-Channels, ab M11 |
 | `:main` / `:sha-<short>` | Push auf `main` | nur für Tests, nicht produktiv |
+
+> **Konvention:** GHCR-Image-Tags haben **kein** `v`-Prefix, weil
+> `docker/metadata-action`'s `v{{version}}`-Pattern die `v` aus dem
+> Git-Tag strippt. Der Git-Tag heißt `v0.1.0-rc.1`, der Image-Tag
+> heißt `0.1.0-rc.1`. Bei Verwechslung antwortet GHCR mit `manifest
+> unknown` — dann das `v` aus `HCMAP_IMAGE_TAG` entfernen oder direkt
+> auf `:rc` umsteigen.
 
 ---
 

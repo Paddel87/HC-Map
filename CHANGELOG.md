@@ -7,6 +7,32 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **M10.9-Postfix — GHCR-Image-Tag-Konvention klargestellt (2026-05-02).**
+  Quer durch [.env.example](.env.example),
+  [README.md](README.md), [ops/runbook.md](ops/runbook.md),
+  [docs/decisions.md](docs/decisions.md) (ADR-051 §E),
+  [docs/fahrplan.md](docs/fahrplan.md): Image-Tags haben kein
+  `v`-Prefix, weil `docker/metadata-action`'s
+  `type=semver,pattern=v{{version}}` das führende `v` strippt. Git-Tag
+  bleibt `v0.1.0-rc.1`, GHCR-Image-Tag ist `0.1.0-rc.1`. Operator-Doku
+  und ADR-Tabelle entsprechend gefixt; "Häufige Stolperer"-Tabelle
+  in `ops/runbook.md` §14 erweitert um den `manifest unknown`-Fall.
+  ADR-051 §F-Annahme „Image-Bytes identisch zu RC" als nicht-garantiert
+  markiert (BuildKit-Default ist nicht-deterministisch — sichtbar daran,
+  dass `:main` und `:0.1.0-rc.1` aus identischem Commit `a309d8d`
+  unterschiedliche Digests haben).
+
+## [v0.1.0-rc.1] — 2026-05-02
+
+Erste deployment-fähige Multi-Instanz-Variante. M10 als Release-Candidate-
+Bündel abgeschlossen.
+
+[GitHub Pre-Release](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1)
+| GHCR-Image-Tags: `:0.1.0-rc.1`, `:rc` (alle drei: backend, frontend, backup,
+linux/amd64 + arm64, anonym pullbar).
+
 ### Fixed
 
 - **M10.9 RC-Smoke deckt zwei RC-Image-/Compose-Defekte auf (2026-05-02).**

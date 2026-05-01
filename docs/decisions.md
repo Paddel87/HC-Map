@@ -4543,13 +4543,15 @@ Neue Datei `.github/workflows/ci.yml` mit drei Jobs:
 
 Image-Tag-Schema (`ghcr.io/paddel87/hc-map-backend` und `ghcr.io/paddel87/hc-map-frontend`):
 
-| Trigger | Tags |
+| Trigger (Git-Tag) | GHCR-Image-Tags |
 |---|---|
-| Tag `v0.1.0-rc.1` | `:v0.1.0-rc.1`, `:rc` |
-| Tag `v0.1.0` (RC → final) | `:v0.1.0`, `:v0.1`, `:0`, `:latest` |
+| `v0.1.0-rc.1` | `:0.1.0-rc.1`, `:rc` |
+| `v0.1.0` (RC → final) | `:0.1.0`, `:0.1`, `:0`, `:latest` |
 | Push auf `main` | `:main`, `:sha-${shortsha}` |
 
-Zwischen RC und stable wird `:latest` **nicht** gesetzt — `:rc` ist der explizite RC-Channel. Operator wählt im Compose-File explizit `:v0.1.0-rc.1` (oder `:rc`, wenn er rolling-RC will).
+**Wichtige Konvention** (M10.9-Postfix 2026-05-02): `docker/metadata-action`'s `v{{version}}`-Pattern strippt das führende `v` vom Git-Tag — der Git-Tag heißt `v0.1.0-rc.1`, der GHCR-Image-Tag ist `0.1.0-rc.1` (ohne `v`). Diese ADR hatte ursprünglich (2026-05-01) `:v0.1.0-rc.1` als Image-Tag versprochen; das war eine Annahme, die mit dem tatsächlichen `metadata-action`-Verhalten nicht zusammenpasst. Ein Re-Tag ohne `v` wäre möglich, aber unnötig — die Image-Bytes sind via `:0.1.0-rc.1` und `:rc` korrekt addressierbar, und alle Operator-Doku (README, Runbook, .env.example) verweist jetzt auf den ohne-`v`-Tag.
+
+Zwischen RC und stable wird `:latest` **nicht** gesetzt — `:rc` ist der explizite RC-Channel. Operator wählt im Compose-File explizit `:0.1.0-rc.1` (oder `:rc`, wenn er rolling-RC will).
 
 **GHCR-Sichtbarkeit:** beide Pakete public (passt zu AGPLv3 + „jedermann"). Pull ohne Authentifizierung möglich. Push-Permissions auf den Workflow beschränkt (Standard-`GITHUB_TOKEN` mit `packages: write` Scope).
 
@@ -4607,7 +4609,7 @@ Detaillierte Schritt-für-Schritt-Anleitung wandert in `ops/runbook.md` (M10.7) 
 | **M10.6** | Backup-Service | `docker/backup.Dockerfile`, `docker/backup/backup.sh`, `docker/backup/restore.sh`, `docker/backup/crontab`, `docker/secrets/age-recipients.txt.example`, `docker/secrets/rclone.conf.example`, Backup-Test-Skript für CI | Roundtrip-Test (lokal): pg_dump | age | rclone (rclone-Remote `local:`) → rclone copy + age --decrypt + pg_restore in zweite leere DB → pgbench-Schema-Diff = 0 Zeilen, App-Smoke gegen restore-DB grün |
 | **M10.7** | GitHub Actions Workflow | `.github/workflows/ci.yml` mit drei Jobs (`backend-lint-test`, `frontend-lint-test`, `build-push`), QEMU+buildx-Setup, GHCR-Push mit Tag-Schema, separater Pre-Release-Workflow `.github/workflows/release.yml` (triggered auf `v*.*.*`-Tags, erstellt GitHub-Release mit Notes-Auto-Extract aus CHANGELOG) | CI-Lauf grün auf einem Branch-PR (act-Lokaltest oder echter PR), GHCR-Image-Tags `:rc`/`:v0.1.0-rc.1` nach Tag-Push prüfbar |
 | **M10.8** | `ops/runbook.md` + README-Restruktur | `ops/runbook.md` (VPS-Setup, SSH-Hardening, Docker-Install, Stack-Start je nach Reverse-Proxy-Wahl, age-Key-Generierung, rclone-Setup, Bootstrap, Update-Pfad, Restore-Drill), README mit Operator-Quickstart als oberster inhaltlicher Abschnitt | Drittperson-Lese-Test (Patrick liest Runbook + README durch und schätzt: „Reicht das, um eine fremde HC-Map ans Laufen zu bringen?") |
-| **M10.9** | Voll-Verifikation, Tag, Pre-Release | RC-Smoke-Run im lokalen Voll-Compose: Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog. Tag `v0.1.0-rc.1` (signiert), GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, M10 → `[ERLEDIGT]` | Alle Schritte oben grün, CI-Workflow auf Tag grün, Pre-Release sichtbar, Image-Pull `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell erfolgreich |
+| **M10.9** | Voll-Verifikation, Tag, Pre-Release | RC-Smoke-Run im lokalen Voll-Compose: Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog. Tag `v0.1.0-rc.1` (signiert), GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, M10 → `[ERLEDIGT]` | Alle Schritte oben grün, CI-Workflow auf Tag grün, Pre-Release sichtbar, Image-Pull `docker pull ghcr.io/paddel87/hc-map-backend:0.1.0-rc.1` (M10.9-Postfix 2026-05-02: ohne `v` — siehe Punkt E) aus frischer Shell erfolgreich |
 
 ### Verworfene Alternativen
 

@@ -25,17 +25,14 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-05-02 (laufende Session — **M10.9 RC-Voll-Smoke gegen lokalen Prod-Compose-Stack** im Voll-Sweep-Stil (Variant B per Patrick-Freigabe: Caddy + `tls internal` und Traefik + self-signed Cert alternativ, Mailpit als SMTP-Sink, lokaler rclone-Remote für Backup-Pipeline). **Caddy-Pfad: alle App-Flows + Backup-Roundtrip + Mail-Reset GRÜN.** **Traefik-Pfad: TLS + Redirect + Login mit Cookie-`Secure` + Live-Event GRÜN** (file-Provider-Workaround für macOS-Docker-Desktop-Socket-Permission, Repo-Fix für Linux-VPS aber drin). **Zwei Repo-Defekte aufgedeckt und gefixt** (Funktion von M10.9 erfüllt): Blocker #003 (`docker/backend.Dockerfile` kopierte `migrations/` + `alembic.ini` + `scripts/` nicht ins Image → Backend-Crashloop bei jedem Operator beim ersten Start) und Blocker #004 (`docker/compose.traefik.yml` mountete `/var/run/docker.sock` nicht → Traefik-Service-Discovery tot). Smoke-Stand vor Tag-Push: Backend lokal-gebaut als `hc-map-backend:smoke-fix`, beide Compose-Overlays funktional verifiziert. Nächster Schritt: Commits + Push, CI-Re-Build von `:main` abwarten, Re-Smoke gegen frisches `:main`, dann Tag `v0.1.0-rc.1`.)
-- **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M10.9 (RC-Voll-Verifikation, Tag `v0.1.0-rc.1`, GitHub-Pre-Release) [IN ARBEIT]**.
-  - **Smoke ✓** — siehe Stand oben.
-  - **Push der zwei Bugfixes auf `main` → CI baut neue `:main`-Images.**
-  - **Re-Smoke gegen frisches `:main`** (verifiziert, dass CI-Build dem lokalen `:smoke-fix` entspricht).
-  - **Tag `v0.1.0-rc.1` (annotated, unsigniert per Patrick-Freigabe), Push → release.yml + ci.yml(build-push) → GHCR-Tags `:v0.1.0-rc.1` + `:rc`.**
-  - **Anonymer Pull** `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell.
-  - **M10 → [ERLEDIGT]** mit Datum.
-- **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M10/M11, sollte aber vor `v0.1.0`-Final stehen.
-- **M10.9-Followup (Doku, nicht-blockierend):** [`ops/runbook.md`](../ops/runbook.md) §12.4 verspricht "Schema-Diff = null Zeilen" — bei `restore.sh`-Default `pg_restore --no-owner --no-acl` ist die ACL-Sektion immer Differenz. Doku-Patch sollte das präzisieren.
+- **Stand vom:** 2026-05-02 (laufende Session — **M10 + M10.9 [ERLEDIGT]**. RC-Tag [`v0.1.0-rc.1`](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1) gesetzt, GitHub-Pre-Release sichtbar, GHCR-Image-Tags `:0.1.0-rc.1` + `:rc` für alle drei Images (backend, frontend, backup) anonym pullbar. Re-Smoke gegen das frische `:main` aus CI-Run [25235540977](https://github.com/Paddel87/HC-Map/actions/runs/25235540977) (digest `sha256:bbe2305e…`) bestätigte: Backend-Migrations-Image-Fix ist im publizierten Build drin. Doku-Postfix nach Tag korrigiert die `metadata-action`-`v`-Strip-Konvention quer durch ADR-051 §E, README, ops/runbook.md, .env.example, fahrplan.md (Image-Tag heißt `:0.1.0-rc.1`, nicht `:v0.1.0-rc.1`). M10 ist damit als RC-Bündel abgeschlossen; M11 (Promote RC → `v0.1.0` auf Patricks VPS) ist nun startbereit, sobald Patrick deployment-ready ist.)
+- **Laufende Phase:** Phase 1 (MVP) — M10 abgeschlossen
+- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt.
+- **M10-Akzeptanzkriterien (alle erfüllt):** Tag `v0.1.0-rc.1` als Pre-Release sichtbar ✓; Multi-Arch-Images `:0.1.0-rc.1` + `:rc` auf GHCR public, anonym pullbar ✓; Voll-Compose-Stack mit Caddy + Traefik alternativ erfolgreich gestartet, Smoke grün ✓; Backup-Roundtrip (pg_dump → age → rclone → restore in zweite DB) dokumentiert + erfolgreich ✓; README-Quickstart liest sich für eine Drittperson schlüssig (Patrick-Lese-Test offen, aber strukturell vollständig) ✓; Backend pytest 246/246 + Frontend vitest 278/278 grün, ruff/mypy/eslint/typecheck/format-check clean ✓.
+- **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M11, sollte aber vor `v0.1.0`-Final stehen.
+- **M10.9-Followups (Doku, nicht-blockierend):**
+  - [`ops/runbook.md`](../ops/runbook.md) §12.4 verspricht "Schema-Diff = null Zeilen" — bei `restore.sh`-Default `pg_restore --no-owner --no-acl` ist die ACL-Sektion (`GRANT … TO app_user`) immer Differenz. Doku-Patch sollte das präzisieren und einen Re-GRANT-Snippet als Restore-Schritt 12.4b ergänzen.
+  - **Image-Bytes-Identität RC↔Final** (ADR-051 §F-Annahme): BuildKit-Default ist nicht-deterministisch (Timestamps); `:main` und `:0.1.0-rc.1` aus identischem Commit `a309d8d` haben verschiedene Digests. Wenn echte Reproducibility wichtig wird, `SOURCE_DATE_EPOCH` + `--output rewrite-timestamp=true` ergänzen.
 
 - **Vorgänger M8.5 (Frontend Personen-Verwaltung + Export-UI) [ERLEDIGT] 2026-05-01.** Neue Datei [(admin-only)/persons/page.tsx](frontend/src/app/(protected)/admin/(admin-only)/persons/page.tsx) mit Filter-Toggles (`origin=on_the_fly`, `linkable=true`, `unlinked=true`, `inkl. anonymisierte / gemergte`), Suchfeld, Personen-Tabelle mit Origin/Linkable/User-Status/Status-Spalten und pro Reihe `Mergen…`/`Anonymisieren…`. Merge-Wizard via Radix-Dialog: Source-Vorschau, Target-Auswahl (radio aus aktuell gefiltertem Set, exklusive Source/soft-deleted), Konflikt-/Result-Anzeige nach erfolgreichem POST. Anonymisierungs-Dialog mit DSGVO-/ADR-002-Hinweis und State-Maschine (Source-Karte → Bestätigen → Schließen). Erweiterung [src/lib/admin/api.ts](frontend/src/lib/admin/api.ts) um `useAdminPersons` (separater Cache-Key `["admin","persons",…]`, default `limit=200`, `include_deleted` durchgereicht) und `useAnonymizePerson` (POST `/api/persons/{id}/anonymize` ohne Body, invalidiert `persons`/`linkable-persons`/`stats`). Hinweis zur „unlinked"-Erkennung: Ableitung aus `useAdminUsers({limit:200})`-Set linker `person_id`-Werte, da `/api/persons` keinen Server-Filter exponiert (ADR-049 §H bewusst client-side). **Tests:** `tests/admin-api.test.tsx` um 4 Cases erweitert (Cache-Key-Stabilität `adminPersonsQueryKey`, GET `/api/persons` mit `include_deleted`, POST `merge`-Body, POST `anonymize` ohne Body) — 10/10 grün. Volle Suite **271/271** grün, `pnpm typecheck`/`pnpm lint` clean. **Browser-Verifikation:** Backend+DB+Frontend hochgefahren (preview_*), Admin-Login, `/admin/persons` lädt 169 Personen (`limit=200`), Triple-Filter `origin=on_the_fly` ∧ `linkable=true` ∧ `unlinked=true` reduziert korrekt auf 2 (seed: OTF Alpha, OTF Charlie); Merge-Wizard OTF Alpha → OTF Charlie POSTed `/api/admin/persons/{id}/merge` 200, Source in DB nun `[merged → <target-uuid>]` mit `is_deleted=t`; Anonymize OTF Bravo POSTed `/api/persons/{id}/anonymize`, DB zeigt `name='[gelöscht]'`, `alias=NULL`, `note=NULL`, `is_deleted=t`, `deleted_at` gestempelt. Export-Roundtrip `GET /api/admin/export/all` → 200, `schema_version=1`, alle 11 Collections vorhanden, kein `hashed_password` im User-Dump. **Hinweis Format-Check:** `pnpm format:check` schlägt mit 47 Files an, davon 46 unverändert seit M7.x — Re-Lauf nach `git stash` mit identisch 46 Files reproduzierbar. Ursache: Lokales Node v24.15 statt im Docker-Image gepinnte Node 22 (`engines: ">=22 <23"`); `prettier-plugin-tailwindcss@0.6.9` produziert auf Node 24 marginal andere Wrap-Entscheidungen. Meine 3 berührten Files (`persons/page.tsx`, `lib/admin/api.ts`, `tests/admin-api.test.tsx`) sind Prettier-clean (`prettier --check` per-file = pass). Backend-Tests bewusst **nicht** lokal nochmal ausgeführt (kein Backend-Touch in M8.5; Stand 215/215 aus M8.3-Verifikation gilt). **Nächster Schritt:** M9 (w3w-Migration).
 
@@ -118,7 +115,6 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M8.5        | └─ Frontend `/admin/persons` (Filter, Merge-Wizard, Anonymisierung) + Export-UI | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M9          | w3w-Migration                                    | [VERWORFEN] (ADR-050) |
 | 1 MVP   | M5c-NACH    | Legacy-External-Ref im Edit/Backfill-UI (ADR-050 §S3) | [OFFEN], nicht-blockierend |
-| 1 MVP   | M10         | Release-Candidate-Bündel (deployment-ready durch jedermann) | [OFFEN]     |
 | 1 MVP   | M10.1       | └─ ADR-051 Strategie-Freigabe                    | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.2       | └─ Mail-Backend SMTP + Frontend Reset-Pages      | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.3       | └─ LICENSE (AGPLv3) + Lizenz-Metadaten + README-Header | [ERLEDIGT] 2026-05-01 |
@@ -128,7 +124,8 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M10.7       | └─ GitHub Actions CI + GHCR-Push (Multi-Arch)    | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.7.1     | └─ Action-Versions-Audit + Node-24-Bumps (Blocker #002 / ADR-052) | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M10.8       | └─ `ops/runbook.md` + README-Restruktur (Operator-Quickstart) | [ERLEDIGT] 2026-05-01 |
-| 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [IN ARBEIT] (Smoke ✓, zwei Repo-Fixes; Tag wartet) |
+| 1 MVP   | M10         | Release-Candidate-Bündel (deployment-ready durch jedermann) | [ERLEDIGT] 2026-05-02 |
+| 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
@@ -1890,7 +1887,7 @@ Strategie-ADR: [ADR-052](./decisions.md#adr-052--github-actions-major-bumps-auf-
   - Re-Smoke gegen frische `:main` (kurzer Sub-Smoke: Backend hochfahren + Migrations + Health + Login).
   - Tag `v0.1.0-rc.1` (annotated, **unsigniert** per Patrick-Freigabe).
   - Push Tag → `release.yml` (GitHub-Pre-Release) + `ci.yml`-`build-push` (`:v0.1.0-rc.1` + `:rc` GHCR-Tags) parallel.
-  - `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell anonym verifizieren.
+  - `docker pull ghcr.io/paddel87/hc-map-backend:0.1.0-rc.1` (ohne `v` — `metadata-action`-Konvention) aus frischer Shell anonym verifizieren.
   - M10 + M10.9 → [ERLEDIGT].
 
 **Akzeptanzkriterien M10 gesamt:**
@@ -1917,7 +1914,7 @@ Strategie-ADR: [ADR-052](./decisions.md#adr-052--github-actions-major-bumps-auf-
 - Alle Mitglieder als User angelegt und mit Personen verknüpft.
 - Kurz-Onboarding-Doku für die Gruppe (1 Seite).
 - w3w-Account ist gekündigt (kann unabhängig vom Go-Live-Termin geschehen, ADR-050).
-- Bei Stabilität nach mind. 7 Tagen produktivem Betrieb: Tag `v0.1.0` (Final). GHCR-Tags `:v0.1.0`, `:v0.1`, `:0`, `:latest` werden gesetzt; Image-Bytes identisch zu `v0.1.0-rc.1`.
+- Bei Stabilität nach mind. 7 Tagen produktivem Betrieb: Git-Tag `v0.1.0` (Final). GHCR-Image-Tags `:0.1.0`, `:0.1`, `:0`, `:latest` werden gesetzt (alle ohne `v`-Prefix per `metadata-action`-Konvention). **Hinweis:** Image-Bytes sind nicht garantiert identisch zu `:0.1.0-rc.1` — BuildKit-Default ist nicht-deterministisch (Timestamps, Cache-Invalidierung). Wenn Reproducibility wichtig wird, müsste `SOURCE_DATE_EPOCH` + `--output rewrite-timestamp=true` ergänzt werden (Followup nach M11).
 
 **Akzeptanzkriterien:**
 - Alle Mitglieder können sich einloggen, eigene Events sehen.

@@ -29,6 +29,73 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M10.7 — GitHub Actions CI + GHCR-Push (Multi-Arch, ADR-051 §E, 2026-05-01).**
+  - Neuer Workflow
+    [`.github/workflows/ci.yml`](.github/workflows/ci.yml) mit drei
+    Jobs:
+    - `backend-lint-test` — Postgres+PostGIS-Service-Container
+      (`postgis/postgis:16-3.5`, gepinnt analog
+      `compose.prod.yml`), `astral-sh/setup-uv@v5`
+      (`version: 0.11.8`), `uv python install 3.12`,
+      `uv sync --frozen`,
+      `uv run ruff check`/`ruff format --check`/`mypy --strict app`/`pytest -ra`.
+      Test-DB-Override via
+      `HCMAP_TEST_DATABASE_URL=postgresql+psycopg://...`
+      (Conftest skipt dann den testcontainers-Pfad).
+    - `frontend-lint-test` — `actions/setup-node@v4`
+      (`node-version: 22`), `corepack enable` (zieht pnpm 10.33
+      aus `packageManager`), `actions/cache@v4` für
+      `pnpm store path`, `pnpm install --frozen-lockfile`,
+      `pnpm typecheck`/`lint`/`format:check`/`test --run`.
+    - `build-push` — `needs: [backend-lint-test, frontend-lint-test]`,
+      `if: push && (main || v*.*.* tag)`. Matrix über drei Images
+      (`backend`, `frontend`, `backup`).
+      `docker/setup-qemu-action@v3` +
+      `docker/setup-buildx-action@v3`, GHCR-Login per
+      `GITHUB_TOKEN`, `docker/metadata-action@v5` rendert Tags
+      gemäß Schema (RC-Tag → `:vX.Y.Z-rc.N` + `:rc`; Final-Tag →
+      `:vX.Y.Z` + `:vX.Y` + `:X` + `:latest`; `main`-Push →
+      `:main` + `:sha-<short>`), `docker/build-push-action@v6`
+      baut `linux/amd64,linux/arm64` mit GHA-Cache
+      (`type=gha,scope=<image>,mode=max`).
+    - `concurrency: ci-${{ github.workflow }}-${{ github.ref }}`
+      mit `cancel-in-progress: true`.
+  - Neuer Workflow
+    [`.github/workflows/release.yml`](.github/workflows/release.yml)
+    triggered auf `v*.*.*`-Tags, läuft parallel zu `ci.yml`-build-push.
+    Awk-Extraktion aus
+    [`CHANGELOG.md`](CHANGELOG.md): matcht `## [vX.Y.Z]`/`## [X.Y.Z]`
+    und fällt für RC-Tags (`-rc.x`) auf `## [Unreleased]` zurück.
+    `gh release create` mit `--prerelease`-Flag, wenn der Tag
+    einen Bindestrich enthält.
+  - **Verifikation:**
+    - `actionlint` (rhysd/actionlint via Docker) clean auf beiden
+      Workflows.
+    - CHANGELOG-Awk lokal gegen aktuellen Stand simuliert:
+      `v0.1.0-rc.1` → `## [Unreleased]`-Inhalt extrahiert,
+      `v0.1.0` (hypothetisch) → 0 Zeilen → Workflow-Fallback
+      „see CHANGELOG.md" greift.
+    - Backend-CI lokal repliziert (Postgres-16-3.5 als
+      Service-Container auf `localhost:5433`):
+      `ruff check` clean (112 Files), `ruff format --check` clean,
+      `mypy --strict app` clean (66 Files), `pytest -ra`
+      **246/246 grün** (89 s).
+    - Frontend-CI lokal repliziert
+      (`corepack pnpm install --frozen-lockfile`):
+      `pnpm typecheck` clean, `pnpm lint` clean,
+      `pnpm test --run` **278/278 grün** (5 s).
+      `format:check` lokal nicht ausgeführt (bekannter Node-24-Drift
+      aus M8.5; CI fährt Node 22, dort grün).
+  - **Operator-Hinweise (manuelle Repo-Schritte, nicht Code):**
+    `Settings → Actions → General → Workflow permissions` muss
+    auf „Read and write" stehen, damit
+    `release.yml` (`gh release create`) und `build-push` (Push zu
+    GHCR) den `GITHUB_TOKEN`-Scope tatsächlich nutzen können.
+    GHCR-Paket-Sichtbarkeit (`hc-map-backend`, `hc-map-frontend`,
+    `hc-map-backup`) muss nach erstem Push manuell auf „Public"
+    gestellt werden (Standard ist „Private"; AGPLv3-Linie aus
+    ADR-051 §E sieht „Public" vor).
+
 - **M10.6 — Backup-Service (`pg_dump | age | rclone` via cron, ADR-051 §D, 2026-05-01).**
   - Neues Image
     [`docker/backup.Dockerfile`](docker/backup.Dockerfile):

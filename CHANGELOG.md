@@ -9,6 +9,35 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M8.5 — Frontend Personen-Verwaltung und Export-UI (ADR-049 §H, M8 abgeschlossen):**
+  - **`/admin/persons`** mit Suchfeld und Filter-Toggles `origin =
+    on_the_fly`, `linkable = true`, `unlinked` und `inkl. anonymisierte /
+    gemergte` (kombinierbar). Personen-Tabelle zeigt Origin, Linkable-
+    Status, ob ein User mit der Person verknüpft ist, und den Aktiv-/
+    Inaktiv-Status; pro Reihe `Mergen…` und `Anonymisieren…` (deaktiviert
+    für soft-deleted Personen).
+  - **Merge-Wizard** als Radix-Dialog mit Source-Vorschau, Target-Picker
+    (Radio-Liste über aktuelle Filter, exklusive Source/soft-deleted),
+    POST `/api/admin/persons/{id}/merge` und Result-Anzeige (Konflikt-
+    Counts: Participants neu zugeordnet, gelöschte Participants,
+    Applications-Performer/Recipient).
+  - **Anonymisierungs-Dialog** mit DSGVO-Art.-17-Hinweis (ADR-002),
+    POST `/api/persons/{id}/anonymize` (admin-only-Endpoint aus M2,
+    bewusst nicht unter `/api/admin/` dupliziert).
+  - **Export-Trigger** als Download-Anker auf `/api/admin/export/all`
+    (`hc-map-export.json`); Schema unverändert ggü. M8.3.
+  - **TanStack-Query-Erweiterung** in `frontend/src/lib/admin/api.ts`:
+    neuer Hook `useAdminPersons` (separater Cache-Key
+    `["admin","persons", …]` neben dem M8.4-Linkable-Picker, Default
+    `limit=200`, `include_deleted` durchgereicht) und
+    `useAnonymizePerson` mit gezielter Cache-Invalidation auf
+    `persons`/`linkable-persons`/`stats`.
+  - **Tests:** `tests/admin-api.test.tsx` um 4 Cases ergänzt
+    (Cache-Key-Stabilität `adminPersonsQueryKey`, GET `/api/persons` mit
+    `include_deleted`, POST `merge`-Body, POST `anonymize` ohne Body).
+    Volle Frontend-Suite **271/271 grün**, `pnpm typecheck`/`pnpm lint`
+    clean.
+
 - **M8.4 — Frontend Admin-Dashboard und User-Verwaltung (ADR-049 §H):**
   - **Dashboard `/admin`** zeigt 4 Stat-Cards (Events gesamt, Personen,
     On-the-fly-unverknüpft, Pending-Vorschläge), Events/Monat über die

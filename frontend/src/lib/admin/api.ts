@@ -159,6 +159,45 @@ export function useLinkablePersons(params: PersonsListParams = {}) {
   });
 }
 
+// ---------- Admin persons listing (Filter/Merge/Anonymize, M8.5) ----------
+
+/**
+ * Admin-facing persons list. Same backend route as ``useLinkablePersons``
+ * but a separate cache key so the M8.4 user-creation picker and the
+ * M8.5 merge/anonymise workspace can coexist without invalidating each
+ * other on every keystroke. The optional ``include_deleted`` flag lets
+ * the admin still see the soft-delete trail of merged/anonymised rows.
+ */
+export function adminPersonsQueryKey(params: PersonsListParams = {}) {
+  const { q, limit, offset, include_deleted } = params;
+  return [
+    ...ADMIN_KEY,
+    "persons",
+    {
+      q: q ?? null,
+      limit: limit ?? null,
+      offset: offset ?? null,
+      include_deleted: include_deleted ?? null,
+    },
+  ] as const;
+}
+
+export function useAdminPersons(params: PersonsListParams = {}) {
+  return useQuery({
+    queryKey: adminPersonsQueryKey(params),
+    queryFn: () =>
+      apiFetch<Page<PersonRead>>("/api/persons", {
+        query: {
+          q: params.q,
+          limit: params.limit ?? 200,
+          offset: params.offset ?? 0,
+          include_deleted: params.include_deleted,
+        },
+      }),
+    staleTime: 30 * 1000,
+  });
+}
+
 // ---------- Person merge ----------
 
 export function useMergePerson() {
@@ -170,6 +209,28 @@ export function useMergePerson() {
         body: { target_id },
       }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...ADMIN_KEY, "linkable-persons"] });
+      void qc.invalidateQueries({ queryKey: [...ADMIN_KEY, "persons"] });
+      void qc.invalidateQueries({ queryKey: adminStatsQueryKey() });
+    },
+  });
+}
+
+// ---------- Person anonymise (DSGVO Art. 17, ADR-002) ----------
+
+/**
+ * POSTs ``/api/persons/{id}/anonymize`` (the existing endpoint from M2,
+ * deliberately reused per ADR-049 §H instead of being re-mounted under
+ * ``/api/admin/*``). 100 % coverage requirement comes from
+ * project-context.md §6 (DSGVO-Pflicht).
+ */
+export function useAnonymizePerson() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<PersonRead>(`/api/persons/${id}/anonymize`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [...ADMIN_KEY, "persons"] });
       void qc.invalidateQueries({ queryKey: [...ADMIN_KEY, "linkable-persons"] });
       void qc.invalidateQueries({ queryKey: adminStatsQueryKey() });
     },

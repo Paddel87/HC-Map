@@ -12,11 +12,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   adminExportUrl,
+  adminPersonsQueryKey,
   adminStatsQueryKey,
   adminUsersQueryKey,
+  useAdminPersons,
   useAdminStats,
+  useAnonymizePerson,
   useCreateAdminUser,
   useDeactivateAdminUser,
+  useMergePerson,
   useUpdateAdminUser,
 } from "@/lib/admin/api";
 
@@ -59,6 +63,19 @@ describe("admin api helpers", () => {
       "admin",
       "users",
       { role: "editor", is_active: true, limit: null, offset: null },
+    ]);
+  });
+
+  it("buildt stable cache keys for the persons listing (M8.5)", () => {
+    expect(adminPersonsQueryKey()).toEqual([
+      "admin",
+      "persons",
+      { q: null, limit: null, offset: null, include_deleted: null },
+    ]);
+    expect(adminPersonsQueryKey({ q: "ada", include_deleted: true })).toEqual([
+      "admin",
+      "persons",
+      { q: "ada", limit: null, offset: null, include_deleted: true },
     ]);
   });
 
@@ -169,5 +186,72 @@ describe("useUpdateAdminUser / useDeactivateAdminUser", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/admin/users/u1");
     expect(init?.method).toBe("DELETE");
+  });
+});
+
+describe("useAdminPersons (M8.5)", () => {
+  it("GETs /api/persons with limit + include_deleted query", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, limit: 200, offset: 0 }));
+
+    const { result } = renderHook(() => useAdminPersons({ include_deleted: true }), {
+      wrapper: withQuery(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/persons?limit=200&offset=0&include_deleted=true");
+  });
+});
+
+describe("useMergePerson (M8.5)", () => {
+  it("POSTs /api/admin/persons/{source}/merge with target_id", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        source_id: "p-src",
+        target_id: "p-tgt",
+        affected_event_participants: 2,
+        deleted_event_participants: 1,
+        affected_applications_performer: 3,
+        affected_applications_recipient: 4,
+      }),
+    );
+
+    const { result } = renderHook(() => useMergePerson(), { wrapper: withQuery() });
+    const res = await result.current.mutateAsync({ sourceId: "p-src", target_id: "p-tgt" });
+
+    expect(res.affected_event_participants).toBe(2);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/admin/persons/p-src/merge");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({ target_id: "p-tgt" });
+  });
+});
+
+describe("useAnonymizePerson (M8.5, ADR-002)", () => {
+  it("POSTs /api/persons/{id}/anonymize without a body (DSGVO)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: "p1",
+        name: "[gelöscht]",
+        alias: null,
+        note: null,
+        origin: "managed",
+        linkable: false,
+        is_deleted: true,
+        deleted_at: "2026-05-01T00:00:00Z",
+        created_at: "2026-04-01T00:00:00Z",
+      }),
+    );
+
+    const { result } = renderHook(() => useAnonymizePerson(), { wrapper: withQuery() });
+    const person = await result.current.mutateAsync("p1");
+
+    expect(person.is_deleted).toBe(true);
+    expect(person.name).toBe("[gelöscht]");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/persons/p1/anonymize");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBeUndefined();
   });
 });

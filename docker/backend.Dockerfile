@@ -22,8 +22,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project || \
     uv sync --no-dev --no-install-project
 
-# Project source.
+# Project source. The migrations dir + alembic.ini ship with the image so
+# the auto-migration runner (app/migrations_runner.py, ADR-051 §F) finds
+# its script_location at /app/migrations on container startup. The scripts
+# package ships too so operators can `docker exec backend python -m
+# scripts.bootstrap_admin ...` per ops/runbook.md §9.
 COPY backend/app ./app
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/scripts ./scripts
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev || uv sync --no-dev
 
@@ -41,6 +48,9 @@ WORKDIR /app
 
 COPY --from=builder --chown=hcmap:hcmap /app/.venv /app/.venv
 COPY --from=builder --chown=hcmap:hcmap /app/app /app/app
+COPY --from=builder --chown=hcmap:hcmap /app/migrations /app/migrations
+COPY --from=builder --chown=hcmap:hcmap /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=hcmap:hcmap /app/scripts /app/scripts
 
 USER hcmap
 

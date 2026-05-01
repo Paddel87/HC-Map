@@ -74,9 +74,7 @@ export type CatalogEntry<K extends CatalogKind = CatalogKind> = K extends "restr
 
 export type AnyCatalogEntry = LookupCatalogEntry | RestraintTypeEntry;
 
-export function isRestraintTypeEntry(
-  entry: AnyCatalogEntry,
-): entry is RestraintTypeEntry {
+export function isRestraintTypeEntry(entry: AnyCatalogEntry): entry is RestraintTypeEntry {
   return "display_name" in entry;
 }
 

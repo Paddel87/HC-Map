@@ -139,9 +139,7 @@ describe("eventsToGeoJSON (M6.3, ADR-041 §C)", () => {
   });
 
   it("flips lat/lon to GeoJSON [lon, lat] order", () => {
-    const collection = eventsToGeoJSON([
-      makeMappable({ lat: 52.52, lon: 13.405 }),
-    ]);
+    const collection = eventsToGeoJSON([makeMappable({ lat: 52.52, lon: 13.405 })]);
     expect(collection.features[0]?.geometry.coordinates).toEqual([13.405, 52.52]);
   });
 
@@ -175,10 +173,6 @@ describe("eventsToGeoJSON (M6.3, ADR-041 §C)", () => {
       makeMappable({ id: "c", lat: 50.1, lon: 8.7 }),
     ]);
     expect(collection.features).toHaveLength(3);
-    expect(collection.features.map((f) => f.properties.id)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(collection.features.map((f) => f.properties.id)).toEqual(["a", "b", "c"]);
   });
 });

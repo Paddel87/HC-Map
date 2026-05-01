@@ -1,8 +1,4 @@
-export {
-  DEFAULT_MAP_CENTER,
-  TILE_URL_TEMPLATE,
-  rasterTileStyle,
-} from "./style";
+export { DEFAULT_MAP_CENTER, TILE_URL_TEMPLATE, rasterTileStyle } from "./style";
 export {
   selectMappableEvents,
   isMappableEvent,

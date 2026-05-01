@@ -41,9 +41,7 @@ import { useDatabase } from "@/lib/rxdb/provider";
 import type { EventDocType, EventParticipantDocType } from "@/lib/rxdb/types";
 import { type EventDetail, type PersonRead } from "@/lib/types";
 
-type RxdbState =
-  | { resolved: false; doc: null }
-  | { resolved: true; doc: EventDocType | null };
+type RxdbState = { resolved: false; doc: null } | { resolved: true; doc: EventDocType | null };
 
 type ServerState =
   | { status: "loading" }
@@ -91,13 +89,9 @@ export default function EventDetailPage() {
     const sub = database.event_participants
       .find({ selector: { event_id: id, _deleted: { $eq: false } } })
       .$.subscribe((rows) => {
-        const next = rows
-          .map((r) => (r.toJSON() as EventParticipantDocType).person_id)
-          .sort();
+        const next = rows.map((r) => (r.toJSON() as EventParticipantDocType).person_id).sort();
         setParticipantIds((current) =>
-          current.length === next.length && current.every((v, i) => v === next[i])
-            ? current
-            : next,
+          current.length === next.length && current.every((v, i) => v === next[i]) ? current : next,
         );
       });
     return () => sub.unsubscribe();
@@ -227,10 +221,7 @@ function pickInitialEvent(
   return null;
 }
 
-function mergeParticipants(
-  detail: EventDetail,
-  rxdbIds: string[],
-): EventDetail {
+function mergeParticipants(detail: EventDetail, rxdbIds: string[]): EventDetail {
   if (rxdbIds.length === 0) return detail;
   const byId = new Map(detail.participants.map((p) => [p.id, p]));
   const merged: PersonRead[] = rxdbIds.map((id) => byId.get(id) ?? anonymousPerson(id));
@@ -314,4 +305,3 @@ function UnavailableCard() {
     </div>
   );
 }
-

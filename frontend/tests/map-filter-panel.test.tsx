@@ -21,36 +21,32 @@ function withQuery(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return ({ children }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
+  return ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 function mockPersonsEndpoint(persons: Array<{ id: string; name: string }>) {
-  (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-    async (url: string) => {
-      if (url.startsWith("/api/persons")) {
-        return new Response(
-          JSON.stringify({
-            items: persons.map((p) => ({
-              id: p.id,
-              name: p.name,
-              alias: null,
-              note: null,
-              origin: "managed",
-              linkable: false,
-              is_deleted: false,
-              deleted_at: null,
-              created_at: "2026-04-27T12:00:00Z",
-            })),
-            total: persons.length,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response("not found", { status: 404 });
-    },
-  );
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+    if (url.startsWith("/api/persons")) {
+      return new Response(
+        JSON.stringify({
+          items: persons.map((p) => ({
+            id: p.id,
+            name: p.name,
+            alias: null,
+            note: null,
+            origin: "managed",
+            linkable: false,
+            is_deleted: false,
+            deleted_at: null,
+            created_at: "2026-04-27T12:00:00Z",
+          })),
+          total: persons.length,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response("not found", { status: 404 });
+  });
 }
 
 const PERSON_A = "11111111-1111-1111-1111-111111111111";
@@ -90,12 +86,7 @@ describe("MapFilterPanel (M6.4)", () => {
     mockPersonsEndpoint([]);
     const onChange = vi.fn();
     render(
-      <MapFilterPanel
-        open
-        onOpenChange={() => {}}
-        filters={EMPTY_FILTERS}
-        onChange={onChange}
-      />,
+      <MapFilterPanel open onOpenChange={() => {}} filters={EMPTY_FILTERS} onChange={onChange} />,
       { wrapper: withQuery() },
     );
     fireEvent.change(screen.getByTestId("map-filter-from"), {
@@ -159,12 +150,7 @@ describe("MapFilterPanel (M6.4)", () => {
     ]);
     const onChange = vi.fn();
     render(
-      <MapFilterPanel
-        open
-        onOpenChange={() => {}}
-        filters={EMPTY_FILTERS}
-        onChange={onChange}
-      />,
+      <MapFilterPanel open onOpenChange={() => {}} filters={EMPTY_FILTERS} onChange={onChange} />,
       { wrapper: withQuery() },
     );
     await waitFor(() => {
@@ -218,12 +204,7 @@ describe("MapFilterPanel (M6.4)", () => {
       { id: PERSON_B, name: "Bob" },
     ]);
     render(
-      <MapFilterPanel
-        open
-        onOpenChange={() => {}}
-        filters={EMPTY_FILTERS}
-        onChange={() => {}}
-      />,
+      <MapFilterPanel open onOpenChange={() => {}} filters={EMPTY_FILTERS} onChange={() => {}} />,
       { wrapper: withQuery() },
     );
     await waitFor(() => {

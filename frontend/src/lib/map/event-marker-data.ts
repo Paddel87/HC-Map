@@ -77,9 +77,7 @@ export function selectMappableEvents(docs: readonly EventDocType[]): MappableEve
  * while the rest of HC-Map keeps the ``lat, lon`` order. The flip
  * happens here and only here.
  */
-export function eventsToGeoJSON(
-  events: readonly MappableEvent[],
-): MappableEventCollection {
+export function eventsToGeoJSON(events: readonly MappableEvent[]): MappableEventCollection {
   return {
     type: "FeatureCollection",
     features: events.map((event) => ({

@@ -12,13 +12,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -80,10 +74,10 @@ beforeEach(() => {
     value: { href: "http://localhost/", origin: "http://localhost" },
   });
   (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-    return new Response(
-      JSON.stringify({ items: SEED, total: SEED.length, limit: 50, offset: 0 }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ items: SEED, total: SEED.length, limit: 50, offset: 0 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   });
 });
 

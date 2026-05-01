@@ -50,10 +50,7 @@ export function applyEventFilter(
   return result;
 }
 
-function hasIntersection(
-  needle: ReadonlySet<string>,
-  haystack: ReadonlySet<string>,
-): boolean {
+function hasIntersection(needle: ReadonlySet<string>, haystack: ReadonlySet<string>): boolean {
   for (const id of needle) {
     if (haystack.has(id.toLowerCase()) || haystack.has(id)) return true;
   }
@@ -83,9 +80,5 @@ export function buildParticipantsIndex(
 export function filtersAreEmpty(
   filters: Pick<EventFilterCriteria, "from" | "to" | "participantIds">,
 ): boolean {
-  return (
-    filters.from === null &&
-    filters.to === null &&
-    filters.participantIds.length === 0
-  );
+  return filters.from === null && filters.to === null && filters.participantIds.length === 0;
 }

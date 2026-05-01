@@ -14,13 +14,7 @@
  */
 
 import { Search, X } from "lucide-react";
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
@@ -57,11 +51,7 @@ export interface GeocodeSearchBoxProps {
   onSelect: (lat: number, lon: number) => void;
 }
 
-export function GeocodeSearchBox({
-  className,
-  getProximity,
-  onSelect,
-}: GeocodeSearchBoxProps) {
+export function GeocodeSearchBox({ className, getProximity, onSelect }: GeocodeSearchBoxProps) {
   const inputId = useId();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -140,18 +130,12 @@ export function GeocodeSearchBox({
 
   const showDropdown = open && results.length > 0 && query.trim().length >= MIN_QUERY_LENGTH;
   const showEmptyHint =
-    open &&
-    !pending &&
-    !showDropdown &&
-    debouncedQuery.length >= MIN_QUERY_LENGTH;
+    open && !pending && !showDropdown && debouncedQuery.length >= MIN_QUERY_LENGTH;
 
   const ariaList = useMemo(() => `${inputId}-results`, [inputId]);
 
   return (
-    <div
-      className={cn("relative", className)}
-      data-testid="map-geocode-search"
-    >
+    <div className={cn("relative", className)} data-testid="map-geocode-search">
       <Search
         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
         aria-hidden
@@ -238,9 +222,10 @@ function normaliseFeatures(payload: UpstreamCollection): GeocodeFeature[] {
     if (!placeName) continue;
     const center = pickCenter(raw);
     if (!center) continue;
-    const id = typeof raw.id === "string" || typeof raw.id === "number"
-      ? String(raw.id)
-      : `${index}-${placeName}`;
+    const id =
+      typeof raw.id === "string" || typeof raw.id === "number"
+        ? String(raw.id)
+        : `${index}-${placeName}`;
     result.push({ id, place_name: placeName, center });
   }
   return result;

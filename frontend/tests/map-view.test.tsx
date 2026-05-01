@@ -30,18 +30,13 @@ import { BehaviorSubject } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MapFilters, MappableEventCollection } from "@/lib/map";
-import type {
-  EventDocType,
-  EventParticipantDocType,
-} from "@/lib/rxdb/types";
+import type { EventDocType, EventParticipantDocType } from "@/lib/rxdb/types";
 
 interface MapMockProps {
   children: ReactNode;
   initialViewState?: { latitude: number; longitude: number; zoom: number };
   onClick?: (event: FakeMapMouseEvent) => void;
-  onMoveEnd?: (event: {
-    viewState: { latitude: number; longitude: number; zoom: number };
-  }) => void;
+  onMoveEnd?: (event: { viewState: { latitude: number; longitude: number; zoom: number } }) => void;
   interactiveLayerIds?: string[];
 }
 
@@ -131,16 +126,8 @@ vi.mock("react-map-gl/maplibre", () => ({
     return <div data-testid="mock-layer" data-layer-id={props.id} />;
   },
   Popup: ({ latitude, longitude, onClose, children }: PopupMockProps) => (
-    <div
-      data-testid="mock-popup"
-      data-lat={latitude}
-      data-lon={longitude}
-    >
-      <button
-        type="button"
-        data-testid="mock-popup-close"
-        onClick={onClose}
-      />
+    <div data-testid="mock-popup" data-lat={latitude} data-lon={longitude}>
+      <button type="button" data-testid="mock-popup-close" onClick={onClose} />
       {children}
     </div>
   ),
@@ -150,12 +137,7 @@ vi.mock("react-map-gl/maplibre", () => ({
 vi.mock("@/components/map/map-filter-panel", () => ({
   MapFilterPanel: (props: FilterPanelMockProps) => {
     filterPanelProps = props;
-    return (
-      <div
-        data-testid="mock-filter-panel"
-        data-open={props.open ? "true" : "false"}
-      />
-    );
+    return <div data-testid="mock-filter-panel" data-open={props.open ? "true" : "false"} />;
   },
 }));
 
@@ -247,9 +229,9 @@ function makeDatabase(
   const eventsSubject = new BehaviorSubject<{ toJSON: () => EventDocType }[]>(
     docs.map((d) => ({ toJSON: () => d })),
   );
-  const partsSubject = new BehaviorSubject<
-    { toJSON: () => EventParticipantDocType }[]
-  >(participants.map((p) => ({ toJSON: () => p })));
+  const partsSubject = new BehaviorSubject<{ toJSON: () => EventParticipantDocType }[]>(
+    participants.map((p) => ({ toJSON: () => p })),
+  );
   return {
     events: { find: () => ({ $: eventsSubject }) },
     event_participants: { find: () => ({ $: partsSubject }) },
@@ -284,11 +266,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
 
     const ids = layerProps.map((l) => l.id);
     expect(ids).toEqual(
-      expect.arrayContaining([
-        "events-clusters",
-        "events-cluster-count",
-        "events-unclustered",
-      ]),
+      expect.arrayContaining(["events-clusters", "events-cluster-count", "events-unclustered"]),
     );
     expect(mapProps?.interactiveLayerIds).toEqual(
       expect.arrayContaining(["events-clusters", "events-unclustered"]),
@@ -305,18 +283,13 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
       ]),
     );
     render(<MapView />);
-    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual(["a", "b"]);
   });
 
   it("shows the empty status when no events are mappable", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     render(<MapView />);
-    expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
-      "Keine sichtbaren Events",
-    );
+    expect(screen.getByTestId("map-status-bar")).toHaveTextContent("Keine sichtbaren Events");
     expect(sourceProps?.data.features).toHaveLength(0);
   });
 
@@ -328,32 +301,21 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("reports the event count in the status bar (singular)", () => {
-    useDatabaseMock.mockReturnValue(
-      makeDatabase([makeDoc({ id: "only" })]),
-    );
+    useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "only" })]));
     render(<MapView />);
-    expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
-      "1 Event sichtbar",
-    );
+    expect(screen.getByTestId("map-status-bar")).toHaveTextContent("1 Event sichtbar");
   });
 
   it("reports the event count in the status bar (plural)", () => {
     useDatabaseMock.mockReturnValue(
-      makeDatabase([
-        makeDoc({ id: "a" }),
-        makeDoc({ id: "b", lat: 48.1, lon: 11.5 }),
-      ]),
+      makeDatabase([makeDoc({ id: "a" }), makeDoc({ id: "b", lat: 48.1, lon: 11.5 })]),
     );
     render(<MapView />);
-    expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
-      "2 Events sichtbar",
-    );
+    expect(screen.getByTestId("map-status-bar")).toHaveTextContent("2 Events sichtbar");
   });
 
   it("opens a popup with a detail link when an unclustered point is clicked", () => {
-    useDatabaseMock.mockReturnValue(
-      makeDatabase([makeDoc({ id: "evt-1", lat: 50, lon: 10 })]),
-    );
+    useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "evt-1", lat: 50, lon: 10 })]));
     render(<MapView />);
     expect(screen.queryByTestId("map-event-popup")).toBeNull();
 
@@ -372,10 +334,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
 
     const popup = screen.getByTestId("map-event-popup");
     expect(popup).toBeInTheDocument();
-    expect(screen.getByTestId("map-event-popup-link")).toHaveAttribute(
-      "href",
-      "/events/evt-1",
-    );
+    expect(screen.getByTestId("map-event-popup-link")).toHaveAttribute("href", "/events/evt-1");
     expect(popup).toHaveTextContent("läuft");
   });
 
@@ -443,9 +402,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("ignores clicks on non-interactive features", () => {
-    useDatabaseMock.mockReturnValue(
-      makeDatabase([makeDoc({ id: "evt-1" })]),
-    );
+    useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "evt-1" })]));
     render(<MapView />);
     act(() => {
       mapProps?.onClick?.({
@@ -457,9 +414,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("closes the popup when the close button is clicked", () => {
-    useDatabaseMock.mockReturnValue(
-      makeDatabase([makeDoc({ id: "evt-1" })]),
-    );
+    useDatabaseMock.mockReturnValue(makeDatabase([makeDoc({ id: "evt-1" })]));
     render(<MapView />);
     act(() => {
       mapProps?.onClick?.({
@@ -479,9 +434,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("seeds the viewport from URL params", () => {
-    useSearchParamsMock.mockReturnValue(
-      new URLSearchParams("lat=48.1&lon=11.5&zoom=13"),
-    );
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("lat=48.1&lon=11.5&zoom=13"));
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     render(<MapView />);
     expect(mapProps?.initialViewState).toEqual({
@@ -500,9 +453,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
 
   it("seeds the filter panel from URL filter params", () => {
     useSearchParamsMock.mockReturnValue(
-      new URLSearchParams(
-        "from=2026-04-01&to=2026-04-30&p=11111111-1111-1111-1111-111111111111",
-      ),
+      new URLSearchParams("from=2026-04-01&to=2026-04-30&p=11111111-1111-1111-1111-111111111111"),
     );
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     render(<MapView />);
@@ -514,9 +465,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("applies the date filter to the rendered features", () => {
-    useSearchParamsMock.mockReturnValue(
-      new URLSearchParams("from=2026-04-15"),
-    );
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("from=2026-04-15"));
     useDatabaseMock.mockReturnValue(
       makeDatabase([
         makeDoc({ id: "before", started_at: "2026-04-01T08:00:00Z" }),
@@ -524,12 +473,8 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
       ]),
     );
     render(<MapView />);
-    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
-      "after",
-    ]);
-    expect(screen.getByTestId("map-status-bar")).toHaveTextContent(
-      "1 von 2 Events (gefiltert)",
-    );
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual(["after"]);
+    expect(screen.getByTestId("map-status-bar")).toHaveTextContent("1 von 2 Events (gefiltert)");
   });
 
   it("applies the participant filter using event_participants", () => {
@@ -537,17 +482,12 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
     useSearchParamsMock.mockReturnValue(new URLSearchParams(`p=${personId}`));
     useDatabaseMock.mockReturnValue(
       makeDatabase(
-        [
-          makeDoc({ id: "with-person" }),
-          makeDoc({ id: "without-person", lat: 48.1, lon: 11.5 }),
-        ],
+        [makeDoc({ id: "with-person" }), makeDoc({ id: "without-person", lat: 48.1, lon: 11.5 })],
         [makeParticipant("with-person", personId)],
       ),
     );
     render(<MapView />);
-    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual([
-      "with-person",
-    ]);
+    expect(sourceProps?.data.features.map((f) => f.properties.id)).toEqual(["with-person"]);
   });
 
   it("writes filter changes immediately to the URL", () => {
@@ -560,10 +500,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
         participantIds: [],
       });
     });
-    expect(routerReplaceMock).toHaveBeenCalledWith(
-      "/map?from=2026-04-01",
-      { scroll: false },
-    );
+    expect(routerReplaceMock).toHaveBeenCalledWith("/map?from=2026-04-01", { scroll: false });
   });
 
   it("debounces viewport URL writes by 300 ms", () => {
@@ -618,18 +555,11 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   });
 
   it("shows the active-filter badge when filters are applied", () => {
-    useSearchParamsMock.mockReturnValue(
-      new URLSearchParams("from=2026-04-01"),
-    );
+    useSearchParamsMock.mockReturnValue(new URLSearchParams("from=2026-04-01"));
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     render(<MapView />);
-    expect(screen.getByTestId("map-filter-toggle")).toHaveAttribute(
-      "data-filter-active",
-      "true",
-    );
-    expect(screen.getByTestId("map-filter-toggle")).toHaveTextContent(
-      "Filter aktiv",
-    );
+    expect(screen.getByTestId("map-filter-toggle")).toHaveAttribute("data-filter-active", "true");
+    expect(screen.getByTestId("map-filter-toggle")).toHaveTextContent("Filter aktiv");
   });
 
   it("flies to the picked geocoding result", () => {
@@ -648,9 +578,7 @@ describe("MapView (M6.2 / M6.3 / M6.4)", () => {
   it("forwards the current viewport as proximity to the search box", () => {
     vi.useFakeTimers();
     try {
-      useSearchParamsMock.mockReturnValue(
-        new URLSearchParams("lat=48.1&lon=11.5&zoom=12"),
-      );
+      useSearchParamsMock.mockReturnValue(new URLSearchParams("lat=48.1&lon=11.5&zoom=12"));
       useDatabaseMock.mockReturnValue(makeDatabase([]));
       render(<MapView />);
 

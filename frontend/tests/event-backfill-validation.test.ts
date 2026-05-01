@@ -24,9 +24,7 @@ function app(
   return { uiId, startedAt, endedAt, recipientId, note: null };
 }
 
-function event(
-  overrides: Partial<BackfillEventInput> = {},
-): BackfillEventInput {
+function event(overrides: Partial<BackfillEventInput> = {}): BackfillEventInput {
   return {
     startedAt: T(0),
     endedAt: T(60),
@@ -67,9 +65,7 @@ describe("validateBackfill — event-level", () => {
 
 describe("validateBackfill — per-application", () => {
   it("rejects missing application started_at and recipient", () => {
-    const result = validateBackfill(
-      event({ applications: [app("a", null, null, null)] }),
-    );
+    const result = validateBackfill(event({ applications: [app("a", null, null, null)] }));
     expect(result.valid).toBe(false);
     if (result.valid) return;
     const fields = errorsForApplication(result.errors, "a").map((e) => e.field);
@@ -78,9 +74,7 @@ describe("validateBackfill — per-application", () => {
   });
 
   it("rejects application ended_at before started_at", () => {
-    const result = validateBackfill(
-      event({ applications: [app("a", T(20), T(10))] }),
-    );
+    const result = validateBackfill(event({ applications: [app("a", T(20), T(10))] }));
     expect(result.valid).toBe(false);
     if (result.valid) return;
     const fields = errorsForApplication(result.errors, "a").map((e) => e.field);
@@ -88,25 +82,17 @@ describe("validateBackfill — per-application", () => {
   });
 
   it("rejects application starting before the event", () => {
-    const result = validateBackfill(
-      event({ applications: [app("a", T(-10), T(5))] }),
-    );
+    const result = validateBackfill(event({ applications: [app("a", T(-10), T(5))] }));
     expect(result.valid).toBe(false);
     if (result.valid) return;
-    expect(
-      errorsForApplication(result.errors, "a").map((e) => e.field),
-    ).toContain("bounds");
+    expect(errorsForApplication(result.errors, "a").map((e) => e.field)).toContain("bounds");
   });
 
   it("rejects application ending after the event", () => {
-    const result = validateBackfill(
-      event({ applications: [app("a", T(10), T(70))] }),
-    );
+    const result = validateBackfill(event({ applications: [app("a", T(10), T(70))] }));
     expect(result.valid).toBe(false);
     if (result.valid) return;
-    expect(
-      errorsForApplication(result.errors, "a").map((e) => e.field),
-    ).toContain("bounds");
+    expect(errorsForApplication(result.errors, "a").map((e) => e.field)).toContain("bounds");
   });
 
   it("rejects two overlapping applications", () => {
@@ -120,9 +106,7 @@ describe("validateBackfill — per-application", () => {
     );
     expect(result.valid).toBe(false);
     if (result.valid) return;
-    expect(
-      errorsForApplication(result.errors, "b").map((e) => e.field),
-    ).toContain("overlap");
+    expect(errorsForApplication(result.errors, "b").map((e) => e.field)).toContain("overlap");
   });
 });
 
@@ -130,20 +114,12 @@ describe("validateBackfill — happy path with multiple applications", () => {
   it("returns the apps sorted by started_at and no errors", () => {
     const result = validateBackfill(
       event({
-        applications: [
-          app("c", T(40), T(55)),
-          app("a", T(0), T(20)),
-          app("b", T(20), T(40)),
-        ],
+        applications: [app("c", T(40), T(55)), app("a", T(0), T(20)), app("b", T(20), T(40))],
       }),
     );
     expect(result.valid).toBe(true);
     if (!result.valid) return;
-    expect(result.sortedApplications.map((a) => a.uiId)).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(result.sortedApplications.map((a) => a.uiId)).toEqual(["a", "b", "c"]);
   });
 
   it("treats touching ends (a.ended_at === b.started_at) as non-overlap", () => {

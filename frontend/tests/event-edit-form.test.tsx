@@ -215,10 +215,7 @@ interface FakeDatabase {
   };
 }
 
-function makeDatabase(opts: {
-  event?: EventDocType;
-  applications?: ApplicationDocType[];
-}): {
+function makeDatabase(opts: { event?: EventDocType; applications?: ApplicationDocType[] }): {
   database: FakeDatabase;
   eventDoc: MockDoc<EventDocType>;
   appDocs: MockDoc<ApplicationDocType>[];
@@ -386,7 +383,10 @@ describe("EventEditForm — soft-delete (ADR-040 §D)", () => {
   it("soft-deletes an application after window.confirm", async () => {
     const { database, appDocs } = makeDatabase({});
     useDatabaseMock.mockReturnValue(database);
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
     render(<EventEditForm user={USER} initialEvent={makeInitialEvent()} />);
 
     await screen.findByTestId("event-edit-application-row");
@@ -398,7 +398,10 @@ describe("EventEditForm — soft-delete (ADR-040 §D)", () => {
   it("aborts soft-delete when window.confirm is dismissed", async () => {
     const { database, appDocs } = makeDatabase({});
     useDatabaseMock.mockReturnValue(database);
-    vi.stubGlobal("confirm", vi.fn(() => false));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => false),
+    );
     render(<EventEditForm user={USER} initialEvent={makeInitialEvent()} />);
 
     await screen.findByTestId("event-edit-application-row");
@@ -411,7 +414,10 @@ describe("EventEditForm — soft-delete (ADR-040 §D)", () => {
   it("soft-deletes the event and navigates back to the dashboard", async () => {
     const { database, eventDoc } = makeDatabase({});
     useDatabaseMock.mockReturnValue(database);
-    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
     render(<EventEditForm user={USER} initialEvent={makeInitialEvent()} />);
 
     await screen.findByTestId("event-edit-delete");

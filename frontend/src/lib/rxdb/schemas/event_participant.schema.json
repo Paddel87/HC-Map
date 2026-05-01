@@ -36,15 +36,6 @@
       "type": "boolean"
     }
   },
-  "required": [
-    "id",
-    "event_id",
-    "person_id",
-    "created_at",
-    "updated_at"
-  ],
-  "indexes": [
-    "event_id",
-    ["updated_at", "id"]
-  ]
+  "required": ["id", "event_id", "person_id", "created_at", "updated_at"],
+  "indexes": ["event_id", ["updated_at", "id"]]
 }

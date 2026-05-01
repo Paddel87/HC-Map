@@ -3,21 +3,13 @@ import { notFound } from "next/navigation";
 import { CatalogFormPage } from "@/components/catalog/catalog-form-page";
 import { KindTabs } from "@/components/catalog/kind-tabs";
 import { getServerMe } from "@/lib/auth-server";
-import {
-  CATALOG_KINDS,
-  CATALOG_KIND_LABELS,
-  type CatalogKind,
-} from "@/lib/catalog/types";
+import { CATALOG_KINDS, CATALOG_KIND_LABELS, type CatalogKind } from "@/lib/catalog/types";
 
 function isKnownKind(value: string): value is CatalogKind {
   return (CATALOG_KINDS as readonly string[]).includes(value);
 }
 
-export default async function CatalogCreatePage({
-  params,
-}: {
-  params: Promise<{ kind: string }>;
-}) {
+export default async function CatalogCreatePage({ params }: { params: Promise<{ kind: string }> }) {
   const { kind } = await params;
   if (!isKnownKind(kind)) notFound();
   const user = await getServerMe();

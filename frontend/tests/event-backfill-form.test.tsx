@@ -301,8 +301,6 @@ describe("EventBackfillForm — happy path", () => {
     expect(firstApp.sequence_no).toBe(1);
     expect(secondApp.sequence_no).toBe(2);
 
-    expect(routerPushMock).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/events\//),
-    );
+    expect(routerPushMock).toHaveBeenCalledWith(expect.stringMatching(/^\/events\//));
   });
 });

@@ -68,9 +68,7 @@ export function RestraintTypeForm({
     try {
       if (mode.type === "create") {
         await create.mutateAsync(body);
-        toast.success(
-          isAdmin ? "Restraint-Type freigegeben" : "Vorschlag eingereicht",
-        );
+        toast.success(isAdmin ? "Restraint-Type freigegeben" : "Vorschlag eingereicht");
       } else {
         await update.mutateAsync({ id: mode.entry.id, body });
         toast.success("Eintrag aktualisiert");
@@ -118,9 +116,7 @@ export function RestraintTypeForm({
             id="rt-mechanical"
             name="mechanical_type"
             value={mechanicalType}
-            onChange={(e) =>
-              setMechanicalType(e.target.value as RestraintMechanicalType | "")
-            }
+            onChange={(e) => setMechanicalType(e.target.value as RestraintMechanicalType | "")}
             className={SELECT_CLASS}
           >
             <option value="">— keine —</option>
@@ -165,11 +161,13 @@ export function RestraintTypeForm({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={pending}>
-          {pending ? "Speichere …" : mode.type === "create"
-            ? isAdmin
-              ? "Freigeben & speichern"
-              : "Vorschlag einreichen"
-            : "Änderungen speichern"}
+          {pending
+            ? "Speichere …"
+            : mode.type === "create"
+              ? isAdmin
+                ? "Freigeben & speichern"
+                : "Vorschlag einreichen"
+              : "Änderungen speichern"}
         </Button>
         <Button
           type="button"

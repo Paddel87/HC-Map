@@ -40,12 +40,7 @@ export interface MapFilterPanelProps {
   onChange: (next: MapFilters) => void;
 }
 
-export function MapFilterPanel({
-  open,
-  onOpenChange,
-  filters,
-  onChange,
-}: MapFilterPanelProps) {
+export function MapFilterPanel({ open, onOpenChange, filters, onChange }: MapFilterPanelProps) {
   const [query, setQuery] = useState("");
 
   const { data, isPending, isError, refetch } = useQuery({
@@ -72,10 +67,7 @@ export function MapFilterPanel({
       });
   }, [data, query]);
 
-  const selectedSet = useMemo(
-    () => new Set(filters.participantIds),
-    [filters.participantIds],
-  );
+  const selectedSet = useMemo(() => new Set(filters.participantIds), [filters.participantIds]);
 
   function handleFromChange(value: string) {
     onChange({ ...filters, from: value || null });
@@ -107,8 +99,7 @@ export function MapFilterPanel({
         <SheetHeader>
           <SheetTitle>Filter</SheetTitle>
           <SheetDescription>
-            Wirken sofort und werden in der URL gespeichert — Link
-            teilbar.
+            Wirken sofort und werden in der URL gespeichert — Link teilbar.
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto pt-4">
@@ -160,12 +151,7 @@ export function MapFilterPanel({
                   <span className="text-red-600 dark:text-red-400">
                     Personen konnten nicht geladen werden.
                   </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => refetch()}
-                  >
+                  <Button type="button" variant="ghost" size="sm" onClick={() => refetch()}>
                     Erneut
                   </Button>
                 </div>
@@ -174,11 +160,7 @@ export function MapFilterPanel({
                   Keine Treffer{query ? ` für „${query}“` : ""}.
                 </p>
               ) : (
-                <ul
-                  role="listbox"
-                  aria-label="Beteiligte filtern"
-                  className="flex flex-col"
-                >
+                <ul role="listbox" aria-label="Beteiligte filtern" className="flex flex-col">
                   {filteredPersons.map((person) => {
                     const checked = selectedSet.has(person.id);
                     return (
@@ -207,17 +189,10 @@ export function MapFilterPanel({
           </section>
         </div>
         <SheetFooter className="border-t border-slate-100 pt-4 dark:border-slate-800">
-          <Button
-            variant="ghost"
-            onClick={reset}
-            data-testid="map-filter-reset"
-          >
+          <Button variant="ghost" onClick={reset} data-testid="map-filter-reset">
             <X aria-hidden /> Zurücksetzen
           </Button>
-          <Button
-            onClick={() => onOpenChange(false)}
-            data-testid="map-filter-close"
-          >
+          <Button onClick={() => onOpenChange(false)} data-testid="map-filter-close">
             Fertig
           </Button>
         </SheetFooter>

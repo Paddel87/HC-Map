@@ -13,10 +13,7 @@
 import { LookupForm } from "@/components/catalog/lookup-form";
 import { RestraintTypeForm } from "@/components/catalog/restraint-type-form";
 import { useCatalogEntry } from "@/lib/catalog/api";
-import {
-  isRestraintTypeEntry,
-  type CatalogKind,
-} from "@/lib/catalog/types";
+import { isRestraintTypeEntry, type CatalogKind } from "@/lib/catalog/types";
 
 export function CatalogFormPage({
   kind,

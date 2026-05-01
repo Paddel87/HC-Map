@@ -54,10 +54,10 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
   const eventDoc = useEventDoc(initialEvent.id);
   const applications = useApplications(initialEvent.id);
 
-  const event = useMemo<MergedEvent>(() => mergeEvent(initialEvent, eventDoc), [
-    initialEvent,
-    eventDoc,
-  ]);
+  const event = useMemo<MergedEvent>(
+    () => mergeEvent(initialEvent, eventDoc),
+    [initialEvent, eventDoc],
+  );
   const isLive = event.ended_at === null;
   useWakeLock(isLive);
 
@@ -122,12 +122,7 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
           </CardDescription>
           {editable ? (
             <div className="pt-1">
-              <Button
-                asChild
-                variant="secondary"
-                size="sm"
-                data-testid="edit-event-button"
-              >
+              <Button asChild variant="secondary" size="sm" data-testid="edit-event-button">
                 <Link href={`/events/${initialEvent.id}/edit`}>
                   <Pencil aria-hidden /> Bearbeiten
                 </Link>
@@ -138,11 +133,7 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
         {isLive ? (
           <CardContent className="flex flex-col gap-2">
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <Button
-                size="lg"
-                onClick={() => setStartOpen(true)}
-                disabled={!database}
-              >
+              <Button size="lg" onClick={() => setStartOpen(true)} disabled={!database}>
                 <Plus aria-hidden /> Neue Application
               </Button>
               {activeApplication ? (
@@ -160,12 +151,7 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
                 </Button>
               )}
             </div>
-            <Button
-              size="lg"
-              variant="destructive"
-              onClick={handleEndEvent}
-              disabled={!database}
-            >
+            <Button size="lg" variant="destructive" onClick={handleEndEvent} disabled={!database}>
               <Flag aria-hidden /> Event beenden
             </Button>
           </CardContent>
@@ -211,10 +197,7 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ParticipantsList
-            participants={maskedParticipants}
-            currentPersonId={user.person_id}
-          />
+          <ParticipantsList participants={maskedParticipants} currentPersonId={user.person_id} />
         </CardContent>
       </Card>
 
@@ -425,11 +408,7 @@ function ParticipantsList({
   currentPersonId: string;
 }) {
   if (participants.length === 0) {
-    return (
-      <p className="text-sm text-slate-500 dark:text-slate-400">
-        Keine Beteiligten erfasst.
-      </p>
-    );
+    return <p className="text-sm text-slate-500 dark:text-slate-400">Keine Beteiligten erfasst.</p>;
   }
   return (
     <ul className="flex flex-col gap-2" data-testid="participants-list">

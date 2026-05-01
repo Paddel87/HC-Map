@@ -49,10 +49,7 @@ export interface SyncStatusIndicatorProps {
   className?: string;
 }
 
-export function SyncStatusIndicator({
-  showLabel = false,
-  className,
-}: SyncStatusIndicatorProps) {
+export function SyncStatusIndicator({ showLabel = false, className }: SyncStatusIndicatorProps) {
   const status = useSyncStatus();
   const variant = VARIANTS[status] ?? VARIANTS.idle!;
   const Icon = variant.icon;
@@ -68,10 +65,7 @@ export function SyncStatusIndicator({
       title={variant.label}
       data-sync-status={status}
     >
-      <Icon
-        className={cn("h-3.5 w-3.5", variant.spin && "animate-spin")}
-        aria-hidden
-      />
+      <Icon className={cn("h-3.5 w-3.5", variant.spin && "animate-spin")} aria-hidden />
       {showLabel ? <span>{variant.label}</span> : null}
     </span>
   );

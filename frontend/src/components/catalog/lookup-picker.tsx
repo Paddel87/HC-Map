@@ -25,11 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  useCatalogList,
-  useCreateCatalogEntry,
-  type LookupCreatePayload,
-} from "@/lib/catalog/api";
+import { useCatalogList, useCreateCatalogEntry, type LookupCreatePayload } from "@/lib/catalog/api";
 import {
   CATALOG_KIND_LABELS,
   isRestraintTypeEntry,
@@ -66,14 +62,7 @@ const INITIAL_QUICK: QuickProposeState = {
   attemptedSubmit: false,
 };
 
-export function LookupPicker({
-  kind,
-  value,
-  onChange,
-  isAdmin,
-  id,
-  label,
-}: LookupPickerProps) {
+export function LookupPicker({ kind, value, onChange, isAdmin, id, label }: LookupPickerProps) {
   const reactId = useId();
   const baseId = id ?? `lookup-picker-${reactId}`;
   const [quick, setQuick] = useState<QuickProposeState>(INITIAL_QUICK);
@@ -164,19 +153,13 @@ export function LookupPicker({
       {list.isError ? (
         <p className="text-xs text-red-600 dark:text-red-400">
           {label} konnte nicht geladen werden.{" "}
-          <button
-            type="button"
-            className="underline"
-            onClick={() => list.refetch()}
-          >
+          <button type="button" className="underline" onClick={() => list.refetch()}>
             Erneut
           </button>
         </p>
       ) : null}
       {selected?.description ? (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          {selected.description}
-        </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{selected.description}</p>
       ) : null}
 
       {!quick.open ? (

@@ -13,13 +13,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -97,10 +91,10 @@ function withQuery() {
 
 function mockListResponse(items: RestraintTypeEntry[]): void {
   (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-    return new Response(
-      JSON.stringify({ items, total: items.length, limit: 50, offset: 0 }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ items, total: items.length, limit: 50, offset: 0 }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   });
 }
 

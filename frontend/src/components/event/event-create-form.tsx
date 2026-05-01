@@ -85,10 +85,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
       // live view can pre-fill the application sheet.
       if (typeof window !== "undefined" && recipient) {
         try {
-          window.sessionStorage.setItem(
-            `${RECIPIENT_DRAFT_PREFIX}${id}`,
-            recipient.id,
-          );
+          window.sessionStorage.setItem(`${RECIPIENT_DRAFT_PREFIX}${id}`, recipient.id);
         } catch {
           /* sessionStorage disabled — non-fatal. */
         }
@@ -203,12 +200,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
         <Button type="submit" size="lg" disabled={!coords || pending || !database}>
           {submitLabel}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => router.back()}
-          disabled={pending}
-        >
+        <Button type="button" variant="ghost" onClick={() => router.back()} disabled={pending}>
           Abbrechen
         </Button>
       </div>

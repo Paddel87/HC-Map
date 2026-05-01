@@ -59,16 +59,6 @@
       "type": "boolean"
     }
   },
-  "required": [
-    "id",
-    "started_at",
-    "lat",
-    "lon",
-    "created_at",
-    "updated_at"
-  ],
-  "indexes": [
-    "started_at",
-    ["updated_at", "id"]
-  ]
+  "required": ["id", "started_at", "lat", "lon", "created_at", "updated_at"],
+  "indexes": ["started_at", ["updated_at", "id"]]
 }

@@ -62,7 +62,10 @@ export default async function DashboardPage() {
         </p>
       </header>
       {user.role !== "viewer" ? (
-        <section className="flex flex-col gap-2 md:flex-row md:items-center" data-testid="dashboard-event-actions">
+        <section
+          className="flex flex-col gap-2 md:flex-row md:items-center"
+          data-testid="dashboard-event-actions"
+        >
           <Button asChild size="lg" className="w-full md:w-auto">
             <Link href="/events/new" data-testid="dashboard-new-event">
               <Clock className="mr-2 h-5 w-5" />

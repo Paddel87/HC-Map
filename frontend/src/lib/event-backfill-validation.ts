@@ -167,10 +167,7 @@ export function validateBackfill(input: BackfillEventInput): BackfillValidationR
 }
 
 /** Convenience: pick the error messages for a particular application uiId. */
-export function errorsForApplication(
-  errors: BackfillError[],
-  uiId: string,
-): BackfillError[] {
+export function errorsForApplication(errors: BackfillError[], uiId: string): BackfillError[] {
   return errors.filter((e) => e.kind === "application" && e.uiId === uiId);
 }
 

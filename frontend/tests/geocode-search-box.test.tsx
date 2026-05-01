@@ -33,8 +33,7 @@ function mockFetch(handler: (url: string) => Response | Promise<Response>) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo) => {
-      const url =
-        typeof input === "string" ? input : (input as Request).url;
+      const url = typeof input === "string" ? input : (input as Request).url;
       return handler(url);
     }),
   );
@@ -64,10 +63,10 @@ describe("GeocodeSearchBox (M6.5)", () => {
   it("debounces successive keystrokes into a single fetch for the final value", async () => {
     mockFetch(
       () =>
-        new Response(
-          JSON.stringify({ features: [makeFeature()] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ features: [makeFeature()] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     render(<GeocodeSearchBox onSelect={() => {}} />);
 
@@ -89,8 +88,7 @@ describe("GeocodeSearchBox (M6.5)", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
-    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]?.[0] as string;
+    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
     expect(calledUrl).toContain("/api/geocode");
     expect(calledUrl).toContain("q=Berlin");
     expect(calledUrl).toContain("limit=5");
@@ -99,16 +97,13 @@ describe("GeocodeSearchBox (M6.5)", () => {
   it("appends the proximity bias when getProximity returns coordinates", async () => {
     mockFetch(
       () =>
-        new Response(
-          JSON.stringify({ features: [makeFeature()] }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ features: [makeFeature()] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     render(
-      <GeocodeSearchBox
-        getProximity={() => ({ lat: 48.137, lon: 11.575 })}
-        onSelect={() => {}}
-      />,
+      <GeocodeSearchBox getProximity={() => ({ lat: 48.137, lon: 11.575 })} onSelect={() => {}} />,
     );
     fireEvent.change(screen.getByTestId("map-geocode-input"), {
       target: { value: "Park" },
@@ -116,8 +111,7 @@ describe("GeocodeSearchBox (M6.5)", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
-    const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]?.[0] as string;
+    const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
     expect(url).toMatch(/proximity=48\.137(%2C|,)11\.575/);
   });
 
@@ -171,10 +165,10 @@ describe("GeocodeSearchBox (M6.5)", () => {
   it("shows a 429 toast when the rate limit is exceeded", async () => {
     mockFetch(
       () =>
-        new Response(
-          JSON.stringify({ detail: "Rate limit exceeded." }),
-          { status: 429, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ detail: "Rate limit exceeded." }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
     );
     render(<GeocodeSearchBox onSelect={() => {}} />);
     fireEvent.change(screen.getByTestId("map-geocode-input"), {
@@ -193,10 +187,10 @@ describe("GeocodeSearchBox (M6.5)", () => {
   it("shows a 503 toast when the provider is not configured", async () => {
     mockFetch(
       () =>
-        new Response(
-          JSON.stringify({ detail: "Geocoding provider not configured." }),
-          { status: 503, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ detail: "Geocoding provider not configured." }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
     );
     render(<GeocodeSearchBox onSelect={() => {}} />);
     fireEvent.change(screen.getByTestId("map-geocode-input"), {
@@ -213,53 +207,44 @@ describe("GeocodeSearchBox (M6.5)", () => {
   it("shows a 502 toast when MapTiler is unreachable", async () => {
     mockFetch(
       () =>
-        new Response(
-          JSON.stringify({ detail: "Geocoding upstream unreachable." }),
-          { status: 502, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ detail: "Geocoding upstream unreachable." }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        }),
     );
     render(<GeocodeSearchBox onSelect={() => {}} />);
     fireEvent.change(screen.getByTestId("map-geocode-input"), {
       target: { value: "Berlin" },
     });
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith(
-        "Adress-Suche nicht erreichbar",
-        expect.any(Object),
-      );
+      expect(toastError).toHaveBeenCalledWith("Adress-Suche nicht erreichbar", expect.any(Object));
     });
   });
 
   it("clears the input via the X button", () => {
-    mockFetch(
-      () =>
-        new Response(JSON.stringify({ features: [] }), { status: 200 }),
-    );
+    mockFetch(() => new Response(JSON.stringify({ features: [] }), { status: 200 }));
     render(<GeocodeSearchBox onSelect={() => {}} />);
     fireEvent.change(screen.getByTestId("map-geocode-input"), {
       target: { value: "abc" },
     });
     expect(screen.getByTestId("map-geocode-clear")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("map-geocode-clear"));
-    expect(
-      (screen.getByTestId("map-geocode-input") as HTMLInputElement).value,
-    ).toBe("");
+    expect((screen.getByTestId("map-geocode-input") as HTMLInputElement).value).toBe("");
   });
 
   it("ignores stale responses when the user typed faster than the network", async () => {
     let resolveFirst: ((response: Response) => void) | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo) => {
-      const url =
-        typeof input === "string" ? input : (input as Request).url;
+      const url = typeof input === "string" ? input : (input as Request).url;
       if (url.includes("q=Berlin")) {
         return new Promise<Response>((resolve) => {
           resolveFirst = resolve;
         });
       }
-      return new Response(
-        JSON.stringify({ features: [makeFeature({ place_name: "Bonn" })] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return new Response(JSON.stringify({ features: [makeFeature({ place_name: "Bonn" })] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -279,10 +264,10 @@ describe("GeocodeSearchBox (M6.5)", () => {
 
     // Late first response — should be ignored.
     resolveFirst?.(
-      new Response(
-        JSON.stringify({ features: [makeFeature({ place_name: "Berlin" })] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
+      new Response(JSON.stringify({ features: [makeFeature({ place_name: "Berlin" })] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
     // The DOM should still show Bonn, not Berlin.

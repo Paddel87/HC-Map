@@ -5,12 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  filtersEqual,
-  parseMapUrlState,
-  serializeMapUrlState,
-  type MapFilters,
-} from "@/lib/map";
+import { filtersEqual, parseMapUrlState, serializeMapUrlState, type MapFilters } from "@/lib/map";
 
 function params(input: string): URLSearchParams {
   return new URLSearchParams(input);
@@ -31,9 +26,7 @@ describe("parseMapUrlState", () => {
   });
 
   it("parses a valid viewport", () => {
-    expect(
-      parseMapUrlState(params("lat=52.52&lon=13.405&zoom=11.5")),
-    ).toEqual({
+    expect(parseMapUrlState(params("lat=52.52&lon=13.405&zoom=11.5"))).toEqual({
       viewport: { lat: 52.52, lon: 13.405, zoom: 11.5 },
       filters: EMPTY_FILTERS,
     });
@@ -45,21 +38,13 @@ describe("parseMapUrlState", () => {
   });
 
   it("drops the viewport on out-of-range values", () => {
-    expect(
-      parseMapUrlState(params("lat=200&lon=13&zoom=11")).viewport,
-    ).toBeNull();
-    expect(
-      parseMapUrlState(params("lat=52&lon=200&zoom=11")).viewport,
-    ).toBeNull();
-    expect(
-      parseMapUrlState(params("lat=52&lon=13&zoom=99")).viewport,
-    ).toBeNull();
+    expect(parseMapUrlState(params("lat=200&lon=13&zoom=11")).viewport).toBeNull();
+    expect(parseMapUrlState(params("lat=52&lon=200&zoom=11")).viewport).toBeNull();
+    expect(parseMapUrlState(params("lat=52&lon=13&zoom=99")).viewport).toBeNull();
   });
 
   it("parses ISO from/to dates", () => {
-    expect(
-      parseMapUrlState(params("from=2026-04-01&to=2026-04-30")).filters,
-    ).toEqual({
+    expect(parseMapUrlState(params("from=2026-04-01&to=2026-04-30")).filters).toEqual({
       from: "2026-04-01",
       to: "2026-04-30",
       participantIds: [],
@@ -74,9 +59,7 @@ describe("parseMapUrlState", () => {
 
   it("parses comma-separated UUID participant ids", () => {
     const ids = parseMapUrlState(
-      params(
-        "p=11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222",
-      ),
+      params("p=11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222"),
     ).filters.participantIds;
     expect(ids).toEqual([
       "11111111-1111-1111-1111-111111111111",
@@ -94,18 +77,15 @@ describe("parseMapUrlState", () => {
   });
 
   it("lowercases participant UUIDs for canonical comparison", () => {
-    const ids = parseMapUrlState(
-      params("p=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"),
-    ).filters.participantIds;
+    const ids = parseMapUrlState(params("p=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")).filters
+      .participantIds;
     expect(ids).toEqual(["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]);
   });
 });
 
 describe("serializeMapUrlState", () => {
   it("serializes empty state to an empty string", () => {
-    expect(
-      serializeMapUrlState({ viewport: null, filters: EMPTY_FILTERS }),
-    ).toBe("");
+    expect(serializeMapUrlState({ viewport: null, filters: EMPTY_FILTERS })).toBe("");
   });
 
   it("serializes a viewport with trimmed precision", () => {
@@ -127,9 +107,7 @@ describe("serializeMapUrlState", () => {
           participantIds: ["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
         },
       }),
-    ).toBe(
-      "from=2026-04-01&to=2026-04-30&p=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    );
+    ).toBe("from=2026-04-01&to=2026-04-30&p=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
   });
 
   it("round-trips viewport + filters faithfully", () => {

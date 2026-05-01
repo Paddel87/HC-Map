@@ -75,10 +75,7 @@ function cursorAsc<T extends DocCommon>(a: T, b: T): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-function pull<T extends DocCommon>(
-  store: Map<string, T>,
-  req: PullRequest,
-): PullResponse<T> {
+function pull<T extends DocCommon>(store: Map<string, T>, req: PullRequest): PullResponse<T> {
   const limit = req.limit ?? 100;
   const all = Array.from(store.values()).sort(cursorAsc);
   const filtered =
@@ -106,8 +103,7 @@ export interface MockFetchOptions {
   state: MockServerState;
 }
 
-const SYNC_PATH =
-  /^\/api\/sync\/(events|applications|event-participants)\/(pull|push)(?:\?(.*))?$/;
+const SYNC_PATH = /^\/api\/sync\/(events|applications|event-participants)\/(pull|push)(?:\?(.*))?$/;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -154,9 +150,7 @@ export function makeMockFetch(options: MockFetchOptions): typeof fetch {
     }
 
     // push branch — CSRF guard mirrors the real middleware.
-    const headerCsrf = (init?.headers as Record<string, string> | undefined)?.[
-      "X-CSRF-Token"
-    ];
+    const headerCsrf = (init?.headers as Record<string, string> | undefined)?.["X-CSRF-Token"];
     if (!headerCsrf || headerCsrf !== csrfToken) {
       return jsonResponse({ detail: "csrf_token_invalid" }, 403);
     }
@@ -173,10 +167,7 @@ export function makeMockFetch(options: MockFetchOptions): typeof fetch {
   };
 }
 
-function applyEventPushes(
-  state: MockServerState,
-  rows: PushRow<EventDocType>[],
-): EventDocType[] {
+function applyEventPushes(state: MockServerState, rows: PushRow<EventDocType>[]): EventDocType[] {
   const conflicts: EventDocType[] = [];
   for (const row of rows) {
     state.acceptedPushes += 1;
@@ -258,11 +249,7 @@ function applyApplicationPushes(
   return conflicts;
 }
 
-function addParticipantRow(
-  state: MockServerState,
-  eventId: string,
-  personId: string,
-): void {
+function addParticipantRow(state: MockServerState, eventId: string, personId: string): void {
   // Idempotent: server holds a UNIQUE(event_id, person_id) constraint
   // (ADR-037 §A); the auto-participant helper is a no-op if the row
   // already exists. Mirror that here so test scenarios can replay
@@ -291,9 +278,10 @@ function randomUuid(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  const hex = (n: number) => Math.floor(Math.random() * 16 ** n)
-    .toString(16)
-    .padStart(n, "0");
+  const hex = (n: number) =>
+    Math.floor(Math.random() * 16 ** n)
+      .toString(16)
+      .padStart(n, "0");
   return `${hex(8)}-${hex(4)}-4${hex(3)}-8${hex(3)}-${hex(12)}`;
 }
 

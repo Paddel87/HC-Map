@@ -109,12 +109,7 @@ export function ResetPasswordForm() {
                 <FormItem>
                   <FormLabel>Neues Passwort</FormLabel>
                   <FormControl>
-                    <Input
-                      type="password"
-                      autoComplete="new-password"
-                      autoFocus
-                      {...field}
-                    />
+                    <Input type="password" autoComplete="new-password" autoFocus {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

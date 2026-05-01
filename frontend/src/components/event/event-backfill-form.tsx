@@ -104,15 +104,11 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
 
   function removeApplication(uiId: string) {
     setApplications((current) => current.filter((a) => a.uiId !== uiId));
-    setErrors((current) =>
-      current.filter((e) => !(e.kind === "application" && e.uiId === uiId)),
-    );
+    setErrors((current) => current.filter((e) => !(e.kind === "application" && e.uiId === uiId)));
   }
 
   function updateApplication(uiId: string, patch: Partial<ApplicationRow>) {
-    setApplications((current) =>
-      current.map((a) => (a.uiId === uiId ? { ...a, ...patch } : a)),
-    );
+    setApplications((current) => current.map((a) => (a.uiId === uiId ? { ...a, ...patch } : a)));
   }
 
   async function handleSubmit(formEvent: React.FormEvent<HTMLFormElement>) {
@@ -210,7 +206,9 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
   }
 
   const gpsLabel =
-    geolocation.status === "requesting" ? "Standort wird ermittelt…" : "Aktuellen Standort übernehmen";
+    geolocation.status === "requesting"
+      ? "Standort wird ermittelt…"
+      : "Aktuellen Standort übernehmen";
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -295,7 +293,9 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
               type="datetime-local"
               value={eventEndedAt}
               onChange={(e) => setEventEndedAt(e.target.value)}
-              aria-invalid={hasFieldError(eventErrors, "ended_at") || hasFieldError(eventErrors, "duration")}
+              aria-invalid={
+                hasFieldError(eventErrors, "ended_at") || hasFieldError(eventErrors, "duration")
+              }
               data-testid="event-backfill-ended-at"
             />
             {hasFieldError(eventErrors, "duration") ? (
@@ -367,15 +367,14 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                       id={`app-${row.uiId}-started-at`}
                       type="datetime-local"
                       value={row.startedAt}
-                      onChange={(e) =>
-                        updateApplication(row.uiId, { startedAt: e.target.value })
-                      }
-                      aria-invalid={rowErrors.some((er) =>
-                        er.kind === "application" &&
-                        (er.field === "started_at" ||
-                          er.field === "duration" ||
-                          er.field === "bounds" ||
-                          er.field === "overlap"),
+                      onChange={(e) => updateApplication(row.uiId, { startedAt: e.target.value })}
+                      aria-invalid={rowErrors.some(
+                        (er) =>
+                          er.kind === "application" &&
+                          (er.field === "started_at" ||
+                            er.field === "duration" ||
+                            er.field === "bounds" ||
+                            er.field === "overlap"),
                       )}
                     />
                   </div>
@@ -385,14 +384,13 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                       id={`app-${row.uiId}-ended-at`}
                       type="datetime-local"
                       value={row.endedAt}
-                      onChange={(e) =>
-                        updateApplication(row.uiId, { endedAt: e.target.value })
-                      }
-                      aria-invalid={rowErrors.some((er) =>
-                        er.kind === "application" &&
-                        (er.field === "ended_at" ||
-                          er.field === "duration" ||
-                          er.field === "bounds"),
+                      onChange={(e) => updateApplication(row.uiId, { endedAt: e.target.value })}
+                      aria-invalid={rowErrors.some(
+                        (er) =>
+                          er.kind === "application" &&
+                          (er.field === "ended_at" ||
+                            er.field === "duration" ||
+                            er.field === "bounds"),
                       )}
                     />
                   </div>
@@ -409,9 +407,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                   <Label>Restraints (optional)</Label>
                   <RestraintPicker
                     value={row.restraintTypeIds}
-                    onChange={(next) =>
-                      updateApplication(row.uiId, { restraintTypeIds: next })
-                    }
+                    onChange={(next) => updateApplication(row.uiId, { restraintTypeIds: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-${row.uiId}-restraints`}
                   />
@@ -421,9 +417,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                     kind="arm-positions"
                     label="Armhaltung"
                     value={row.armPositionId}
-                    onChange={(next) =>
-                      updateApplication(row.uiId, { armPositionId: next })
-                    }
+                    onChange={(next) => updateApplication(row.uiId, { armPositionId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-${row.uiId}-arm-position`}
                   />
@@ -431,9 +425,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                     kind="hand-positions"
                     label="Handhaltung"
                     value={row.handPositionId}
-                    onChange={(next) =>
-                      updateApplication(row.uiId, { handPositionId: next })
-                    }
+                    onChange={(next) => updateApplication(row.uiId, { handPositionId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-${row.uiId}-hand-position`}
                   />
@@ -441,9 +433,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
                     kind="hand-orientations"
                     label="Handausrichtung"
                     value={row.handOrientationId}
-                    onChange={(next) =>
-                      updateApplication(row.uiId, { handOrientationId: next })
-                    }
+                    onChange={(next) => updateApplication(row.uiId, { handOrientationId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-${row.uiId}-hand-orientation`}
                   />
@@ -482,12 +472,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         <Button type="submit" size="lg" disabled={pending || !database}>
           {pending ? "Speichere…" : "Event speichern"}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => router.back()}
-          disabled={pending}
-        >
+        <Button type="button" variant="ghost" onClick={() => router.back()} disabled={pending}>
           Abbrechen
         </Button>
       </div>
@@ -510,7 +495,5 @@ function hasFieldError(errors: BackfillError[], field: string): boolean {
 }
 
 function fieldErrorMessage(errors: BackfillError[], field: string): string {
-  return (
-    errors.find((e) => e.kind === "event" && e.field === field)?.message ?? ""
-  );
+  return errors.find((e) => e.kind === "event" && e.field === field)?.message ?? "";
 }

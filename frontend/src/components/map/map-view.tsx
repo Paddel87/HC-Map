@@ -25,13 +25,7 @@
 import { Filter } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
   Layer,
   NavigationControl,
@@ -62,10 +56,7 @@ import {
   type MappableEvent,
 } from "@/lib/map";
 import { useDatabase } from "@/lib/rxdb/provider";
-import type {
-  EventDocType,
-  EventParticipantDocType,
-} from "@/lib/rxdb/types";
+import type { EventDocType, EventParticipantDocType } from "@/lib/rxdb/types";
 
 const INITIAL_ZOOM = 11;
 const GEOCODE_FLYTO_ZOOM = 14;
@@ -81,24 +72,8 @@ const clusterLayer: LayerProps = {
   source: SOURCE_ID,
   filter: ["has", "point_count"],
   paint: {
-    "circle-color": [
-      "step",
-      ["get", "point_count"],
-      "#3b82f6",
-      10,
-      "#2563eb",
-      30,
-      "#1d4ed8",
-    ],
-    "circle-radius": [
-      "step",
-      ["get", "point_count"],
-      18,
-      10,
-      24,
-      30,
-      30,
-    ],
+    "circle-color": ["step", ["get", "point_count"], "#3b82f6", 10, "#2563eb", 30, "#1d4ed8"],
+    "circle-radius": ["step", ["get", "point_count"], 18, 10, 24, 30, 30],
     "circle-stroke-color": "#ffffff",
     "circle-stroke-width": 2,
   },
@@ -137,10 +112,7 @@ const interactiveLayerIds = [CLUSTER_LAYER_ID, UNCLUSTERED_LAYER_ID];
 export function MapView() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialState = useMemo(
-    () => parseMapUrlState(searchParams),
-    [searchParams],
-  );
+  const initialState = useMemo(() => parseMapUrlState(searchParams), [searchParams]);
 
   const [filters, setFilters] = useState<MapFilters>(initialState.filters);
   const filtersRef = useRef<MapFilters>(initialState.filters);
@@ -153,10 +125,7 @@ export function MapView() {
 
   const allEvents = useEvents();
   const participants = useEventParticipants();
-  const participantsByEvent = useMemo(
-    () => buildParticipantsIndex(participants),
-    [participants],
-  );
+  const participantsByEvent = useMemo(() => buildParticipantsIndex(participants), [participants]);
   const events = useMemo(
     () =>
       filtersAreEmpty(filters)
@@ -176,7 +145,7 @@ export function MapView() {
   const mapRef = useRef<MapRef | null>(null);
 
   const active = useMemo(
-    () => (activeId ? events.find((e) => e.id === activeId) ?? null : null),
+    () => (activeId ? (events.find((e) => e.id === activeId) ?? null) : null),
     [activeId, events],
   );
 
@@ -284,29 +253,21 @@ export function MapView() {
   const handleMapClick = useCallback((event: MapLayerMouseEvent) => {
     const feature = event.features?.[0];
     if (!feature) return;
-    const layerId =
-      (feature.layer as { id?: string } | undefined)?.id ?? null;
+    const layerId = (feature.layer as { id?: string } | undefined)?.id ?? null;
     if (layerId === CLUSTER_LAYER_ID) {
-      const props = feature.properties as
-        | { cluster_id?: number }
-        | null
-        | undefined;
+      const props = feature.properties as { cluster_id?: number } | null | undefined;
       const clusterId = props?.cluster_id;
       const map = event.target;
       if (typeof clusterId !== "number" || !map) return;
       const source = map.getSource(SOURCE_ID) as
         | {
-            getClusterExpansionZoom?: (
-              id: number,
-            ) => Promise<number> | undefined;
+            getClusterExpansionZoom?: (id: number) => Promise<number> | undefined;
           }
         | null
         | undefined;
       const promise = source?.getClusterExpansionZoom?.(clusterId);
       if (!promise) return;
-      const geom = feature.geometry as
-        | { type: string; coordinates?: [number, number] }
-        | undefined;
+      const geom = feature.geometry as { type: string; coordinates?: [number, number] } | undefined;
       const center = geom?.coordinates ?? null;
       promise
         .then((zoom: number) => {
@@ -370,14 +331,8 @@ export function MapView() {
         ) : null}
       </Map>
       <div className="absolute left-2 top-2 flex flex-col gap-2 sm:flex-row sm:items-start">
-        <FilterToggleButton
-          active={filtersActive}
-          onClick={() => setFilterPanelOpen(true)}
-        />
-        <GeocodeSearchBox
-          getProximity={getProximity}
-          onSelect={handleGeocodeSelect}
-        />
+        <FilterToggleButton active={filtersActive} onClick={() => setFilterPanelOpen(true)} />
+        <GeocodeSearchBox getProximity={getProximity} onSelect={handleGeocodeSelect} />
       </div>
       <MapStatusBar
         count={events.length}
@@ -394,13 +349,7 @@ export function MapView() {
   );
 }
 
-function FilterToggleButton({
-  active,
-  onClick,
-}: {
-  active: boolean;
-  onClick: () => void;
-}) {
+function FilterToggleButton({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
     <Button
       type="button"
@@ -503,9 +452,7 @@ function useEventParticipants(): EventParticipantDocType[] {
     if (!database) return;
     const sub = database.event_participants
       .find({ selector: { _deleted: { $eq: false } } })
-      .$.subscribe((docs) =>
-        setRows(docs.map((d) => d.toJSON() as EventParticipantDocType)),
-      );
+      .$.subscribe((docs) => setRows(docs.map((d) => d.toJSON() as EventParticipantDocType)));
     return () => sub.unsubscribe();
   }, [database]);
   return rows;

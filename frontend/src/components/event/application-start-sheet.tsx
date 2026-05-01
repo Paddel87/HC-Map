@@ -20,13 +20,8 @@ import type { HCMapDatabase } from "@/lib/rxdb/database";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { PersonRead } from "@/lib/types";
 
-async function nextLocalSequence(
-  database: HCMapDatabase,
-  eventId: string,
-): Promise<number> {
-  const docs = await database.applications
-    .find({ selector: { event_id: eventId } })
-    .exec();
+async function nextLocalSequence(database: HCMapDatabase, eventId: string): Promise<number> {
+  const docs = await database.applications.find({ selector: { event_id: eventId } }).exec();
   if (docs.length === 0) return 1;
   const max = docs.reduce((acc, doc) => Math.max(acc, doc.sequence_no), 0);
   return max + 1;
@@ -126,7 +121,8 @@ export function ApplicationStartSheet({
         <SheetHeader>
           <SheetTitle>Neue Application starten</SheetTitle>
           <SheetDescription>
-            Performer = du. Recipient ohne Auswahl = Self-Bondage. Restraints und Positionen sind optional.
+            Performer = du. Recipient ohne Auswahl = Self-Bondage. Restraints und Positionen sind
+            optional.
           </SheetDescription>
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-4">
@@ -193,7 +189,12 @@ export function ApplicationStartSheet({
             >
               Abbrechen
             </Button>
-            <Button type="button" className="flex-1" onClick={submit} disabled={pending || !database}>
+            <Button
+              type="button"
+              className="flex-1"
+              onClick={submit}
+              disabled={pending || !database}
+            >
               {pending ? "Starte…" : "Application starten"}
             </Button>
           </div>

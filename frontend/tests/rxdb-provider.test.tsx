@@ -18,12 +18,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { _resetDatabaseForTests, getDatabase } from "@/lib/rxdb/database";
-import {
-  RxdbProvider,
-  useDatabase,
-  useDatabaseError,
-  useSyncStatus,
-} from "@/lib/rxdb/provider";
+import { RxdbProvider, useDatabase, useDatabaseError, useSyncStatus } from "@/lib/rxdb/provider";
 
 function Probe() {
   const db = useDatabase();
@@ -42,11 +37,13 @@ beforeEach(() => {
   document.cookie = "hcmap_csrf=provider-test-csrf";
   // Stub fetch so the replication doesn't race against an unbound net
   // dependency — every URL just answers with an empty pull batch.
-  vi.stubGlobal("fetch", async () =>
-    new Response(JSON.stringify({ documents: [], checkpoint: null }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    }),
+  vi.stubGlobal(
+    "fetch",
+    async () =>
+      new Response(JSON.stringify({ documents: [], checkpoint: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
   );
 });
 

@@ -37,9 +37,7 @@ function withQuery(): (props: { children: ReactNode }) => JSX.Element {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return ({ children }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
+  return ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 function setFetch(handler: (input: RequestInfo, init?: RequestInit) => Promise<Response>) {
@@ -95,18 +93,17 @@ describe("LookupForm — create as admin", () => {
     await waitFor(() => expect(captured).not.toBeNull());
     expect(captured!.url).toBe("/api/arm-positions");
     expect(captured!.body).toEqual({ name: "Strappado", description: null });
-    await waitFor(() =>
-      expect(pushMock).toHaveBeenCalledWith("/admin/catalogs/arm-positions"),
-    );
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/admin/catalogs/arm-positions"));
     expect(toastSuccessMock).toHaveBeenCalled();
   });
 
   it("shows a 409 toast when the entry already exists", async () => {
-    setFetch(async () =>
-      new Response(
-        JSON.stringify({ detail: "Catalog entry conflicts with an existing row: …" }),
-        { status: 409, headers: { "content-type": "application/json" } },
-      ),
+    setFetch(
+      async () =>
+        new Response(
+          JSON.stringify({ detail: "Catalog entry conflicts with an existing row: …" }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
     );
     const Wrapper = withQuery();
     render(
@@ -147,9 +144,7 @@ describe("LookupForm — editor variant + edit-mode", () => {
         <LookupForm kind="arm-positions" mode={{ type: "create" }} isAdmin={false} />
       </Wrapper>,
     );
-    expect(
-      screen.getByRole("button", { name: "Vorschlag einreichen" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vorschlag einreichen" })).toBeInTheDocument();
   });
 
   it("pre-fills the entry in edit mode and PATCHes on submit", async () => {
@@ -181,20 +176,14 @@ describe("LookupForm — editor variant + edit-mode", () => {
     const Wrapper = withQuery();
     render(
       <Wrapper>
-        <LookupForm
-          kind="arm-positions"
-          mode={{ type: "edit", entry }}
-          isAdmin
-        />
+        <LookupForm kind="arm-positions" mode={{ type: "edit", entry }} isAdmin />
       </Wrapper>,
     );
     expect(screen.getByLabelText("Name *")).toHaveValue("Strappado");
     fireEvent.change(screen.getByLabelText("Name *"), {
       target: { value: "Strappado-X" },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Änderungen speichern" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
     await waitFor(() => expect(captured).not.toBeNull());
     expect(captured!.method).toBe("PATCH");
     expect(captured!.url).toBe("/api/arm-positions/ap-existing");

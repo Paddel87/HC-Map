@@ -99,12 +99,7 @@ function matchesNeedle(entry: RestraintTypeEntry, needle: string): boolean {
   return haystack.includes(needle);
 }
 
-export function RestraintPicker({
-  value,
-  onChange,
-  isAdmin,
-  id,
-}: RestraintPickerProps) {
+export function RestraintPicker({ value, onChange, isAdmin, id }: RestraintPickerProps) {
   const reactId = useId();
   const baseId = id ?? `restraint-picker-${reactId}`;
   const [filter, setFilter] = useState("");
@@ -339,9 +334,7 @@ export function RestraintPicker({
               placeholder="z. B. Clejuso Model 13"
               autoFocus
               aria-invalid={
-                quick.attemptedSubmit && quick.displayName.trim().length === 0
-                  ? "true"
-                  : undefined
+                quick.attemptedSubmit && quick.displayName.trim().length === 0 ? "true" : undefined
               }
             />
             {quick.attemptedSubmit && quick.displayName.trim().length === 0 ? (
@@ -427,9 +420,7 @@ export function RestraintPicker({
               disabled={create.isPending}
               data-testid="restraint-picker-propose-submit"
             >
-              {create.isPending ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : null}
+              {create.isPending ? <Loader2 className="animate-spin" aria-hidden /> : null}
               {isAdmin ? "Anlegen" : "Vorschlagen"}
             </Button>
           </div>

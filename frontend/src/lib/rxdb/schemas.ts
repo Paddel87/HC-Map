@@ -12,11 +12,7 @@ import type { RxJsonSchema } from "rxdb";
 import applicationSchemaJson from "./schemas/application.schema.json";
 import eventParticipantSchemaJson from "./schemas/event_participant.schema.json";
 import eventSchemaJson from "./schemas/event.schema.json";
-import type {
-  ApplicationDocType,
-  EventDocType,
-  EventParticipantDocType,
-} from "./types";
+import type { ApplicationDocType, EventDocType, EventParticipantDocType } from "./types";
 
 /**
  * Cast through `unknown` because RxDB's `RxJsonSchema<T>` is a tighter

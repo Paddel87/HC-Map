@@ -140,15 +140,15 @@ function freshEventDetail(overrides: Partial<EventDetail> = {}): EventDetail {
 interface FakeDatabase {
   events: {
     findOne: (id: string) => {
-      $: { subscribe: (next: (doc: { toJSON: () => EventDocType } | null) => void) => Subscription };
+      $: {
+        subscribe: (next: (doc: { toJSON: () => EventDocType } | null) => void) => Subscription;
+      };
     };
   };
   event_participants: {
     find: (query?: unknown) => {
       $: {
-        subscribe: (
-          next: (rows: { toJSON: () => unknown }[]) => void,
-        ) => Subscription;
+        subscribe: (next: (rows: { toJSON: () => unknown }[]) => void) => Subscription;
       };
     };
   };
@@ -175,8 +175,7 @@ function makeFakeDatabase(initial: EventDocType | null): {
         find: () => ({ $: participants$ }),
       },
     },
-    emit: (next: EventDocType | null) =>
-      subject.next(next ? { toJSON: () => next } : null),
+    emit: (next: EventDocType | null) => subject.next(next ? { toJSON: () => next } : null),
   };
 }
 

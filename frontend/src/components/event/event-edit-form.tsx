@@ -117,8 +117,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
       const eventEditable: EditableEvent = {
         endedAt: isoToLocal(eventDoc?.ended_at ?? initialEvent.ended_at),
         note: eventDoc?.note ?? initialEvent.note ?? "",
-        revealParticipants:
-          eventDoc?.reveal_participants ?? initialEvent.reveal_participants,
+        revealParticipants: eventDoc?.reveal_participants ?? initialEvent.reveal_participants,
       };
       setEvent(eventEditable);
       setEventInitial(eventEditable);
@@ -126,9 +125,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
 
       const editableApps: EditableApplication[] = applicationDocs.map((doc) => {
         const json = doc.toJSON() as ApplicationDocType;
-        const matchingPerson = initialEvent.participants.find(
-          (p) => p.id === json.recipient_id,
-        );
+        const matchingPerson = initialEvent.participants.find((p) => p.id === json.recipient_id);
         const restraintIds = [...(json.restraint_type_ids ?? [])];
         return {
           id: json.id,
@@ -172,9 +169,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
   }
 
   function patchApplication(id: string, patch: Partial<EditableApplication>) {
-    setApplications((current) =>
-      current.map((a) => (a.id === id ? { ...a, ...patch } : a)),
-    );
+    setApplications((current) => current.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   }
 
   async function handleDeleteApplication(id: string): Promise<void> {
@@ -208,14 +203,8 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
     // Validate via the M5c.3 helper — started_at values are immutable
     // here, so we hand them through unchanged (ADR-040 §G).
     const validation = validateBackfill({
-      lat:
-        typeof initialEvent.lat === "number"
-          ? initialEvent.lat
-          : Number(initialEvent.lat),
-      lon:
-        typeof initialEvent.lon === "number"
-          ? initialEvent.lon
-          : Number(initialEvent.lon),
+      lat: typeof initialEvent.lat === "number" ? initialEvent.lat : Number(initialEvent.lat),
+      lon: typeof initialEvent.lon === "number" ? initialEvent.lon : Number(initialEvent.lon),
       startedAt: initialEvent.started_at,
       endedAt: localToIso(event.endedAt),
       applications: applications.map((a) => ({
@@ -246,10 +235,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
         if (event.revealParticipants !== eventInitial.revealParticipants) {
           patch.reveal_participants = event.revealParticipants;
         }
-        if (
-          eventEndedAtWasLocked === false &&
-          event.endedAt !== eventInitial.endedAt
-        ) {
+        if (eventEndedAtWasLocked === false && event.endedAt !== eventInitial.endedAt) {
           patch.ended_at = localToIso(event.endedAt);
         }
         if (Object.keys(patch).length > 0) {
@@ -268,10 +254,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
         if (app.recipientId && app.recipientId !== app.initial.recipientId) {
           patch.recipient_id = app.recipientId;
         }
-        if (
-          app.endedAtWasLocked === false &&
-          app.endedAt !== app.initial.endedAt
-        ) {
+        if (app.endedAtWasLocked === false && app.endedAt !== app.initial.endedAt) {
           patch.ended_at = localToIso(app.endedAt);
         }
         if (!setEquals(app.restraintTypeIds, app.initial.restraintTypeIds)) {
@@ -328,7 +311,9 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
           <div className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
             <div>
               <span className="text-xs uppercase text-slate-500 dark:text-slate-400">Start</span>
-              <p className="font-mono">{new Date(initialEvent.started_at).toLocaleString("de-DE")}</p>
+              <p className="font-mono">
+                {new Date(initialEvent.started_at).toLocaleString("de-DE")}
+              </p>
             </div>
             <div>
               <span className="text-xs uppercase text-slate-500 dark:text-slate-400">Standort</span>
@@ -393,9 +378,8 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
         <CardHeader>
           <CardTitle className="text-base">Applications</CardTitle>
           <CardDescription>
-            Start-Zeitstempel und Performer sind fixiert. Restraints und Positionen
-            sind über die Picker editierbar (LWW-Set-Replace bzw. LWW pro FK,
-            ADR-046-Followup).
+            Start-Zeitstempel und Performer sind fixiert. Restraints und Positionen sind über die
+            Picker editierbar (LWW-Set-Replace bzw. LWW pro FK, ADR-046-Followup).
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -477,9 +461,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
                   <Label>Restraints (optional)</Label>
                   <RestraintPicker
                     value={app.restraintTypeIds}
-                    onChange={(next) =>
-                      patchApplication(app.id, { restraintTypeIds: next })
-                    }
+                    onChange={(next) => patchApplication(app.id, { restraintTypeIds: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-edit-${app.id}-restraints`}
                   />
@@ -489,9 +471,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
                     kind="arm-positions"
                     label="Armhaltung"
                     value={app.armPositionId}
-                    onChange={(next) =>
-                      patchApplication(app.id, { armPositionId: next })
-                    }
+                    onChange={(next) => patchApplication(app.id, { armPositionId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-edit-${app.id}-arm-position`}
                   />
@@ -499,9 +479,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
                     kind="hand-positions"
                     label="Handhaltung"
                     value={app.handPositionId}
-                    onChange={(next) =>
-                      patchApplication(app.id, { handPositionId: next })
-                    }
+                    onChange={(next) => patchApplication(app.id, { handPositionId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-edit-${app.id}-hand-position`}
                   />
@@ -509,9 +487,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
                     kind="hand-orientations"
                     label="Handausrichtung"
                     value={app.handOrientationId}
-                    onChange={(next) =>
-                      patchApplication(app.id, { handOrientationId: next })
-                    }
+                    onChange={(next) => patchApplication(app.id, { handOrientationId: next })}
                     isAdmin={user.role === "admin"}
                     id={`app-edit-${app.id}-hand-orientation`}
                   />
@@ -547,12 +523,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
             "Änderungen speichern"
           )}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => router.back()}
-          disabled={pending}
-        >
+        <Button type="button" variant="ghost" onClick={() => router.back()} disabled={pending}>
           Abbrechen
         </Button>
       </div>

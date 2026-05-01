@@ -77,13 +77,8 @@ interface MakeReplicationOptions {
   pullOnly?: boolean;
 }
 
-function makeReplication<
-  T extends EventDocType | ApplicationDocType | EventParticipantDocType,
->(
-  collection:
-    | EventCollection
-    | ApplicationCollection
-    | EventParticipantCollection,
+function makeReplication<T extends EventDocType | ApplicationDocType | EventParticipantDocType>(
+  collection: EventCollection | ApplicationCollection | EventParticipantCollection,
   { collectionPath, pullOnly = false }: MakeReplicationOptions,
 ): RxReplicationState<T, SyncCheckpoint> {
   return replicateRxCollection<T, SyncCheckpoint>({
@@ -104,9 +99,7 @@ function makeReplication<
       batchSize: DEFAULT_PULL_BATCH,
       async handler(lastCheckpoint: SyncCheckpoint | undefined, batchSize: number) {
         const query = buildPullParams(lastCheckpoint ?? null, batchSize);
-        const result = await fetchJson<PullResult<T>>(
-          `/api/sync/${collectionPath}/pull?${query}`,
-        );
+        const result = await fetchJson<PullResult<T>>(`/api/sync/${collectionPath}/pull?${query}`);
         const documents = result.documents;
         // Always advance the checkpoint to the last seen doc, even if the
         // backend echoed the previous checkpoint when no rows changed.
@@ -122,9 +115,7 @@ function makeReplication<
       : {
           push: {
             batchSize: DEFAULT_PUSH_BATCH,
-            async handler(
-              rows: { assumedMasterState?: T; newDocumentState: T }[],
-            ): Promise<T[]> {
+            async handler(rows: { assumedMasterState?: T; newDocumentState: T }[]): Promise<T[]> {
               const csrf = readCsrfCookie();
               if (!csrf) {
                 // Without a CSRF token the backend rejects the push; surfacing
@@ -132,14 +123,11 @@ function makeReplication<
                 // is re-issued (e.g. after re-login).
                 throw new Error("CSRF token missing — push aborted, will retry");
               }
-              const conflicts = await fetchJson<T[]>(
-                `/api/sync/${collectionPath}/push`,
-                {
-                  method: "POST",
-                  headers: { "X-CSRF-Token": csrf },
-                  body: JSON.stringify(rows),
-                },
-              );
+              const conflicts = await fetchJson<T[]>(`/api/sync/${collectionPath}/push`, {
+                method: "POST",
+                headers: { "X-CSRF-Token": csrf },
+                body: JSON.stringify(rows),
+              });
               return conflicts;
             },
           },
@@ -163,10 +151,9 @@ export function startReplication(database: HCMapDatabase): ReplicationHandles {
   const eventsRep = makeReplication<EventDocType>(database.events, {
     collectionPath: "events",
   });
-  const applicationsRep = makeReplication<ApplicationDocType>(
-    database.applications,
-    { collectionPath: "applications" },
-  );
+  const applicationsRep = makeReplication<ApplicationDocType>(database.applications, {
+    collectionPath: "applications",
+  });
   const eventParticipantsRep = makeReplication<EventParticipantDocType>(
     database.event_participants,
     { collectionPath: "event-participants", pullOnly: true },

@@ -98,9 +98,7 @@ describe("ResetPasswordForm", () => {
     await user.type(screen.getByLabelText(/Passwort bestätigen/i), "different12345");
     await user.click(screen.getByRole("button", { name: /passwort speichern/i }));
 
-    expect(
-      await screen.findByText(/Die Passwörter stimmen nicht überein/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Die Passwörter stimmen nicht überein/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -118,9 +116,7 @@ describe("ResetPasswordForm", () => {
     await user.type(screen.getByLabelText(/Passwort bestätigen/i), "short");
     await user.click(screen.getByRole("button", { name: /passwort speichern/i }));
 
-    expect(
-      await screen.findByText(/mindestens 12 Zeichen/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/mindestens 12 Zeichen/i)).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

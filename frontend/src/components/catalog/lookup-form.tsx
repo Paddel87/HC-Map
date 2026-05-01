@@ -19,9 +19,7 @@ import {
   type LookupCatalogEntry,
 } from "@/lib/catalog/types";
 
-export type LookupFormMode =
-  | { type: "create" }
-  | { type: "edit"; entry: LookupCatalogEntry };
+export type LookupFormMode = { type: "create" } | { type: "edit"; entry: LookupCatalogEntry };
 
 export function LookupForm({
   kind,
@@ -56,9 +54,7 @@ export function LookupForm({
       if (mode.type === "create") {
         await create.mutateAsync(body);
         toast.success(
-          isAdmin
-            ? `${CATALOG_KIND_LABELS[kind]}-Eintrag freigegeben`
-            : `Vorschlag eingereicht`,
+          isAdmin ? `${CATALOG_KIND_LABELS[kind]}-Eintrag freigegeben` : `Vorschlag eingereicht`,
         );
       } else {
         await update.mutateAsync({ id: mode.entry.id, body });
@@ -97,11 +93,13 @@ export function LookupForm({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={pending}>
-          {pending ? "Speichere …" : mode.type === "create"
-            ? isAdmin
-              ? "Freigeben & speichern"
-              : "Vorschlag einreichen"
-            : "Änderungen speichern"}
+          {pending
+            ? "Speichere …"
+            : mode.type === "create"
+              ? isAdmin
+                ? "Freigeben & speichern"
+                : "Vorschlag einreichen"
+              : "Änderungen speichern"}
         </Button>
         <Button
           type="button"
@@ -138,7 +136,7 @@ export function describeMutationError(err: unknown): void {
       toast.error("Eintrag existiert bereits", {
         description:
           typeof apiErr.detail === "object" && apiErr.detail
-            ? (apiErr.detail as { detail?: string }).detail ?? apiErr.message
+            ? ((apiErr.detail as { detail?: string }).detail ?? apiErr.message)
             : apiErr.message,
       });
       return;

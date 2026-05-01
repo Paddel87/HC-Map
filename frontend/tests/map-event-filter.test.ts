@@ -98,11 +98,7 @@ describe("applyEventFilter — participants", () => {
   ]);
 
   it("keeps events that include any selected participant", () => {
-    const events = [
-      event({ id: "evt-a" }),
-      event({ id: "evt-b" }),
-      event({ id: "evt-c" }),
-    ];
+    const events = [event({ id: "evt-a" }), event({ id: "evt-b" }), event({ id: "evt-c" })];
     const result = applyEventFilter(events, {
       from: null,
       to: null,
@@ -113,11 +109,7 @@ describe("applyEventFilter — participants", () => {
   });
 
   it("treats multiple participant ids as OR", () => {
-    const events = [
-      event({ id: "evt-a" }),
-      event({ id: "evt-b" }),
-      event({ id: "evt-c" }),
-    ];
+    const events = [event({ id: "evt-a" }), event({ id: "evt-b" }), event({ id: "evt-c" })];
     const result = applyEventFilter(events, {
       from: null,
       to: null,
@@ -180,20 +172,12 @@ describe("buildParticipantsIndex", () => {
 
 describe("filtersAreEmpty", () => {
   it("recognises the empty state", () => {
-    expect(
-      filtersAreEmpty({ from: null, to: null, participantIds: [] }),
-    ).toBe(true);
+    expect(filtersAreEmpty({ from: null, to: null, participantIds: [] })).toBe(true);
   });
 
   it("any non-null/non-empty member counts as non-empty", () => {
-    expect(
-      filtersAreEmpty({ from: "2026-04-01", to: null, participantIds: [] }),
-    ).toBe(false);
-    expect(
-      filtersAreEmpty({ from: null, to: "2026-04-30", participantIds: [] }),
-    ).toBe(false);
-    expect(
-      filtersAreEmpty({ from: null, to: null, participantIds: ["x"] }),
-    ).toBe(false);
+    expect(filtersAreEmpty({ from: "2026-04-01", to: null, participantIds: [] })).toBe(false);
+    expect(filtersAreEmpty({ from: null, to: "2026-04-30", participantIds: [] })).toBe(false);
+    expect(filtersAreEmpty({ from: null, to: null, participantIds: ["x"] })).toBe(false);
   });
 });

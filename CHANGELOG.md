@@ -27,6 +27,23 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
   Ausschlussliste umformuliert (proprietäre/source-available
   statt GPL).
 
+### Fixed
+
+- **M10.7-Followup — Prettier-Sweep über 47 historisch nicht-formatierte Files (2026-05-01).**
+  Der erste CI-Run (`gh run 25225432180`) deckte auf, dass 47 Files
+  seit M5b/M7 nicht mehr durch `prettier --write` gelaufen waren und
+  in einem nicht-kanonischen Wrap-Zustand committed lagen. Vor M10.7
+  gab es keine CI-Stufe für `format:check`, deshalb war das im Repo
+  unsichtbar geblieben. Die ursprüngliche M10.7-Verifikation hatte
+  `format:check` lokal nicht ausgeführt (Annahme: Node-24-Drift, CI
+  fährt Node 22 also dort grün); diese Annahme war falsch.
+  Fix: `corepack pnpm format` über alle Files. Diff ist rein
+  Whitespace/Wrap (Zeilen-Joining), keine Logik-Änderungen. Cross-
+  Verifikation in einem `node:22-bookworm-slim`-Container (entspricht
+  dem GitHub-Runner): `format:check` clean. Nach `prettier --write`
+  ist der Output stabil über Node 22 + 24 — die Pre-M10.7-Annahme zur
+  Node-Version-Drift war nicht haltbar.
+
 ### Added
 
 - **M10.7 — GitHub Actions CI + GHCR-Push (Multi-Arch, ADR-051 §E, 2026-05-01).**

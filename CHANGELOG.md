@@ -29,7 +29,23 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Fixed
 
-- **M10.7-Followup — Prettier-Sweep über 47 historisch nicht-formatierte Files (2026-05-01).**
+- **M10.7-Followup #2 — `frontend/public/.gitkeep` für reproduzierbaren Frontend-Image-Build (2026-05-01).**
+  CI-Run #2 (`gh run 25225805748`) zeigte einen zweiten Fehler: das
+  Frontend-Multi-Arch-Image scheiterte an
+  [`docker/frontend.Dockerfile:53`](docker/frontend.Dockerfile:53)
+  (`COPY --from=builder /app/public ./public`), weil das Repo kein
+  `frontend/public/`-Verzeichnis hatte (Next.js-Konvention erlaubt
+  das, der Dockerfile-`COPY` aber nicht). Backend- und Backup-Image
+  wurden im selben Lauf erfolgreich nach GHCR gepusht — das beweist
+  zugleich, dass die Workflow-Permissions ohne manuelle Anpassung
+  bereits ausreichen (Default „Read and write" auf neuen Repos).
+  Fix: leerer
+  [`frontend/public/.gitkeep`](frontend/public/.gitkeep) angelegt mit
+  Hinweis-Kommentar (Operator kann später echte Static-Assets
+  einlegen). Lokal verifiziert: `docker build -f docker/frontend.Dockerfile`
+  läuft sauber durch (Layer #21 grün).
+
+- **M10.7-Followup #1 — Prettier-Sweep über 47 historisch nicht-formatierte Files (2026-05-01).**
   Der erste CI-Run (`gh run 25225432180`) deckte auf, dass 47 Files
   seit M5b/M7 nicht mehr durch `prettier --write` gelaufen waren und
   in einem nicht-kanonischen Wrap-Zustand committed lagen. Vor M10.7

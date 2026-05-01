@@ -18,6 +18,12 @@ docker/traefik/dynamic.yml
 docker/secrets/age-recipients.txt
 docker/secrets/rclone.conf
 
+# --- M10.9 RC smoke artifacts (local-only) -------------------------------
+# `.smoke/` collects the per-RC-smoke working copies (env file, age
+# private key, mailpit + backup-volume compose override, restore logs).
+# Never check in — keys and credentials live here.
+.smoke/
+
 # --- Python (backend) ----------------------------------------------------
 __pycache__/
 *.py[cod]

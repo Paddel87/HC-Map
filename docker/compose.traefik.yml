@@ -28,6 +28,11 @@ services:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
       - traefik-acme:/letsencrypt
+      # Traefik's docker provider (configured in traefik.yml.example) reads
+      # service labels via this socket — read-only, never writable. Without
+      # this mount the provider crashes with "Cannot connect to the Docker
+      # daemon" and labelled routes never become active.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - backend
       - frontend

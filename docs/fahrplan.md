@@ -25,9 +25,9 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 ## Aktueller Stand
 
-- **Stand vom:** 2026-05-01 (Sessionende — ADR-050 angenommen, M9 verworfen, Spalte `event.w3w_legacy` zu `event.legacy_external_ref` umgewidmet. Commit `409619c` per Fast-Forward auf `main` gepusht; `origin/main` zeigt auf `409619c`.)
+- **Stand vom:** 2026-05-01 (M10.1 erledigt — Patrick hat ADR-051 freigegeben. Strategie für M10 (Release-Candidate-Bündel) ist `Accepted`: AGPLv3, Caddy + Traefik beide via Compose-Overlays, Mail-Backend `aiosmtplib`, Backup `pg_dump | age | rclone` mit Cron-Container, GHCR Multi-Arch public, Image-Tag-Schema `:v*`/`:rc`/`:main`, Migrations-Auto-Run mit Advisory-Lock, RC-Versionsschema `v0.1.0-rc.1`. Sub-Step-Schnitt M10.1–M10.9 fixiert. Commit-Stand: `origin/main` weiter auf `409619c`; diese Session bringt Doku-Änderungen für M10.1, weitere Commits folgen mit M10.2+.)
 - **Laufende Phase:** Phase 1 (MVP) — gestartet
-- **Aktiver Schritt:** **M10 (VPS-Deployment) [OFFEN]** rückt vor — M9 ist [VERWORFEN] gemäß ADR-050 (manuelle Nacherfassung des kleinen w3w-Bestands statt Skript). Sub-Folgearbeit aus ADR-050: **M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) [OFFEN]**, nicht-blockierend für M10. Spalten-Rename `event.w3w_legacy → event.legacy_external_ref` (Alembic-Migration `20260501_1200_legacy_ref`, Backend + RxDB-Schema v0→v1 + Frontend-Komponenten + Tests umgestellt) ist erledigt. **Verifikation:** Backend pytest **216/216 grün** auf frischer DB (Erst-Lauf hatte einen Test-Pollution-Failure in `test_admin_approves_restraint_type` aus alter Pre-M9-DB; auf aufgeräumter DB grün), Frontend vitest **271/271 grün**, `pnpm typecheck` + `pnpm lint` clean, Drift-Test **10/10** (RxDB-JSON-Schema ↔ Pydantic-EventDoc synchron). Browser-Verifikation entfällt — keine UI-Änderung; UI-Anbindung kommt mit M5c-NACH. **Nächster Schritt:** M10 (VPS-Deployment) — Voraussetzung gemäß Fahrplan: alle vorherigen erledigt.
+- **Aktiver Schritt:** **M10.2 (Mail-Backend SMTP + Frontend Reset-Pages) [OFFEN]** — als nächster Sub-Step von M10. Backend bekommt `aiosmtplib`-Dep, `app/auth/mail.py::SMTPMailer`, Mail-Settings in `app/settings.py` (`HCMAP_SMTP_HOST/PORT/USER/PASSWORD/STARTTLS/USE_TLS/FROM/FROM_NAME`, `HCMAP_BASE_URL`), deutschsprachige Plain-Text-Templates in `app/auth/templates/`. Frontend bekommt `(public)/forgot-password/page.tsx` und `(public)/reset-password/page.tsx` (Token aus URL-Query). Tests: pytest für `SMTPMailer`, vitest für beide Pages. Akzeptanz: pytest ≥220 grün, vitest ≥273 grün, Browser-Smoke gegen lokales MailHog (Reset-Roundtrip), Lint/Type/Format clean. **Sub-Folgearbeit aus ADR-050:** M5c-NACH bleibt [OFFEN], nicht-blockierend. **Nächster Schritt nach M10.2:** M10.3 (LICENSE + Lizenz-Metadaten + README-Header).
 
 - **Vorgänger M8.5 (Frontend Personen-Verwaltung + Export-UI) [ERLEDIGT] 2026-05-01.** Neue Datei [(admin-only)/persons/page.tsx](frontend/src/app/(protected)/admin/(admin-only)/persons/page.tsx) mit Filter-Toggles (`origin=on_the_fly`, `linkable=true`, `unlinked=true`, `inkl. anonymisierte / gemergte`), Suchfeld, Personen-Tabelle mit Origin/Linkable/User-Status/Status-Spalten und pro Reihe `Mergen…`/`Anonymisieren…`. Merge-Wizard via Radix-Dialog: Source-Vorschau, Target-Auswahl (radio aus aktuell gefiltertem Set, exklusive Source/soft-deleted), Konflikt-/Result-Anzeige nach erfolgreichem POST. Anonymisierungs-Dialog mit DSGVO-/ADR-002-Hinweis und State-Maschine (Source-Karte → Bestätigen → Schließen). Erweiterung [src/lib/admin/api.ts](frontend/src/lib/admin/api.ts) um `useAdminPersons` (separater Cache-Key `["admin","persons",…]`, default `limit=200`, `include_deleted` durchgereicht) und `useAnonymizePerson` (POST `/api/persons/{id}/anonymize` ohne Body, invalidiert `persons`/`linkable-persons`/`stats`). Hinweis zur „unlinked"-Erkennung: Ableitung aus `useAdminUsers({limit:200})`-Set linker `person_id`-Werte, da `/api/persons` keinen Server-Filter exponiert (ADR-049 §H bewusst client-side). **Tests:** `tests/admin-api.test.tsx` um 4 Cases erweitert (Cache-Key-Stabilität `adminPersonsQueryKey`, GET `/api/persons` mit `include_deleted`, POST `merge`-Body, POST `anonymize` ohne Body) — 10/10 grün. Volle Suite **271/271** grün, `pnpm typecheck`/`pnpm lint` clean. **Browser-Verifikation:** Backend+DB+Frontend hochgefahren (preview_*), Admin-Login, `/admin/persons` lädt 169 Personen (`limit=200`), Triple-Filter `origin=on_the_fly` ∧ `linkable=true` ∧ `unlinked=true` reduziert korrekt auf 2 (seed: OTF Alpha, OTF Charlie); Merge-Wizard OTF Alpha → OTF Charlie POSTed `/api/admin/persons/{id}/merge` 200, Source in DB nun `[merged → <target-uuid>]` mit `is_deleted=t`; Anonymize OTF Bravo POSTed `/api/persons/{id}/anonymize`, DB zeigt `name='[gelöscht]'`, `alias=NULL`, `note=NULL`, `is_deleted=t`, `deleted_at` gestempelt. Export-Roundtrip `GET /api/admin/export/all` → 200, `schema_version=1`, alle 11 Collections vorhanden, kein `hashed_password` im User-Dump. **Hinweis Format-Check:** `pnpm format:check` schlägt mit 47 Files an, davon 46 unverändert seit M7.x — Re-Lauf nach `git stash` mit identisch 46 Files reproduzierbar. Ursache: Lokales Node v24.15 statt im Docker-Image gepinnte Node 22 (`engines: ">=22 <23"`); `prettier-plugin-tailwindcss@0.6.9` produziert auf Node 24 marginal andere Wrap-Entscheidungen. Meine 3 berührten Files (`persons/page.tsx`, `lib/admin/api.ts`, `tests/admin-api.test.tsx`) sind Prettier-clean (`prettier --check` per-file = pass). Backend-Tests bewusst **nicht** lokal nochmal ausgeführt (kein Backend-Touch in M8.5; Stand 215/215 aus M8.3-Verifikation gilt). **Nächster Schritt:** M9 (w3w-Migration).
 
@@ -107,8 +107,17 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M8.5        | └─ Frontend `/admin/persons` (Filter, Merge-Wizard, Anonymisierung) + Export-UI | [ERLEDIGT] 2026-05-01 |
 | 1 MVP   | M9          | w3w-Migration                                    | [VERWORFEN] (ADR-050) |
 | 1 MVP   | M5c-NACH    | Legacy-External-Ref im Edit/Backfill-UI (ADR-050 §S3) | [OFFEN], nicht-blockierend |
-| 1 MVP   | M10         | VPS-Deployment & Betriebs-Grundausstattung       | [OFFEN]     |
-| 1 MVP   | M11         | Go-Live Pfad A                                   | [OFFEN]     |
+| 1 MVP   | M10         | Release-Candidate-Bündel (deployment-ready durch jedermann) | [OFFEN]     |
+| 1 MVP   | M10.1       | └─ ADR-051 Strategie-Freigabe                    | [ERLEDIGT] 2026-05-01 |
+| 1 MVP   | M10.2       | └─ Mail-Backend SMTP + Frontend Reset-Pages      | [OFFEN]     |
+| 1 MVP   | M10.3       | └─ LICENSE (AGPLv3) + Lizenz-Metadaten + README-Header | [OFFEN] |
+| 1 MVP   | M10.4       | └─ Einwilligungs-Vorlage `docs/templates/consent-de.md` | [OFFEN] |
+| 1 MVP   | M10.5       | └─ `compose.prod.yml` + Caddy/Traefik-Overlays + Prod-ENV-Schema | [OFFEN] |
+| 1 MVP   | M10.6       | └─ Backup-Service (`pg_dump \| age \| rclone`, Cron, Retention) | [OFFEN] |
+| 1 MVP   | M10.7       | └─ GitHub Actions CI + GHCR-Push (Multi-Arch)    | [OFFEN]     |
+| 1 MVP   | M10.8       | └─ `ops/runbook.md` + README-Restruktur (Operator-Quickstart) | [OFFEN] |
+| 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [OFFEN]   |
+| 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -1755,51 +1764,103 @@ erledigt 2026-05-01.
 
 ---
 
-### M10 — VPS-Deployment & Betriebs-Grundausstattung
+### M10 — Release-Candidate-Bündel (deployment-ready durch jedermann)
 
-**Ziel:** HC-Map läuft produktiv auf dem VPS, mit TLS, Reverse Proxy und Basis-Backups.
+**Ziel:** HC-Map ist als generische Multi-Instanz-Anwendung distribuierbar — fremde Operator können das System auf einem eigenen VPS in unter 30 Minuten ans Laufen bringen, ohne Insider-Wissen, mit einer eigenen Domain, ihrem eigenen Reverse-Proxy (Caddy oder Traefik), eigenem Backup-Ziel und eigenem SMTP-Anbieter. Erstes Pre-Release `v0.1.0-rc.1` auf GitHub.
 
-**Deliverables:**
-- VPS-Einrichtung (in `architecture.md` genauer spezifiziert):
-  - Docker / Docker Compose oder Podman als Laufzeit.
-  - Reverse Proxy (nginx oder Caddy) mit automatischem TLS via Let's Encrypt.
-  - Fail2ban, UFW-Firewall, SSH-Key-Only.
-  - Full-Disk-Encryption verifiziert.
-- Deployment-Pipeline: per Git-Push oder manuelles Skript, idempotent.
-- Daily Postgres-Dumps auf separatem Storage (verschlüsselt).
-- Health-Checks und automatischer Restart (Docker-HEALTHCHECK + restart policy).
-- Logs persistiert (journald oder Datei, Rotation aktiviert).
+**Strategie-ADR:** [ADR-051 — Implementierungsstrategie M10 (Release-Candidate-Bündel)](./decisions.md#adr-051--implementierungsstrategie-m10-release-candidate-bündel-deployment-ready-durch-jedermann). Bindet alle Mechanik-Entscheidungen (Lizenz AGPLv3, Mail-Backend `aiosmtplib`, Reverse-Proxy-Wahlfreiheit über Compose-Overlays, Backup `pg_dump | age | rclone` mit Cron-Container, GHCR Multi-Arch, Image-Tag-Schema, Migrations-Auto-Run via Advisory-Lock, Einwilligungs-Vorlage). Nach Freigabe von ADR-051 (Sub-Step M10.1) werden M10.2–M10.9 in Reihenfolge umgesetzt.
 
-**Akzeptanzkriterien:**
-- Produktiv-URL erreichbar mit TLS (A-Rating bei ssllabs.com oder testssl.sh).
-- Staging-Deployment vorhanden (optional, aber empfohlen).
-- Erster Backup-Restore-Test erfolgreich.
+#### Sub-Steps
 
-**Abhängigkeiten:** alle vorherigen.
+**M10.1 — ADR-051 Strategie-Freigabe** [ERLEDIGT] 2026-05-01
+- ADR-051 von Patrick freigegeben am 2026-05-01, Status `Accepted`. M10.2–M10.9 dürfen in Reihenfolge umgesetzt werden.
+
+**M10.2 — Mail-Backend SMTP + Frontend Reset-Pages** [OFFEN]
+- Backend: `aiosmtplib`-Dep, `app/auth/mail.py::SMTPMailer`, Mail-Settings in `app/settings.py`, deutschsprachige Plain-Text-Templates in `app/auth/templates/`.
+- Frontend: `(public)/forgot-password/page.tsx`, `(public)/reset-password/page.tsx` (Token aus URL-Query).
+- Tests: pytest (`SMTPMailer` gegen Test-Server oder Mock), vitest (Render + Form-Submission beider Pages).
+- Akzeptanz: pytest ≥220 grün, vitest ≥273 grün, Browser-Smoke gegen lokalen MailHog (Reset-Roundtrip), `ruff`/`mypy --strict`/`tsc --noEmit`/`eslint` clean.
+
+**M10.3 — LICENSE (AGPLv3) + Lizenz-Metadaten + README-Header** [OFFEN]
+- `LICENSE`-File mit AGPLv3-Volltext.
+- `pyproject.toml::license = "AGPL-3.0-only"`, `package.json::"license": "AGPL-3.0-only"`.
+- README: Lizenz-Badge + Hinweis-Block.
+- Akzeptanz: `pip-licenses` und `pnpm licenses list` ohne GPL-/proprietäre Treffer (außer AGPL selbst).
+
+**M10.4 — Einwilligungs-Vorlage `docs/templates/consent-de.md`** [OFFEN]
+- Strukturierte Vorlage mit Platzhaltern (`[GRUPPENNAME]`, `[INSTANZ-URL]`, `[HOSTING-PROVIDER]`, …).
+- Inhaltlich: Vertrauensmodell (ADR-001), Anonymisierung (ADR-002), on-the-fly-Personen (ADR-014), Aggregat-Statistik (ADR-015), IndexedDB unverschlüsselt (ADR-032), Foto-/Medien-Speicherung (Phase 2 Platzhalter), Widerrufs-/Auskunftsrechte.
+- Akzeptanz: Cross-Check gegen ADR-001/002/014/015/032 — alle Punkte adressiert.
+
+**M10.5 — `compose.prod.yml` + Reverse-Proxy-Overlays + Prod-ENV-Schema** [OFFEN]
+- `docker/compose.prod.yml` ohne Reverse-Proxy-Service; App-Services exposeen nur interne Ports.
+- `docker/compose.caddy.yml` + `docker/Caddyfile.example` (Auto-TLS via Let's Encrypt).
+- `docker/compose.traefik.yml` + `docker/traefik/{traefik,dynamic}.yml.example` (Auto-TLS via Let's Encrypt).
+- Erweiterte `.env.example` mit Prod-Block (`HCMAP_DOMAIN`, `HCMAP_BASE_URL`, `HCMAP_ACME_EMAIL`, `HCMAP_COOKIE_DOMAIN`, `HCMAP_BACKUP_*`, `HCMAP_SMTP_*`).
+- `app/main.py`: Migrations-Auto-Run beim Backend-Start mit Postgres-Advisory-Lock; Override via `HCMAP_SKIP_MIGRATIONS=1`.
+- Backend-uvicorn mit `--proxy-headers --forwarded-allow-ips=*`.
+- Akzeptanz: Lokaler Voll-Stack-Test mit beiden Overlays alternativ (Bootstrap, Login, CSRF, Cookie-Secure aktiv); Migrations laufen einmal, zweite Backend-Instanz kein Re-Run.
+
+**M10.6 — Backup-Service** [OFFEN]
+- `docker/backup.Dockerfile` (Debian Bookworm + `postgresql-client-16` + `age` + `rclone` + `cron` + `tini`).
+- `docker/backup/{backup.sh,restore.sh,crontab}`, `docker/secrets/{age-recipients.txt,rclone.conf}.example`.
+- Cron: täglich 03:17 UTC, wöchentlich Sonntag 03:33, monatlich 1. 03:47.
+- Retention: daily 14d, weekly 56d, monthly 365d (per `rclone delete --min-age` als zweiter Cron-Job).
+- Restore-Skript: Private-Key + rclone-Pull + age-Decrypt + pg_restore in zweite leere DB.
+- Akzeptanz: Roundtrip-Test (rclone-Remote `local:` lokal): Dump → age → rclone → rclone copy → age decrypt → pg_restore → Smoke gegen Restore-DB grün.
+
+**M10.7 — GitHub Actions CI + GHCR-Push (Multi-Arch)** [OFFEN]
+- `.github/workflows/ci.yml` mit drei Jobs: `backend-lint-test`, `frontend-lint-test`, `build-push` (nur `main` und Tags `v*.*.*`).
+- QEMU + buildx, Build für `linux/amd64,linux/arm64`, Push zu `ghcr.io/paddel87/hc-map-{backend,frontend}` mit Tag-Schema (`:v*`, `:rc`, `:main`, `:sha-*`, `:latest` erst ab Final).
+- GHCR-Sichtbarkeit public.
+- `.github/workflows/release.yml` triggered auf `v*.*.*`-Tags, erstellt GitHub-Release mit Notes-Auto-Extract aus CHANGELOG.
+- Akzeptanz: CI grün auf einem Branch-PR (act oder echter PR), GHCR-Image-Tags nach Tag-Push prüfbar.
+
+**M10.8 — `ops/runbook.md` + README-Restruktur** [OFFEN]
+- `ops/runbook.md`: VPS-Anforderungen, SSH-Hardening, Docker-Install, Stack-Start nach Reverse-Proxy-Wahl, age-Key-Generierung + sicherer Aufbewahrung, rclone-Setup mit Beispielen (Hetzner Storage Box / Backblaze B2 / S3-kompatibel), Bootstrap-Prozess, Update-Pfad, Restore-Drill.
+- README: Operator-Quickstart als oberster inhaltlicher Abschnitt, Konfiguration, Backups, Update-Pfad, Dev-Setup nach unten, Architektur-Verweis, Lizenz.
+- Akzeptanz: Patrick liest Doku durch und schätzt: „Reicht das für eine fremde Instanz?" → bei Lücken Erweiterung mit „häufige Stolperer"-Sektion.
+
+**M10.9 — RC-Voll-Verifikation, Tag, Pre-Release** [OFFEN]
+- Voll-Compose-Smoke (lokal): Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog.
+- Tag `v0.1.0-rc.1` (signiert, falls GPG-Setup verfügbar; sonst unsigned).
+- GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell erfolgreich.
+- M10 → [ERLEDIGT].
+
+**Akzeptanzkriterien M10 gesamt:**
+- Tag `v0.1.0-rc.1` auf GitHub als Pre-Release sichtbar, Release-Notes enthalten Quickstart-Verweis.
+- Multi-Arch-Images auf GHCR public, Pull ohne Auth möglich.
+- Voll-Compose-Stack mit beiden Reverse-Proxy-Overlays alternativ erfolgreich gestartet, Smoke grün.
+- Backup-Roundtrip dokumentiert + erfolgreich.
+- README-Quickstart liest sich für eine Drittperson schlüssig.
+- Alle Tests grün (pytest, vitest, lint, typecheck, format).
+
+**Abhängigkeiten:** M0 – M8 ([ERLEDIGT]); M9 [VERWORFEN]; M5c-NACH ist nicht-blockierend (sollte aber vor `v0.1.0`-Final stehen).
 
 ---
 
-### M11 — Go-Live Pfad A
+### M11 — Go-Live Pfad A (Promote RC → `v0.1.0`)
 
-**Ziel:** HC-Map ist für die <20-Personen-Gruppe produktiv nutzbar.
+**Ziel:** Patricks RC-Image (`v0.1.0-rc.1`) läuft produktiv auf seinem VPS, die <20-Personen-Gruppe nutzt HC-Map. Bei Stabilität wird der RC zu `v0.1.0`-Final promoted (Tag, kein Re-Build).
 
 **Deliverables:**
-- Einwilligungstext liegt den Mitgliedern vor (außerhalb des Systems), Einwilligungen dokumentiert.
-- Bestand der vorher bei w3w geführten Events ist von den Mitgliedern manuell
-  über M5c (Nachträgliche Erfassung) eingepflegt — Fortschritt wird gruppenintern
-  nachgehalten, kein systemseitiger Vollständigkeits-Check (ADR-050).
+- Patrick provisioniert seinen VPS gemäß `ops/runbook.md` (eigene Domain, eigener Reverse-Proxy-Pick, eigenes Backup-Ziel via M13-Wahl, eigener SMTP-Anbieter).
+- RC-Image-Pull aus GHCR; Compose-Stack startet; Bootstrap-Admin-Anlage.
+- Einwilligungstext (aus `consent-de.md`-Vorlage angepasst) liegt den Mitgliedern vor, Einwilligungen dokumentiert.
+- Bestand der vorher bei w3w geführten Events ist von den Mitgliedern manuell über M5c (Nachträgliche Erfassung) eingepflegt — Fortschritt wird gruppenintern nachgehalten, kein systemseitiger Vollständigkeits-Check (ADR-050).
 - Alle Mitglieder als User angelegt und mit Personen verknüpft.
 - Kurz-Onboarding-Doku für die Gruppe (1 Seite).
-- w3w-Account ist gekündigt (kann unabhängig vom Go-Live-Termin geschehen,
-  ADR-050).
+- w3w-Account ist gekündigt (kann unabhängig vom Go-Live-Termin geschehen, ADR-050).
+- Bei Stabilität nach mind. 7 Tagen produktivem Betrieb: Tag `v0.1.0` (Final). GHCR-Tags `:v0.1.0`, `:v0.1`, `:0`, `:latest` werden gesetzt; Image-Bytes identisch zu `v0.1.0-rc.1`.
 
 **Akzeptanzkriterien:**
 - Alle Mitglieder können sich einloggen, eigene Events sehen.
 - Admin hat Vollzugriff, Freigabe-Workflows funktionieren.
-- Mitglieder bestätigen, dass die für sie relevanten Bestands-Events eingepflegt
-  sind (informell, kein automatischer Abgleich).
+- Mitglieder bestätigen, dass die für sie relevanten Bestands-Events eingepflegt sind (informell, kein automatischer Abgleich).
+- Mind. ein erfolgreicher Backup-Restore-Drill auf Patricks Setup.
+- `v0.1.0`-Tag und Final-Release auf GitHub.
 
-**Abhängigkeiten:** M0 – M10.
+**Abhängigkeiten:** M0 – M10. M5c-NACH wird **vor** dem Final-Tag empfohlen (RC kann ohne, Final-Tag sollte den Legacy-Ref-UI-Pfad abdecken).
 
 ---
 

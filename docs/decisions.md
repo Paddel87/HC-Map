@@ -4418,4 +4418,238 @@ sinnlos).
 
 ---
 
+## ADR-051 — Implementierungsstrategie M10 (Release-Candidate-Bündel: Deployment-ready durch jedermann)
+
+**Status:** Accepted
+**Datum:** 2026-05-01
+**Freigabe:** 2026-05-01 (Patrick)
+**Kategorie:** §4.1 Architektur (Multi-Instanz-Pattern als aktive Linie, Reverse-Proxy als Wahlpunkt), §4.2 neue Module (`docker/compose.prod.yml`, Reverse-Proxy-Overlays, Backup-Container, `ops/runbook.md`, `docs/templates/consent-de.md`, Frontend-Reset-Pages), §4.3 neue externe Abhängigkeiten (`aiosmtplib`, Container-Tools `age`/`rclone`, GHCR als Image-Registry), §4.5 API-Verträge (Mail-Versand-Hooks für `forgot-password`/`reset-password` produktiv), §4.6 Sicherheit (TLS-Termination, Cookie-`Secure`/-`Domain`, Reverse-Proxy-Headers, Backup-Verschlüsselung, ACME-Email-Konfig), §4.7 Build/Deploy (CI/CD via GitHub Actions, Image-Tag-Schema, Deployment-Mechanik), §4.8 Lizenz (AGPLv3 als Projektlizenz, Compliance-Auswirkungen).
+**Vorgänger:** ADR-001 (Hoster-Vertrauensmodell), ADR-002 (Anonymisierung), ADR-006 (Cookie-Auth-Topologie), ADR-014 (on-the-fly-Personen), ADR-015 (Aggregat-Statistiken), ADR-022 (Tile-Proxy serverseitig), ADR-032 (IndexedDB unverschlüsselt), ADR-047/048 (aktueller Stack-Stand), ADR-049 (Admin-Bereich), ADR-050 (M9 verworfen).
+
+### Kontext
+
+[`fahrplan.md`](./fahrplan.md) listet M10 als „VPS-Deployment & Betriebs-Grundausstattung" mit Caddy-Skizze in [`architecture.md`](./architecture.md). Patrick hat den Scope am 2026-05-01 auf **Release Candidate, deploybar durch jedermann** geschärft — d. h. HC-Map muss als generische Multi-Instanz-Anwendung distribuierbar werden, nicht als persönliches Setup auf Patricks VPS. Die generische Lieferung schließt mehrere Folgepunkte ein, die M10 ursprünglich nicht abgedeckt hat:
+
+- **Funktionaler RC-Blocker:** [`backend/app/auth/mail.py`](../backend/app/auth/mail.py) ist ein Stub (loggt Tokens nur), Frontend-Pages für `/forgot-password` und `/reset-password` fehlen. Ohne produktiven Mail-Versand ist der Passwort-Reset-Pfad nicht benutzbar.
+- **Lizenz-Lücke:** kein `LICENSE`-File im Repo. Ein Pre-Release-Tag ohne Lizenz ist rechtlich ungeklärt; bei Multi-Instanz-Distribution müssen Fork-Bedingungen explizit sein.
+- **Einwilligungs-Lücke:** project-context.md §6 fordert „schriftlichen Einwilligungstext vor M11". Bei Multi-Instanz muss HC-Map eine **Vorlage** mitliefern, weil kein Deployer aus dem Stand alle relevanten ADR-Hinweise (ADR-001/002/014/015/032) zusammenschreiben kann.
+- **Reverse-Proxy-Wahl:** Patrick hat am 2026-05-01 festgelegt, dass **sowohl Caddy als auch Traefik** unterstützt werden müssen. Damit darf der Reverse-Proxy nicht als hartkodierter Service im Haupt-Compose stehen.
+- **Image-Distribution:** ohne öffentliche Image-Registry müsste jeder Deployer selbst bauen — bei AGPLv3 + „jedermann" wäre das eine erhebliche Hürde.
+- **VPS-spezifische Festlegungen** (Provider, Domain, Backup-Anbieter, SMTP-Anbieter): müssen Konfiguration werden, nicht Code-Konstanten.
+
+Patrick hat am 2026-05-01 fünf Default-Empfehlungen freigegeben: AGPLv3, Caddy + Traefik beide, age, GHCR public, `v0.1.0-rc.1`-Versionsschema. Diese ADR formalisiert den Sub-Step-Schnitt und die Mechanik-Entscheidungen, die für die Implementierung der neun M10-Sub-Steps bindend sind.
+
+### Entscheidungen
+
+**A. Projektlizenz: AGPLv3-only.**
+
+`LICENSE`-File im Repo-Root mit dem unveränderten AGPLv3-Originaltext (https://www.gnu.org/licenses/agpl-3.0.txt). SPDX-Identifier `AGPL-3.0-only` in [`backend/pyproject.toml`](../backend/pyproject.toml) (`license = "AGPL-3.0-only"`) und [`frontend/package.json`](../frontend/package.json) (`"license": "AGPL-3.0-only"`). README erhält Lizenz-Badge und Kurzhinweis „HC-Map ist freie Software unter AGPLv3 — siehe [`LICENSE`](../LICENSE)".
+
+**Compliance-Check:** Aktuelle Backend-Deps (FastAPI, SQLAlchemy, Pydantic, fastapi-users, structlog, openlocationcode, asyncpg, alembic, sqladmin) sind MIT/BSD-3/Apache-2.0/MPL-2.0 — alle AGPLv3-kompatibel. Frontend-Deps (Next.js MIT, React MIT, Tailwind MIT, shadcn/ui MIT, MapLibre BSD-3, RxDB Apache-2.0, TanStack-Query MIT, sonner MIT) ebenfalls. Keine GPL-/LGPL-Konflikte. Falls künftig eine Dep mit restriktiverer Lizenz aufgenommen werden soll: ADR-Pflicht analog ADR-048.
+
+**Konsequenz für Pfad B:** AGPLv3 erlaubt Pfad B (Self-Hosting kommerzieller Forks) nicht ohne Quellcode-Offenlegung. Das ist projekt-politisch konsistent mit project-context.md („Datensouveränität"-Motiv), wird aber in der ADR explizit benannt, falls künftig kommerzielle Lizenz-Optionen erwogen werden.
+
+**B. Reverse-Proxy: Wahlfreiheit Caddy oder Traefik via Compose-Overlays.**
+
+`docker/compose.prod.yml` enthält **keinen** Reverse-Proxy-Service. App-Services (`backend`, `frontend`, `db`, `backup`) exposen ausschließlich interne Container-Ports — kein Host-Port-Mapping außer für die DB-Backup-Schnittstelle (loopback-only).
+
+Zwei Overlay-Files liefern den Reverse-Proxy als getrennte Komposition:
+
+- `docker/compose.caddy.yml` — Caddy v2 mit `Caddyfile.example` (Auto-TLS via Let's Encrypt, ein Konfig-File, ACME-Email aus `HCMAP_ACME_EMAIL`).
+- `docker/compose.traefik.yml` — Traefik v3 mit dynamischer Config (`docker/traefik/traefik.yml.example` + `docker/traefik/dynamic.yml.example`, Auto-TLS via Let's Encrypt, ACME-Email aus `HCMAP_ACME_EMAIL`).
+
+Operator-Befehl: `docker compose -f docker/compose.prod.yml -f docker/compose.caddy.yml --env-file .env.prod up -d` (analog für Traefik). Ein dritter Pfad „eigener vorhandener Reverse-Proxy" wird im Runbook dokumentiert: App-Compose ohne Overlay starten, Backend `:8000` und Frontend `:3000` an Host-Loopback bind, externer Reverse-Proxy per Operator-Wahl davorhängen. Kein offizieller Beispiel-Stack für nginx — wird zugunsten Caddy/Traefik-Fokus weggelassen, kann aber bei Bedarf als drittes Overlay nachgeliefert werden.
+
+**Forwarded-Headers:** Beide Overlays setzen identisch `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-For`. Backend-uvicorn wird mit `--proxy-headers --forwarded-allow-ips=*` gestartet (in Docker-Netz akzeptabel; externe Reverse-Proxies können die Header nicht direkt setzen, Container-internes Vertrauensmodell).
+
+**Cookie-Konfiguration:** `HCMAP_COOKIE_SECURE=true` Pflicht (HTTPS-only). `HCMAP_COOKIE_DOMAIN` optional — wenn gesetzt, wird Cookie auch an Subdomains gereicht; Default leer (Host-Cookie). CSRF-Origin wird aus `HCMAP_BASE_URL` abgeleitet (z. B. `https://hc-map.example.org`).
+
+**C. Mail-Backend: SMTP via `aiosmtplib`.**
+
+Neue Backend-Dep `aiosmtplib>=3,<4` (MIT, asyncio-native SMTP-Client; PyPI-Lookup zu Beginn von M10.1 fixiert die exakte Patch-Version analog ADR-048-Pin-Stil). Kein `fastapi-mail` (Overkill für zwei Mail-Templates).
+
+Implementierung in `backend/app/auth/mail.py`:
+
+```python
+class SMTPMailer:
+    def __init__(self, settings: MailSettings) -> None: ...
+    async def send_password_reset(self, email: str, token: str) -> None: ...
+    async def send_verify(self, email: str, token: str) -> None: ...
+```
+
+Settings (Pydantic, in `backend/app/settings.py` ergänzen):
+
+| Variable | Typ | Pflicht | Anmerkung |
+|---|---|---|---|
+| `HCMAP_SMTP_HOST` | str | ja (Prod) | z. B. `smtp.eu.mailgun.org` |
+| `HCMAP_SMTP_PORT` | int | ja (Prod) | typ. 587 (STARTTLS) oder 465 (SMTPS) |
+| `HCMAP_SMTP_USER` | str | optional | leer = ohne Auth |
+| `HCMAP_SMTP_PASSWORD` | secret | optional | analog |
+| `HCMAP_SMTP_STARTTLS` | bool | default `true` | bei Port 465 auf `false` setzen, dafür `HCMAP_SMTP_USE_TLS=true` |
+| `HCMAP_SMTP_USE_TLS` | bool | default `false` | implizit-TLS für Port 465 |
+| `HCMAP_SMTP_FROM` | EmailStr | ja (Prod) | „From"-Header und Envelope-Sender |
+| `HCMAP_SMTP_FROM_NAME` | str | optional | Anzeigename, z. B. „HC-Map" |
+| `HCMAP_BASE_URL` | str | ja (Prod) | Pflicht für Reset-Link-Generierung |
+
+Backend-Auswahl in `app/auth/mail.py::get_email_backend()`: bei `HCMAP_ENVIRONMENT == "production"` und gesetztem `HCMAP_SMTP_HOST` → `SMTPMailer`; sonst → bestehender `LoggingMailer`-Stub (für Tests/Dev).
+
+**Templates:** zwei einfache Plain-Text-Templates in `backend/app/auth/templates/` (kein HTML, kein Branding — minimal: Begrüßung, Reset-Link mit Token, Hinweis auf Gültigkeitsdauer). Internationalisierung **nicht** im RC-Scope — Templates sind deutsch (Default-Sprache laut project-context.md §1).
+
+**Frontend-Pages:**
+
+- `frontend/src/app/(public)/forgot-password/page.tsx` — Form mit E-Mail-Eingabe, POST `/api/auth/forgot-password`, Success-Toast (immer „Falls die E-Mail existiert, wurde ein Link versendet" — kein User-Enumeration), Link „zurück zum Login".
+- `frontend/src/app/(public)/reset-password/page.tsx` — liest `?token=...` aus URL, Form mit zwei Passwort-Feldern, POST `/api/auth/reset-password`, Erfolgs-Redirect zu Login mit Toast.
+
+Tests: vitest-Tests für beide Pages (Render, Form-Submission, Error-Pfad), pytest-Tests für `SMTPMailer` mit `aiosmtplib`-Test-Server (oder via Mocking — endgültige Wahl in M10.1 nach Lib-Erprobung).
+
+**D. Backup-Service: pg_dump | age | rclone in Cron-Container.**
+
+Eigener Service `backup` in `docker/compose.prod.yml`, gebaut aus neuem `docker/backup.Dockerfile`:
+
+- Base: `debian:bookworm-slim`.
+- Installiert: `postgresql-client-16`, `age`, `rclone`, `cron`, `tini`.
+- Lädt Backup-Skript `docker/backup/backup.sh` und Cron-Config `docker/backup/crontab`.
+- ENTRYPOINT `tini -- crond -f -L /var/log/cron.log` (Foreground).
+
+Backup-Skript-Logik:
+
+```sh
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+pg_dump --format=custom --dbname="$HCMAP_DATABASE_URL" \
+  | age --recipients-file /run/secrets/age-recipients.txt \
+  | rclone rcat "${HCMAP_BACKUP_REMOTE}:${HCMAP_BACKUP_PREFIX}/daily/$ts.dump.age"
+```
+
+Cron-Schedule: täglich 03:17 UTC (`17 3 * * *`). Wöchentlich (Sonntag 03:33) und monatlich (1. des Monats 03:47) zusätzliche Pfade in `weekly/` und `monthly/` schreiben — Retention separat (Punkt unten).
+
+**Retention** über `rclone delete --min-age` als zweiter Cron-Job (täglich 04:00):
+- `daily/`: älter als 14 Tage → löschen.
+- `weekly/`: älter als 56 Tage (8 Wochen) → löschen.
+- `monthly/`: älter als 365 Tage → löschen.
+
+**Verschlüsselung:** age-Schlüsselpaar pro Instanz. Public-Key (Recipient) in `docker/secrets/age-recipients.txt` als Docker-Secret eingehängt. Private-Key (für Restore) **nicht im Container**, sondern bei der Operator-Person (z. B. Passwort-Manager). Restore-Skript `scripts/backup-restore.sh` dokumentiert: Private-Key-Datei lokal vorhalten, `rclone copy` + `age --decrypt` + `pg_restore` in Ziel-DB.
+
+**rclone-Konfiguration:** Operator legt vor erstem Start `docker/secrets/rclone.conf` an (rclone unterstützt Hetzner Storage Box, Backblaze B2, S3-kompatibel, SFTP, …). HC-Map gibt keinen Anbieter vor — Runbook listet die drei häufigen Setups (Hetzner Storage Box via SFTP, Backblaze B2, generisches S3) als Beispiele. Auswahl in M13 für Patricks eigene Instanz; M10 liefert nur die generische Mechanik.
+
+**Off-Site-Pflicht relativ:** project-context.md §11 sieht Backup-Anbieter-Wahl in M13. M10 liefert die Skripte und macht Off-Site **technisch möglich**, erzwingt aber keinen konkreten Anbieter. Der RC ist bewusst so geschnitten, dass ein Operator zunächst auch nur lokal sichern kann (rclone-Remote `local:/var/backups/hc-map`), Off-Site dann nachrüstet — passt zur Multi-Instanz-Linie.
+
+**E. CI/CD: GitHub Actions, GHCR als Image-Registry, Multi-Arch.**
+
+Neue Datei `.github/workflows/ci.yml` mit drei Jobs:
+
+1. **`backend-lint-test`** — Python 3.12, `uv sync --dev`, `ruff check`, `ruff format --check`, `mypy --strict`, `pytest` mit Postgres-Service-Container (Postgres+PostGIS image gepinnt).
+2. **`frontend-lint-test`** — Node 22, `corepack enable`, `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test --run`.
+3. **`build-push`** — nur auf `main` und Tags mit Pattern `v*.*.*`. Setzt `docker/setup-qemu-action` + `docker/setup-buildx-action`, login bei `ghcr.io` per `GITHUB_TOKEN`, baut beide Dockerfiles für `linux/amd64,linux/arm64`, taggt mit Schema (siehe unten), pusht.
+
+Image-Tag-Schema (`ghcr.io/paddel87/hc-map-backend` und `ghcr.io/paddel87/hc-map-frontend`):
+
+| Trigger | Tags |
+|---|---|
+| Tag `v0.1.0-rc.1` | `:v0.1.0-rc.1`, `:rc` |
+| Tag `v0.1.0` (RC → final) | `:v0.1.0`, `:v0.1`, `:0`, `:latest` |
+| Push auf `main` | `:main`, `:sha-${shortsha}` |
+
+Zwischen RC und stable wird `:latest` **nicht** gesetzt — `:rc` ist der explizite RC-Channel. Operator wählt im Compose-File explizit `:v0.1.0-rc.1` (oder `:rc`, wenn er rolling-RC will).
+
+**GHCR-Sichtbarkeit:** beide Pakete public (passt zu AGPLv3 + „jedermann"). Pull ohne Authentifizierung möglich. Push-Permissions auf den Workflow beschränkt (Standard-`GITHUB_TOKEN` mit `packages: write` Scope).
+
+**SBOM/Provenance:** in M10.6 nicht erzwingen (Software-Bill-of-Materials wäre nice-to-have, sprengt aber den RC-Scope). Als Folge-Aufgabe nach M11 öffnen.
+
+**F. Deployment-Mechanik: manueller Pull, kein Auto-Deploy.**
+
+Kein automatischer Deploy aus CI auf einen VPS — Multi-Instanz heißt: jeder Operator entscheidet selbst, wann er pullt. Workflow:
+
+1. Operator hat `.env.prod`, `docker/compose.prod.yml`, ein Reverse-Proxy-Overlay und ggf. Reverse-Proxy-Konfigfiles in seinem Server-Pfad (typ. `/srv/hc-map/`).
+2. Operator pullt neue Images: `docker compose -f compose.prod.yml -f compose.caddy.yml pull`.
+3. Operator startet neu: `docker compose -f ... up -d`.
+4. Compose-Reihenfolge sorgt für DB-Health-Wait, Backend-Migrations, Frontend-Restart.
+
+**Migrations-Strategie:** Backend-Container führt Alembic-Migration **automatisch beim Start** aus (Standard-Pattern für Single-Instance-Deployments mit Multi-Instance-Ausschluss durch Postgres-Advisory-Lock; Mechanik in M10.1 implementieren). Bei Migrations-Fehler beendet Backend mit Exit-Code 1, Compose-Restart-Loop bringt das Problem an die Oberfläche. Operator kann Migration manuell überspringen via `HCMAP_SKIP_MIGRATIONS=1` für Notfälle.
+
+**G. Einwilligungs-Vorlage `docs/templates/consent-de.md`.**
+
+Strukturierte Markdown-Vorlage mit Platzhaltern in eckigen Klammern (`[GRUPPENNAME]`, `[ADMIN-NAME]`, `[INSTANZ-URL]`, `[HOSTING-PROVIDER]`, `[HOSTING-STANDORT]`, …). Inhaltlich abgedeckt:
+
+1. **Vertrauensmodell zum VPS-Hoster** (ADR-001) — wer hat Zugriff, welche Verschlüsselung, kein App-seitiger Schutz vor Hoster.
+2. **Anonymisierungs-Kompromiss** (ADR-002) — Re-Identifikation in kleiner Gruppe weiter möglich.
+3. **On-the-fly-Personenanlage** (ADR-014) — externe Personen können ohne deren Wissen erfasst werden, Linkable-Mechanismus.
+4. **Aggregat-Statistik in kleiner Gruppe** (ADR-015) — kollektive Zahlen sind nur scheinbar anonym.
+5. **IndexedDB unverschlüsselt** (ADR-032) — Geräteverschlüsselung User-Pflicht.
+6. **Foto-/Medien-Speicherung** (ADR-015 §M15) — als Platzhalter für späteren M15-Ausbau, mit Hinweis „aktiviert ab Phase 2".
+7. **Widerrufs- und Auskunftsrechte** — Verweis auf Anonymisierung, Export-Funktion.
+
+**Disclaimer:** `consent-de.md` ist explizit als Vorlage markiert. Operator muss anpassen, ggf. juristisch prüfen lassen — keine Rechtsberatung durch HC-Map. Englische Vorlage `consent-en.md` **nicht** im RC-Scope (kein Multi-Sprach-Support für M10).
+
+**H. README-Restruktur und Operator-Quickstart.**
+
+Aktuelle [`README.md`](../README.md) (17.990 Bytes) ist Dev-zentriert. M10.7 strukturiert um:
+
+1. **Header**: Projektname, Tagline, Badges (Lizenz AGPLv3, CI-Status, RC-Version, Backend-Tests, Frontend-Tests, Docker-Pulls — alle nur dann, wenn echt befüllt; CLAUDE.md §6).
+2. **Quickstart for Operators** (neu, oberster inhaltlicher Abschnitt) — VPS-Anforderungen, Domain & DNS-Voraussetzung, in 30 min zur lauffähigen Instanz.
+3. **Konfiguration** — `.env.prod`-Variablen mit Pflicht/Optional-Markierung, Verweis auf `.env.example`.
+4. **Backups** — Schnellüberblick + Verweis auf Runbook.
+5. **Update-Pfad** — neuer RC pullen, Migrations-Verhalten.
+6. **Development-Setup** (war oben, rutscht nach unten) — bestehender Inhalt im Wesentlichen unverändert.
+7. **Architektur-Übersicht** — Verweis auf [`docs/architecture.md`](./architecture.md).
+8. **Lizenz & Mitwirkung** — AGPLv3-Hinweis, Issue-Tracker, Contribution-Guidelines (kurz).
+
+Detaillierte Schritt-für-Schritt-Anleitung wandert in `ops/runbook.md` (M10.7) — README bleibt Übersicht.
+
+**I. Sub-Step-Spezifikation.**
+
+| Sub-Step | Status nach Freigabe | Deliverables | Verifikation |
+|---|---|---|---|
+| **M10.1** | Diese ADR-051 zur Freigabe vorgelegt; bei Annahme `Status: Accepted` setzen, Fahrplan-Eintrag M10 in 9 Sub-Steps aufschlüsseln, restliche M10.x in Reihenfolge umsetzen | ADR-051 + Fahrplan-Update | Patrick gibt frei |
+| **M10.2** | Mail-Backend SMTP + Frontend Reset-Pages | `aiosmtplib`-Dep in `pyproject.toml`, `app/auth/mail.py`-`SMTPMailer`, `app/settings.py`-Mail-Settings, `app/auth/templates/`, `frontend/src/app/(public)/forgot-password/page.tsx` + `reset-password/page.tsx`, vitest- + pytest-Tests | `pytest` grün ≥220, `pnpm test` grün ≥273, manueller Browser-Smoke gegen lokalen MailHog/MailCatcher (Reset-Roundtrip), `ruff`/`mypy --strict`/`tsc --noEmit`/`eslint` clean |
+| **M10.3** | LICENSE + Lizenz-Metadaten + README-Header | `LICENSE` (AGPLv3-Volltext), `pyproject.toml::license`, `package.json::license`, README-Lizenz-Badge + Hinweis-Block, CHANGELOG-Eintrag | Visuell + Dependency-License-Compliance-Smoke (Backend `pip-licenses` als ad-hoc-Lauf, Frontend `pnpm licenses list` als ad-hoc-Lauf — keine GPL-/proprietären Treffer außer AGPL selbst) |
+| **M10.4** | Einwilligungs-Vorlage | `docs/templates/consent-de.md` mit Platzhaltern, Verweis aus README + project-context.md §6 + architecture.md | Inhaltlicher Cross-Check gegen ADR-001/002/014/015/032 (alle Punkte adressiert) |
+| **M10.5** | `compose.prod.yml` + Reverse-Proxy-Overlays + Prod-ENV-Schema | `docker/compose.prod.yml`, `docker/compose.caddy.yml` + `Caddyfile.example`, `docker/compose.traefik.yml` + `traefik/*.example`, erweiterte `.env.example` (Prod-Block: `HCMAP_DOMAIN`, `HCMAP_BASE_URL`, `HCMAP_ACME_EMAIL`, `HCMAP_COOKIE_DOMAIN`, `HCMAP_BACKUP_*`, `HCMAP_SMTP_*`), `app/main.py`-Migrations-Auto-Run-Logik mit Advisory-Lock | Lokaler Voll-Stack-Test mit beiden Overlays alternativ (Caddy + selbstsigniertes Cert oder Let's-Encrypt-Staging; Traefik analog), Bootstrap, Login-Flow, Smoke-Run; CSRF und Cookie-Secure aktiv |
+| **M10.6** | Backup-Service | `docker/backup.Dockerfile`, `docker/backup/backup.sh`, `docker/backup/restore.sh`, `docker/backup/crontab`, `docker/secrets/age-recipients.txt.example`, `docker/secrets/rclone.conf.example`, Backup-Test-Skript für CI | Roundtrip-Test (lokal): pg_dump | age | rclone (rclone-Remote `local:`) → rclone copy + age --decrypt + pg_restore in zweite leere DB → pgbench-Schema-Diff = 0 Zeilen, App-Smoke gegen restore-DB grün |
+| **M10.7** | GitHub Actions Workflow | `.github/workflows/ci.yml` mit drei Jobs (`backend-lint-test`, `frontend-lint-test`, `build-push`), QEMU+buildx-Setup, GHCR-Push mit Tag-Schema, separater Pre-Release-Workflow `.github/workflows/release.yml` (triggered auf `v*.*.*`-Tags, erstellt GitHub-Release mit Notes-Auto-Extract aus CHANGELOG) | CI-Lauf grün auf einem Branch-PR (act-Lokaltest oder echter PR), GHCR-Image-Tags `:rc`/`:v0.1.0-rc.1` nach Tag-Push prüfbar |
+| **M10.8** | `ops/runbook.md` + README-Restruktur | `ops/runbook.md` (VPS-Setup, SSH-Hardening, Docker-Install, Stack-Start je nach Reverse-Proxy-Wahl, age-Key-Generierung, rclone-Setup, Bootstrap, Update-Pfad, Restore-Drill), README mit Operator-Quickstart als oberster inhaltlicher Abschnitt | Drittperson-Lese-Test (Patrick liest Runbook + README durch und schätzt: „Reicht das, um eine fremde HC-Map ans Laufen zu bringen?") |
+| **M10.9** | Voll-Verifikation, Tag, Pre-Release | RC-Smoke-Run im lokalen Voll-Compose: Bootstrap, Login, Event-Anlage (Live + Backfill), Edit, Anonymisierung, Merge, Stats, Export, Backup-Roundtrip mit Restore in zweite DB, Reset-Mail-Roundtrip gegen MailHog. Tag `v0.1.0-rc.1` (signiert), GitHub-Pre-Release mit CHANGELOG-Notes, GHCR-Tags verifiziert, M10 → `[ERLEDIGT]` | Alle Schritte oben grün, CI-Workflow auf Tag grün, Pre-Release sichtbar, Image-Pull `docker pull ghcr.io/paddel87/hc-map-backend:v0.1.0-rc.1` aus frischer Shell erfolgreich |
+
+### Verworfene Alternativen
+
+- **Reverse-Proxy hartkodiert auf Caddy.** Patrick hat Wahlfreiheit verlangt; Multi-Instanz-Linie. Verworfen zugunsten Overlay-Modell.
+- **`fastapi-mail` als Mail-Lib.** Bringt Templating-Engine und HTML-Mail-Generator mit, die HC-Map nicht braucht. Verworfen zugunsten direkter `aiosmtplib`-Nutzung.
+- **GPG statt age für Backup-Verschlüsselung.** GPG ist mächtig, aber Schlüssel-Verwaltung ist für unerfahrene Operator schwerer zu handhaben (Keyring, Web-of-Trust, Subkeys). age ist single-binary mit klarer ed25519-Schlüssel-Mechanik. Verworfen.
+- **Off-Site-Backup-Anbieter im RC fixieren.** project-context.md §11 sieht Wahl in M13 für Patricks eigene Instanz; bei Multi-Instanz wäre eine Festlegung sowieso falsch. Verworfen — RC liefert Mechanik, kein Anbieter-Lock-in.
+- **CSV-Export-Pflicht im RC.** Pfad-A-Volumen rechtfertigt es nicht (siehe ADR-049 §G); JSON-Export ist da. Verworfen.
+- **Auto-Deploy aus CI auf produktive VPS.** Kollidiert mit Multi-Instanz-Modell. Jeder Operator pullt selbst. Verworfen.
+- **Staging-Environment-Pflicht.** Optional gehalten; Operator kann zweite Compose-Instanz mit anderer Domain bauen, dokumentiert im Runbook, aber nicht erzwungen. Verworfen.
+- **English-Sprach-Support im RC.** Multi-Sprach würde Templates, Frontend-i18n, Doku-Verdopplung bedeuten. Aus dem RC-Scope ausgeschlossen, als Folge-Aufgabe nach M11 öffnen.
+- **SBOM/Provenance im RC erzwingen.** Sprengt Scope; als Folge-Aufgabe nach M11.
+- **`fastapi-users`-`/api/auth/verify`-Pfad im RC produktivieren.** Email-Verifizierung neuer Accounts ist nice-to-have für Pfad B; in Pfad A (Admin lädt User ein, kein Self-Signup) nicht zwingend. Bleibt Folge-Aufgabe.
+
+### Risiken und Mitigationen
+
+- **R1. SMTP-Provider-Heterogenität bricht den `aiosmtplib`-Versand.** Mitigation: M10.2 testet gegen MailHog (lokaler Test-SMTP) **und** mindestens einen echten Provider während Patricks RC-Smoke (M10.9). Edge-Cases (Implicit-TLS auf 465, STARTTLS auf 587, kein TLS auf 25) decken die `HCMAP_SMTP_*`-Settings ab.
+- **R2. Reverse-Proxy-Overlays divergieren in Header-Verhalten.** Mitigation: Test-Matrix in M10.5 fährt beide Overlays alternativ und prüft Login-Flow + CSRF + Cookie-Secure identisch. Falls Divergenzen auftreten: Header-Vereinheitlichung in den Overlay-Configs erzwingen.
+- **R3. Backup-Verschlüsselung age — Schlüsselverlust = Datenverlust.** Mitigation: Runbook hebt Schlüssel-Verwahrung in fett hervor (Passwort-Manager + 2-Personen-Backup-Schlüssel als optional dokumentierte Variante). Restore-Drill ist in M10.9 Akzeptanzkriterium — d. h. Operator hat den Schlüssel mindestens einmal aktiv genutzt.
+- **R4. GHCR-Multi-Arch-Build verdoppelt CI-Zeit.** Mitigation: bei Build-Zeit-Druck `linux/arm64` als optional flagsen; aktuelle GHCR-Erfahrung mit FastAPI/Next.js liegt typ. <8 min für beide Arches mit cache-from/to. Akzeptabel für RC-Cadence.
+- **R5. Migrations-Auto-Run beim Backend-Start kollidiert mit zweitem Backend-Container.** Mitigation: Postgres-Advisory-Lock (`pg_try_advisory_lock` mit fixer Lock-ID, z. B. `0xHCMAPMIG`) verhindert konkurrierende Migrationen. RC-Scope ist Single-Backend-Instance; Multi-Backend wird erst Phase 3 relevant.
+- **R6. Lizenz-Inkompatibilität mit transitiven Frontend-Deps.** Mitigation: M10.3 lässt `pnpm licenses list` einmal laufen, Treffer mit GPL/proprietary-Lizenzen würden manuell bewertet. Stand 2026-05-01: alle direkten Deps AGPLv3-kompatibel; transitive sind erfahrungsgemäß ebenfalls.
+- **R7. Drittperson-Quickstart funktioniert nicht in 30 min.** Mitigation: M10.8 endet mit explizitem Patrick-Lese-Test; falls die Doku zu kompakt ist, Erweiterung um „häufige Stolperer"-Sektion.
+
+### Folge-Arbeit
+
+- **M5c-NACH** (Legacy-External-Ref im Edit/Backfill-UI) bleibt als nicht-blockierende Folge-Aufgabe; kann nach RC kommen, sollte aber vor `v0.1.0`-Final stehen, damit der RC-Test diesen Pfad ebenfalls abdeckt.
+- **M11** (Go-Live Pfad A) wird auf Promote-RC-zu-Final reduziert: `v0.1.0-rc.1` läuft auf Patricks VPS, Mitglieder-Bootstrap, manuelle Datenmigration, Einwilligungstexte (aus `consent-de.md`-Vorlage abgeleitet), bei Erfolg Tag `v0.1.0`.
+- **M13** (Backup-Härtung) übernimmt Patrick-spezifische Anbieter-Wahl + zusätzliche Restore-Tests + ggf. Notification-Hooks bei Backup-Fehlern.
+- **M14** (Monitoring) bleibt Phase-2-Scope; M10 dokumentiert lediglich Healthcheck-Endpunkte.
+- **README-Badges:** mit M10.3 (Lizenz-Badge), M10.7 (CI-Status-Badge), M10.9 (Version-Badge) sind die Badges erstmals echt belegbar — vorher leer. CLAUDE.md §6 wird damit erstmals positiv erfüllbar.
+- **Folge-Aufgaben nach M11:** SBOM/Provenance, Englisch-Sprach-Support, `/api/auth/verify`-Pfad produktiv, optionaler nginx-Overlay als drittes Reverse-Proxy-Beispiel.
+
+### Referenzen
+
+- [ADR-001](#adr-001--hoster-vertrauensmodell), [ADR-002](#adr-002--anonymisierungs-kompromiss), [ADR-014](#adr-014--on-the-fly-personenanlage), [ADR-015](#adr-015--admin-export--stats-granularität), [ADR-032](#adr-032--indexeddb-storage-encryption-keine-encryption-in-pfad-a) — alle in `consent-de.md` adressiert (Punkt G).
+- [ADR-006](#adr-006--cookie-auth-topologie) — Cookie-Secure-/Domain-Logik in Punkt B.
+- [ADR-022](#adr-022--locationpicker-und-tile-proxy-in-m5a-vorgezogen) — Tile-Proxy bleibt unverändert; Reverse-Proxy leitet `/api/tiles/*` an Backend weiter.
+- [ADR-047](#adr-047--nextjs-1504--1624-migration-pfad-c-aus-blocker-001), [ADR-048](#adr-048--backend-stack-drift-voll-sweep-variante-b-aus-audit-blocker-001-punkt-3) — Stack-Stand für Image-Build.
+- [ADR-049](#adr-049--implementierungsstrategie-m8-admin-bereich-sqladmin-schicht--nextjs-workflow-schicht) — Admin-Mechanik wird im RC produktiv genutzt; CI-Image enthält SQLAdmin.
+- [ADR-050](#adr-050--m9-w3w-migration-verworfen-eventw3w_legacy-zu-legacy_external_ref-umgewidmet) — M9 verworfen, M5c-NACH bleibt offen, beeinflusst RC nicht.
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

@@ -27,7 +27,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-05-02 (laufende Session — **M10 + M10.9 [ERLEDIGT]**. RC-Tag [`v0.1.0-rc.1`](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1) gesetzt, GitHub-Pre-Release sichtbar, GHCR-Image-Tags `:0.1.0-rc.1` + `:rc` für alle drei Images (backend, frontend, backup) anonym pullbar. Re-Smoke gegen das frische `:main` aus CI-Run [25235540977](https://github.com/Paddel87/HC-Map/actions/runs/25235540977) (digest `sha256:bbe2305e…`) bestätigte: Backend-Migrations-Image-Fix ist im publizierten Build drin. Doku-Postfix nach Tag korrigiert die `metadata-action`-`v`-Strip-Konvention quer durch ADR-051 §E, README, ops/runbook.md, .env.example, fahrplan.md (Image-Tag heißt `:0.1.0-rc.1`, nicht `:v0.1.0-rc.1`). M10 ist damit als RC-Bündel abgeschlossen; M11 (Promote RC → `v0.1.0` auf Patricks VPS) ist nun startbereit, sobald Patrick deployment-ready ist.)
 - **Laufende Phase:** Phase 1 (MVP) — M10 abgeschlossen
-- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen.
+- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen. **M11-Hotfix `M11-HOTFIX-002`** (Issue [#16](https://github.com/Paddel87/HC-Map/issues/16) — Frontend-Image-Healthcheck akzeptiert nur 200): **[ERLEDIGT] 2026-05-02** im Worktree (Edit `docker/frontend.Dockerfile:60` `=== 200` → `>= 200 && < 400`, ohne ADR — Image-Default-Korrektur analog Blocker #003-Fix), lokal verifiziert mit `hc-map-frontend:hotfix-002` (Healthcheck `healthy` bei 307-Redirect von `/` → `/login`); Push auf `main` und Issue-Schluss stehen aus.
 - **M10-Akzeptanzkriterien (alle erfüllt):** Tag `v0.1.0-rc.1` als Pre-Release sichtbar ✓; Multi-Arch-Images `:0.1.0-rc.1` + `:rc` auf GHCR public, anonym pullbar ✓; Voll-Compose-Stack mit Caddy + Traefik alternativ erfolgreich gestartet, Smoke grün ✓; Backup-Roundtrip (pg_dump → age → rclone → restore in zweite DB) dokumentiert + erfolgreich ✓; README-Quickstart liest sich für eine Drittperson schlüssig (Patrick-Lese-Test offen, aber strukturell vollständig) ✓; Backend pytest 246/246 + Frontend vitest 278/278 grün, ruff/mypy/eslint/typecheck/format-check clean ✓.
 - **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M11, sollte aber vor `v0.1.0`-Final stehen.
 - **M10.9-Followups (Doku, nicht-blockierend):**
@@ -128,6 +128,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
 | 1 MVP   | M11-HOTFIX-001 | └─ Frontend SSR Backend-URL nicht durchgereicht (Issue #15) | [ERLEDIGT] 2026-05-02 |
+| 1 MVP   | M11-HOTFIX-002 | └─ Frontend-Image-Healthcheck akzeptiert nur HTTP 200 (Issue #16) | [ERLEDIGT] 2026-05-02 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -1964,6 +1965,43 @@ Bug betrifft **alle drei Reverse-Proxy-Pfade** aus ADR-051 §B (Caddy, Traefik, 
 - Issue: [#15 — Frontend SSR macht ECONNREFUSED 127.0.0.1:8000](https://github.com/Paddel87/HC-Map/issues/15) (Labels `bug`, `frontend`, `severity:blocker`, `M11`).
 - ADR: [ADR-053 — Frontend SSR-Backend-Adressierung im Production-Container-Netz](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (Status `Proposed`).
 - Vorgänger: ADR-051 §B (Reverse-Proxy-Wahlfreiheit), §F (manueller Pull, Operator-Mechanik).
+
+---
+
+### M11-HOTFIX-002 — Frontend-Image-Healthcheck akzeptiert nur HTTP 200 (Issue #16)
+
+**Status:** `[ERLEDIGT]` 2026-05-02 — kein ADR (Image-Default-Korrektur ohne Architekturwirkung, analog Blocker #003-Fix in M10.9). Verifikation: lokales `hc-map-frontend:hotfix-002`-Image, Container ohne Backend-Connect gestartet, `docker inspect --format '{{.State.Health.Status}}'` nach ~30 s = `healthy`. HTTP-Probe `node -e "require('http').get('http://127.0.0.1:3000/', r => console.log(r.statusCode))"` aus dem Container = `307` (Redirect → `/login`), Healthcheck akzeptiert es korrekt.
+
+**Problem:**
+Der `HEALTHCHECK` in [docker/frontend.Dockerfile:60](../docker/frontend.Dockerfile#L60) prüft strikt `statusCode === 200`. Der Frontend-Container liefert auf `GET /` aber `307 Temporary Redirect` → `/login` (Auth-Bridge in `(protected)/layout.tsx`). Damit wird der Container in jedem Default-Setup als `unhealthy` markiert, obwohl er einwandfrei läuft.
+
+Folgen:
+- `docker compose ps` zeigt dauerhaft `unhealthy` → Operator-Verwirrung (Befund aus M11-RC-Smoke auf Nodica1, Issue #16).
+- `depends_on: condition: service_healthy` würde mit dem Frontend einen Deadlock erzeugen, sobald jemand es ergänzt.
+- Externes Monitoring (Uptime Kuma o. Ä., M14) würde permanent Alarm schlagen.
+
+**Deliverables:**
+- [docker/frontend.Dockerfile](../docker/frontend.Dockerfile) Healthcheck-CMD von `r.statusCode === 200` auf `r.statusCode >= 200 && r.statusCode < 400` umgestellt. Standard-Container-Healthcheck-Semantik („Server antwortet HTTP", nicht „Server liefert 200 auf der Wurzel").
+- Variante (a) aus Issue #16; (b)/(c) verworfen (Routen-Annahme bzw. neue Route mit API-Vertragserweiterung).
+
+**Akzeptanzkriterien:**
+- Frische `:rc`/`:main`-Image (oder lokaler Build) zeigt nach Image-Bau und Container-Start `healthy`-State in `docker inspect --format '{{.State.Health.Status}}' <container>`.
+- Issue #16 geschlossen mit Verweis auf Commit + Fahrplan.
+
+**Verifikations-Plan (im Worktree):**
+1. Edit der einen Zeile in `docker/frontend.Dockerfile`.
+2. Image lokal bauen: `docker build -f docker/frontend.Dockerfile -t hc-map-frontend:hotfix-002 .`.
+3. Container starten: `docker run -d --name hcmap-frontend-hf002 hc-map-frontend:hotfix-002` (Backend-Connect für SSR-Routes nicht nötig — Healthcheck testet nur Server-Antwort, der 307-Redirect kommt vor jedem Backend-Fetch).
+4. ~45 Sekunden warten (Interval 30s + Start-Period 10s + Timeout 5s), dann `docker inspect --format '{{.State.Health.Status}}' hcmap-frontend-hf002` → erwartet `healthy`.
+5. Container aufräumen.
+6. Issue #16 mit Verifikations-Output schließen.
+
+**Risiko:** sehr klein. Healthcheck wird permissiver, nicht restriktiver — kein bestehender gesunder Zustand wird neu als `unhealthy` klassifiziert. 4xx/5xx bleiben weiterhin `unhealthy`.
+
+**Bezug:**
+- Issue: [#16 — Frontend-Image-Healthcheck akzeptiert nur HTTP 200, nicht 3xx-Redirects](https://github.com/Paddel87/HC-Map/issues/16) (Labels `bug`, `frontend`, `M11`).
+- Vorbild: Blocker #003-Fix in M10.9 (Dockerfile-Korrektur ohne ADR).
+- Operator-Kontext: Issue ist Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull.
 
 ---
 

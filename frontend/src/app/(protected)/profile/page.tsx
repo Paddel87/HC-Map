@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportButtons } from "@/components/profile/export-buttons";
 import { LogoutButton } from "@/components/profile/logout-button";
+import { PasswordForm } from "@/components/profile/password-form";
 import { PinSettings } from "@/components/profile/pin-settings";
 import { getServerMe } from "@/lib/auth-server";
 
@@ -12,7 +13,7 @@ export default async function ProfilePage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Profil</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Eigene Daten, Sitzung und Datenexport. Passwort-Änderung folgt mit M11.
+          Eigene Daten, Passwort, Sitzung und Datenexport.
         </p>
       </header>
       <Card>
@@ -31,6 +32,18 @@ export default async function ProfilePage() {
             <dt className="text-slate-500 dark:text-slate-400">Person-ID</dt>
             <dd className="font-mono text-xs">{user.person_id}</dd>
           </dl>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Passwort ändern</CardTitle>
+          <CardDescription>
+            Mindestens 12 Zeichen. Die laufende Sitzung bleibt aktiv; beim nächsten Login wird das
+            neue Passwort verlangt.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PasswordForm />
         </CardContent>
       </Card>
       <Card>

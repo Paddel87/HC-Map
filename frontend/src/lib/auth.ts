@@ -102,3 +102,18 @@ export function useResetPassword() {
     },
   });
 }
+
+export function useChangePassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (password: string) => {
+      await apiFetch<void>("/api/users/me", {
+        method: "PATCH",
+        body: { password },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: meQueryKey });
+    },
+  });
+}

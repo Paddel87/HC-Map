@@ -27,7 +27,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-05-02 (laufende Session — **M10 + M10.9 [ERLEDIGT]**. RC-Tag [`v0.1.0-rc.1`](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1) gesetzt, GitHub-Pre-Release sichtbar, GHCR-Image-Tags `:0.1.0-rc.1` + `:rc` für alle drei Images (backend, frontend, backup) anonym pullbar. Re-Smoke gegen das frische `:main` aus CI-Run [25235540977](https://github.com/Paddel87/HC-Map/actions/runs/25235540977) (digest `sha256:bbe2305e…`) bestätigte: Backend-Migrations-Image-Fix ist im publizierten Build drin. Doku-Postfix nach Tag korrigiert die `metadata-action`-`v`-Strip-Konvention quer durch ADR-051 §E, README, ops/runbook.md, .env.example, fahrplan.md (Image-Tag heißt `:0.1.0-rc.1`, nicht `:v0.1.0-rc.1`). M10 ist damit als RC-Bündel abgeschlossen; M11 (Promote RC → `v0.1.0` auf Patricks VPS) ist nun startbereit, sobald Patrick deployment-ready ist.)
 - **Laufende Phase:** Phase 1 (MVP) — M10 abgeschlossen
-- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen. **M11-Hotfix `M11-HOTFIX-002`** (Issue [#16](https://github.com/Paddel87/HC-Map/issues/16) — Frontend-Image-Healthcheck akzeptiert nur 200): **[ERLEDIGT] 2026-05-02** mit Commit [b781961](https://github.com/Paddel87/HC-Map/commit/b781961) auf `main` (Edit `docker/frontend.Dockerfile:60` `=== 200` → `>= 200 && < 400`, ohne ADR), Issue geschlossen. **M11-Hotfix `M11-HOTFIX-003`** (Issue [#21](https://github.com/Paddel87/HC-Map/issues/21) — strukturierter Access-Logger Variante B): **[ERLEDIGT] 2026-05-02** im Worktree (neue `app/logging_middleware.py`, Auth-Audit-Hooks in `auth/manager.py`, ADR-054 `Accepted`, 10 neue Tests, Suite 256/256 grün); Push auf `main` und Issue-Schluss stehen aus.
+- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen. **M11-Hotfix `M11-HOTFIX-002`** (Issue [#16](https://github.com/Paddel87/HC-Map/issues/16) — Frontend-Image-Healthcheck akzeptiert nur 200): **[ERLEDIGT] 2026-05-02** mit Commit [b781961](https://github.com/Paddel87/HC-Map/commit/b781961) auf `main` (Edit `docker/frontend.Dockerfile:60` `=== 200` → `>= 200 && < 400`, ohne ADR), Issue geschlossen. **M11-Hotfix `M11-HOTFIX-003`** (Issue [#21](https://github.com/Paddel87/HC-Map/issues/21) — strukturierter Access-Logger Variante B): **[ERLEDIGT] 2026-05-02** mit Commit [e2d3021](https://github.com/Paddel87/HC-Map/commit/e2d3021) auf `main`, ADR-054 (`Accepted`, Variante B), 10 neue Tests, Suite 256/256 grün, Issue geschlossen. **M11-Hotfix `M11-HOTFIX-004`** (Issue [#18](https://github.com/Paddel87/HC-Map/issues/18) — Profil-Passwort-Änderungs-Form): **[ERLEDIGT] 2026-05-02** im Worktree (neue `components/profile/password-form.tsx`, `useChangePassword`-Hook in `lib/auth.ts`, Profil-Page-Integration, 4 neue Tests, Suite 282/282 grün, Browser-Verifikation grün, End-to-End-Login-Roundtrip mit altem→neuem Passwort verifiziert); Push auf `main` und Issue-Schluss stehen aus.
 - **M10-Akzeptanzkriterien (alle erfüllt):** Tag `v0.1.0-rc.1` als Pre-Release sichtbar ✓; Multi-Arch-Images `:0.1.0-rc.1` + `:rc` auf GHCR public, anonym pullbar ✓; Voll-Compose-Stack mit Caddy + Traefik alternativ erfolgreich gestartet, Smoke grün ✓; Backup-Roundtrip (pg_dump → age → rclone → restore in zweite DB) dokumentiert + erfolgreich ✓; README-Quickstart liest sich für eine Drittperson schlüssig (Patrick-Lese-Test offen, aber strukturell vollständig) ✓; Backend pytest 246/246 + Frontend vitest 278/278 grün, ruff/mypy/eslint/typecheck/format-check clean ✓.
 - **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M11, sollte aber vor `v0.1.0`-Final stehen.
 - **M10.9-Followups (Doku, nicht-blockierend):**
@@ -130,6 +130,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11-HOTFIX-001 | └─ Frontend SSR Backend-URL nicht durchgereicht (Issue #15) | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11-HOTFIX-002 | └─ Frontend-Image-Healthcheck akzeptiert nur HTTP 200 (Issue #16) | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11-HOTFIX-003 | └─ Strukturierter Access-Logger mit PII-Redaction (Issue #21, ADR-054) | [ERLEDIGT] 2026-05-02 |
+| 1 MVP   | M11-HOTFIX-004 | └─ Profil-Passwort-Änderungs-Form (Issue #18) | [ERLEDIGT] 2026-05-02 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2034,6 +2035,37 @@ Die Spannung zwischen Operator-Diagnostik und dem Constraint „Keine personenbe
 - ADR: [ADR-054 — Strukturierter Access-Logger mit PII-Redaction (Variante B aus Issue #21)](./decisions.md#adr-054--strukturierter-access-logger-mit-pii-redaction-variante-b-aus-issue-21) (Status `Accepted`).
 - Vorgänger-Issues: [#17](https://github.com/Paddel87/HC-Map/issues/17) (Sammel-Operator-Bericht), `project-context.md` §6 (Datenschutz-Constraint).
 - Schaltet Diagnostik-Pfad für [#19](https://github.com/Paddel87/HC-Map/issues/19) (Katalog-Reproduktion) frei.
+
+---
+
+### M11-HOTFIX-004 — Profil-Passwort-Änderungs-Form (Issue #18)
+
+**Status:** `[ERLEDIGT]` 2026-05-02 — kein ADR (autonomiefähig nach `CLAUDE.md` §5: kein Architektur-Touch, kein neuer Endpoint, kein Datenmodell, keine neue Dependency). Frontend-only Lückenschluss; Backend-Endpoint `PATCH /api/users/me` war über `fastapi-users.get_users_router(UserRead, UserUpdate)` bereits einsatzbereit.
+
+**Problem:**
+Operator-Begehung auf Nodica1 nach M11-HOTFIX-001 (Issue [#17](https://github.com/Paddel87/HC-Map/issues/17) Befund 1, 2026-05-02) zeigte: Bootstrap-Admin kann das initial gesetzte Passwort nicht über das Profil-Menü rotieren. Der Frontend-Code in [`(protected)/profile/page.tsx:15`](../frontend/src/app/(protected)/profile/page.tsx#L15) trug selbst den Hinweis _"Passwort-Änderung folgt mit M11."_ — bewusste Lücke aus M2/M5a-Phase, jetzt in M11 nachgezogen, weil das Initial-Passwort als kompromittiert gilt und die Selbst-Rotation Standard-Hygiene ist.
+
+**Deliverables (alle erledigt):**
+- Neue Komponente [`frontend/src/components/profile/password-form.tsx`](../frontend/src/components/profile/password-form.tsx): Client-Component mit zwei Feldern (neues Passwort, Bestätigung), zod-Schema-Validierung (min. 12 Zeichen, beide gleich), TanStack-Mutation, Sonner-Toast-Feedback, Form-Reset nach Erfolg.
+- [`frontend/src/lib/auth.ts`](../frontend/src/lib/auth.ts) erweitert um `useChangePassword`-Hook (PATCH `/api/users/me` mit `{password}`, invalidiert `meQueryKey` nach Erfolg).
+- [`frontend/src/app/(protected)/profile/page.tsx`](../frontend/src/app/(protected)/profile/page.tsx): neue Card-Sektion "Passwort ändern" zwischen Konto-Block und Datenexport-Block; Hinweis-Text im Header von "Passwort-Änderung folgt mit M11" auf "Eigene Daten, Passwort, Sitzung und Datenexport." aktualisiert.
+- 4 neue Tests in [`frontend/tests/password-form.test.tsx`](../frontend/tests/password-form.test.tsx): PATCH-/Body-Vertrag inkl. CSRF-Header `X-CSRF-Token`, Mismatch-Validierung, Mindestlänge-Validierung, Form-Reset nach Erfolg.
+- **Reauth bewusst weggelassen:** fastapi-users prüft im `PATCH /api/users/me`-Default das aktuelle Passwort **nicht**. Eine reine Frontend-Reauth-Eingabe wäre Security-Theater. Wenn Reauth Pflicht werden soll, ist das eine Backend-Erweiterung (eigenes Issue, nicht-blockierend).
+
+**Verifikation:**
+- `corepack pnpm@10.33.0 test` → **282/282 vitest grün** (vorher 278, +4 neue Tests).
+- `pnpm typecheck` (tsc --noEmit) → exit 0.
+- `pnpm lint` (eslint) → exit 0.
+- `prettier --check` auf die 4 berührten Files → "All matched files use Prettier code style".
+- **Browser-Verifikation** (preview_start frontend/backend/database, Login mit Bootstrap-Admin → /profile → Form ausgefüllt → Submit): `PATCH /api/users/me → 200 OK`, Form-Reset, Toast.
+- **End-to-End-Roundtrip** via curl: altes Passwort `ChangeMeAdmin12` liefert `400 LOGIN_BAD_CREDENTIALS`, neues Passwort `NewSecurePassword42` liefert `204 No Content` + frische `hcmap_session`/`hcmap_csrf`-Cookies.
+- **Bonus** — M11-HOTFIX-003-Logger zeigt korrekte Auth-Events: `auth.login.success` mit `user_id_hash=c9baa18cdcafb829`, `auth.login.failed` (warning, kein User-Hash), `http.request` 400 als warning. Logger und Passwort-Form spielen wie erwartet zusammen.
+
+**Bezug:**
+- Issue: [#18 — Profil: Passwortänderungs-Form ergänzen (Frontend)](https://github.com/Paddel87/HC-Map/issues/18) (Labels `enhancement`, `frontend`, `M11`).
+- Vorgänger: [#17 Befund 1](https://github.com/Paddel87/HC-Map/issues/17), Frontend-Selbst-Hinweis in `profile/page.tsx:15`.
+- Backend-Endpoint: `PATCH /api/users/me` (fastapi-users-Standard, `UserUpdate.password: str | None = Field(default=None, min_length=12)` aus `auth/schemas.py:49`).
+- Vorbild: [`frontend/src/components/auth/reset-password-form.tsx`](../frontend/src/components/auth/reset-password-form.tsx) (gleiche Pattern: zod-Schema, Mutation, Sonner-Toast).
 
 ---
 

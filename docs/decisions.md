@@ -4847,4 +4847,121 @@ Die Variable wird zur Request-Zeit in den Server-Components ausgewertet (Next.js
 
 ---
 
+## ADR-054 — Strukturierter Access-Logger mit PII-Redaction (Variante B aus Issue #21)
+
+**Status:** Accepted
+**Datum:** 2026-05-02
+**Freigabe:** 2026-05-02 (Patrick — Variante B)
+**Kategorie:** §4.6 Sicherheit/Datenschutz (Logging-Strategie für Production: was geloggt wird, in welcher Form, mit welcher PII-Redaction). Sekundär §4.1 (neue cross-cutting Architektur-Komponente: HTTP-Middleware vor allen Routen).
+**Vorgänger:** ADR-051 §G (Operator-Diagnostik vor `v0.1.0`-Final), `project-context.md` §6 (Constraint „Keine personenbezogenen Daten in Logs"); Issue [#21](https://github.com/Paddel87/HC-Map/issues/21) für die Variantenabwägung.
+
+### Kontext
+
+Während der M11-Operator-Begehung auf Nodica1 (Issue [#17](https://github.com/Paddel87/HC-Map/issues/17), 2026-05-02) wurden drei UX-Befunde gemeldet, deren Diagnose mangels Backend-Request-Logs nicht möglich war. `docker logs hcmap-backend` enthält ausschließlich Startup- und Migrations-Zeilen — keine Access-Logs für eingehende Requests, keine Application-Logs für durchgeführte Aktionen.
+
+**Befund aus Code-Audit (Issue-Triage 2026-05-02):**
+
+- [`docker/backend.Dockerfile:62`](../docker/backend.Dockerfile#L62) und [`docker/compose.prod.yml:74`](../docker/compose.prod.yml#L74) starten uvicorn **ohne** `--access-log`/`--no-access-log`-Flag. Default wäre Access-Logs an, aber:
+- [`backend/app/logging.py:44-49`](../backend/app/logging.py#L44-L49) installiert `structlog.PrintLoggerFactory()` mit `make_filtering_bound_logger`. Das umkonfiguriert effektiv auch die `uvicorn.access`/`uvicorn.error`-Logger über den root-Logger-Pfad — Ursache für die fehlende Access-Log-Ausgabe.
+- Constraint aus [`docs/project-context.md`](./project-context.md) §6: **„Keine personenbezogenen Daten in Logs"**. Konkrete Redaktionsregeln: Namen, Notizen, Lat/Lon werden vor Log-Ausgabe entfernt.
+
+Die Spannung ist substantiell: ein nackter `uvicorn --access-log` würde Query-Parameter mit Geo-Koordinaten (`?ne_lat=…&ne_lon=…`) und Personen-IDs in Pfaden direkt loggen — kollidiert mit dem PII-Constraint. Operator-Diagnostik ist andererseits ohne Request-Spur praktisch unmöglich, was auch Issue [#19](https://github.com/Paddel87/HC-Map/issues/19) (Katalog-Reproduktion) blockiert.
+
+### Entscheidungen
+
+**A. Variante B aus Issue #21: strukturierter HTTP-Logger als FastAPI-Middleware mit PII-Redaction.**
+
+Drei Varianten wurden in #17 vorgelegt:
+
+- **A — Status quo.** Access-Logs bleiben aus. Werkzeug-Lücke bleibt.
+- **B — Strukturierter Access-Logger via FastAPI-Middleware mit Redaction (Pfad-Templates statt konkrete IDs, Query-String entfernt, nur Methode+Route+Status+Duration+Request-ID).** Strukturiert, JSON-tauglich, datenschutz-konform.
+- **C — Nur Fehler-Logs (4xx/5xx) + Auth-Events strukturiert mit User-ID-Hash.** Kompromiss; reduziert Mengenproblem, deckt aber 200er nicht ab und versteckt Performance-Regressionen.
+
+Patrick wählt **B** mit Begründung: gibt vollständigen Operator-Diagnostik-Pfad bei minimaler PII-Exposition; lässt 200er sichtbar (Performance-Tracking, Erkennung kaputter Routes), 4xx/5xx werden zusätzlich auf höherem Level emittiert, sodass Filter `level>=WARNING` die Operator-relevanten Events isoliert.
+
+**B. Logger-Implementierung: outermost HTTP-Middleware in `app/logging_middleware.py`.**
+
+Funktion `request_logger(request, call_next)` wird per `app.middleware("http")(request_logger)` **nach** `_csrf_cookie_setter` und `CSRFMiddleware` registriert — damit ist sie outermost. Die Duration-Messung umschließt alle anderen Middlewares; das `X-Request-ID`-Header ist die letzte Mutation der Response.
+
+Pro Request emittiert die Middleware **eine** strukturierte Logzeile mit:
+
+- `event = "http.request"`
+- `method` (HTTP-Verb)
+- `route` — **Route-Template** aus `request.scope["route"].path` (z. B. `/api/events/{event_id}`); Fallback bei ungematchten Pfaden: `request.url.path` mit UUID-Redaction (`{redacted_uuid}`).
+- `status` (HTTP-Status-Code)
+- `duration_ms` (Float, gerundet auf 2 Nachkommastellen)
+- `request_id` — UUID4, neu generiert oder aus `X-Request-ID`-Header übernommen.
+- **Log-Level abhängig vom Status:** 1xx-3xx → `info`, 4xx → `warning`, 5xx → `error`. Ermöglicht Filter `level>=WARNING` für Operator-Diagnostik.
+
+**Was nicht geloggt wird (PII-Redaction):**
+
+- Query-Parameter (`request.url.query` wird ignoriert)
+- Request-/Response-Body (kein Inhalt, keine Größe)
+- Konkrete IDs in Pfaden (Route-Template ersetzt Path-Vars)
+- E-Mail-Adressen, Klartext-User-IDs, Personen-Namen, Geo-Koordinaten
+
+**C. Auth-Events: separate strukturierte Logs mit SHA-256-User-ID-Hash.**
+
+In `app/auth/manager.py` werden vier Events emittiert:
+
+- `auth.login.success` — via `on_after_login`-Hook, mit `user_id_hash`.
+- `auth.login.failed` — via Logging-Middleware bei `path.endswith("/auth/login")` und Status 4xx; ohne User-ID (Server hat den User noch nicht aufgelöst).
+- `auth.logout.success` — via Logging-Middleware bei `path.endswith("/auth/logout")` und Status <400.
+- `auth.forgot_password.requested` — via `on_after_forgot_password`, mit `user_id_hash`.
+- `auth.password.reset.success` — via `on_after_reset_password`, mit `user_id_hash`.
+
+`user_id_hash` ist die ersten 16 Hex-Zeichen von `SHA-256(str(user_uuid))`. Stabil über Sessions, nicht-rückführbar auf die Klartext-UUID, ausreichend für Operator-Korrelation („welche `auth.login.success` gehört zur gleichzeitigen `http.request`?"). E-Mails und UUIDs erscheinen niemals im Log.
+
+**D. Request-ID-Propagation.**
+
+`X-Request-ID`-Header wird beim Eingang gelesen (Client-Override erlaubt für distributed Tracing) oder neu als UUID4 generiert. Per `structlog.contextvars.bind_contextvars` für die Dauer des Requests gebunden, sodass alle Application-Logs (`migrations.*`, `services.person_merge.*`, `auth.*`, …) automatisch dieselbe `request_id` führen. Im Response-Header zurückgespiegelt, damit der Browser/Operator die Korrelation hat.
+
+**E. Exception-Pfad.**
+
+Wenn `await call_next(request)` eine unbehandelte Exception wirft, emittiert die Middleware **vor** dem Re-Raise eine `error`-Logzeile mit `status=500` und reraised dann. Die Starlette-Default-Exception-Handler bauen die finale 500-Response — die zwei Pfade können in Logs zusammen auftauchen (eine Zeile aus dem Exception-Pfad, eine aus dem normalen Response-Pfad bei nachgelagerten Handlern). Akzeptiert: doppeltes Logging einer 500 ist Operator-freundlicher als eine fehlende Spur.
+
+**F. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **uvicorn-Access-Log explizit deaktivieren.** uvicorn loggt aktuell ohnehin nichts, weil structlog das Stdlib-Logging übernommen hat. Eine zusätzliche `--no-access-log`-Flag wäre redundant. Falls in Zukunft jemand das Stdlib-Logging-Setup ändert, könnte uvicorn-Default-Logs zusätzlich entstehen — dann muss die Flag explizit gesetzt werden.
+- **OpenTelemetry-/Tracing-Integration.** Die `request_id` ist mit OpenTelemetry-Span-Konventionen kompatibel; eine vollständige Tracing-Integration ist M14-Thema (Monitoring & Alerting), nicht hier.
+- **Audit-Log für Datenänderungen.** Application-Level-Events (Person-Merge, Anonymisierung, Event-Backfill, Catalog-Approve) loggen bereits eigene strukturierte Events (siehe `services/person_merge.py`); die Erweiterung auf weitere Domain-Operationen ist eigene Folge-Aufgabe.
+- **Log-Aggregation und -Retention.** Operator-Wahl in M14, nicht von dieser ADR vorgegeben.
+
+### Verworfene Alternativen
+
+- **Variante A (Status quo).** Operator-Diagnostik bleibt blockiert; Issue #19 nicht reproduzierbar; auch zukünftige Operator-Reports müssten ohne Server-Spur diagnostiziert werden. Verworfen.
+- **Variante C (nur 4xx/5xx + Auth).** Versteckt 200er-Performance, macht „warum dauert /api/search 4 s?"-Fragen unsichtbar. Patrick wählte explizit B mit Begründung Vollständigkeit > Reduktion. Verworfen.
+- **uvicorn `--access-log` aktivieren.** Hätte Query-Parameter und konkrete Pfad-IDs gelogged → Verstoß gegen §6-Constraint. Verworfen.
+- **Body-Logging für 4xx/5xx.** Ermöglicht Diagnose von Validierungsfehlern, aber Body kann selbst PII enthalten (`POST /api/events` mit Person-Namen oder Notizen). Verworfen — wer Body-Inhalt für Diagnose braucht, repliziert über DevTools.
+- **User-ID im `http.request`-Log.** Hätte Operator-Korrelation auf einer Zeile ermöglicht, aber: Middleware läuft vor Auth-Resolution; die User-Identität müsste durch Cookie-Decoding rekonstruiert werden — doppelte Arbeit und Code-Duplikation mit fastapi-users. Lösung über separate `auth.*`-Events ist sauberer.
+
+### Risiken und Mitigationen
+
+- **R1. UUID-Pattern in Query-String oder Header schlägt durch Path-Logging.** Query-String wird gar nicht geloggt; Header werden nicht geloggt. Risiko = niedrig.
+- **R2. Path-Var, der KEINE UUID ist (z. B. integer-IDs in `/api/restraint-types/{entry_id}`), wird vom Fallback-Regex nicht redacted.** Mitigation: das ist nur der Fallback bei ungematchten Pfaden. FastAPI-Routen sind fast immer matched — der Fallback greift praktisch nur bei 404. Wenn das Problem konkret auftritt, kann der Regex erweitert werden (z. B. ganze Zahlen, Slugs).
+- **R3. `request.scope["route"].path` ist nicht gesetzt vor dem Routing.** Tatsächlich: erst nach `await call_next` — nach dem Routing. Die Middleware liest es erst nach `call_next`, daher robust.
+- **R4. structlog `bind_contextvars` leakt zwischen parallelen Requests.** Starlette führt jeden Request in einem eigenen `asyncio.Task` mit eigenem `contextvars`-Kontext — `bind_contextvars` ist Task-lokal. Zusätzliche Sicherheit: `unbind_contextvars("request_id")` im `finally`-Block.
+- **R5. Performance-Overhead pro Request.** Eine UUID-Generierung + zwei `time.perf_counter`-Calls + ein `getattr` + ein `log_method`-Call. Größenordnung <0.1 ms. Vernachlässigbar gegenüber DB-Query-Zeiten der Routes.
+- **R6. Auth-Events `auth.login.failed` ohne `user_id_hash` erlauben keine Korrelation auf Brute-Force-Versuche.** Akzeptiert: Logging erfolgte E-Mail wäre PII-Verstoß; Hash der nicht-existenten oder falsch-eingegebenen E-Mail wäre wenig informativ. Brute-Force-Detection (Rate-Limiting auf Auth-Endpunkt) ist eigene Aufgabe; Login-Failed-Volume reicht als Erstindikator.
+
+### Folge-Arbeit
+
+- **M11-HOTFIX-003** (Fahrplan-Eintrag mit Status `[IN ARBEIT]` 2026-05-02) → Implementierung dieser ADR (Middleware + Manager-Hooks + Tests + Doku). Akzeptanzkriterien dort.
+- **M14 (Monitoring & Alerting)** wird die `http.request`-Logs als Quelle für Latenz-Metriken und Alarmierung nutzen können (Filter `level=error`, Aggregation `route` + `status`).
+- **Optional nach M11:** Erweiterung der UUID-Redaction-Heuristik auf weitere ID-Formate (Slugs, Integer), falls reale 404-Logs dies erforderlich machen.
+- **Tracing (OpenTelemetry)** als M14-Folgeaufgabe — `request_id` ist kompatible Vorbereitung.
+
+### Referenzen
+
+- [Issue #21 — Backend: Strukturierter Access-Logger mit PII-Redaction](https://github.com/Paddel87/HC-Map/issues/21)
+- [Issue #17 — UX-Befunde nach M11-HOTFIX-001 (Nebenbefund: Backend ohne Access-Logs)](https://github.com/Paddel87/HC-Map/issues/17)
+- [`backend/app/logging_middleware.py`](../backend/app/logging_middleware.py)
+- [`backend/app/auth/manager.py`](../backend/app/auth/manager.py) (`_user_id_hash`, `on_after_login`, `on_after_reset_password`, `on_after_forgot_password`)
+- [`backend/app/main.py`](../backend/app/main.py) (Middleware-Registrierung)
+- [`backend/tests/test_logging_middleware.py`](../backend/tests/test_logging_middleware.py)
+- Constraint: [`docs/project-context.md`](./project-context.md) §6 (Datenschutz-Logging-Regel)
+- Vorbild: [`backend/app/services/person_merge.py`](../backend/app/services/person_merge.py) (strukturiertes Audit-Event)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

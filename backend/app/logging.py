@@ -2,8 +2,9 @@
 
 Per project constraint (project-context.md §6): no PII in logs. This module
 configures structlog to emit JSON in production and a human-readable
-console renderer in development. Log enrichment with request IDs happens
-in the request middleware (added in a later milestone).
+console renderer in development. Per-request enrichment (request id, route
+template, status, duration) is layered on top by ``app.logging_middleware``
+(M11-HOTFIX-003 / ADR-054).
 """
 
 from __future__ import annotations

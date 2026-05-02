@@ -19,6 +19,7 @@ from app.auth.manager import generate_csrf_token
 from app.auth.routes import build_auth_router
 from app.config import Settings, get_settings
 from app.logging import configure_logging
+from app.logging_middleware import request_logger
 from app.migrations_runner import run_migrations_with_advisory_lock
 from app.routes.admin import router as admin_router
 from app.routes.applications import router as applications_router
@@ -120,6 +121,11 @@ def create_app() -> FastAPI:
         )
     )
     app.add_middleware(CSRFMiddleware)
+    # Outermost middleware: structured access log + request-id propagation
+    # (M11-HOTFIX-003 / ADR-054). Registered last so the duration measurement
+    # wraps every other middleware and the X-Request-ID header survives all
+    # downstream Set-Cookie/header mutations.
+    app.middleware("http")(request_logger)
 
     @app.get("/api/health", response_model=HealthResponse, tags=["meta"])
     async def health() -> HealthResponse:

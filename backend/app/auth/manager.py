@@ -2,16 +2,21 @@
 
 Hashes passwords with Argon2id (parameters in ``app.config.Settings``).
 Hooks ``on_after_*`` route the relevant tokens through ``EmailBackend`` so
-the password-reset and verify flows are wired even with the M2 logging
-stub.
+the password-reset and verify flows are wired, and emit structured audit
+events (``auth.login.success``, ``auth.forgot_password.requested``,
+``auth.password.reset.success``) with a SHA-256 user-id hash — never the
+plaintext id or email (M11-HOTFIX-003 / ADR-054).
 """
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
+import structlog
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, UUIDIDMixin
 from fastapi_users.db import SQLAlchemyUserDatabase
@@ -24,6 +29,25 @@ from app.auth.mail import EmailBackend, get_email_backend
 from app.config import get_settings
 from app.db import get_session
 from app.models.user import User
+
+
+def _audit_logger() -> Any:
+    """Per-call logger lookup so ``structlog.testing.capture_logs`` can patch.
+
+    See note in ``app.logging_middleware._logger`` — module-level
+    ``get_logger`` would be cached before tests' capture context activates.
+    """
+    return structlog.get_logger("hcmap.auth")
+
+
+def _user_id_hash(user_id: uuid.UUID) -> str:
+    """Truncated SHA-256 of the user uuid — stable across sessions, not reversible.
+
+    Used in audit events so operators can correlate ``auth.login.success`` with
+    the matching ``http.request`` line for a specific user without exposing
+    plaintext identifiers in logs (project-context.md §6).
+    """
+    return hashlib.sha256(str(user_id).encode("ascii")).hexdigest()[:16]
 
 
 def _password_helper() -> PasswordHelper:
@@ -61,6 +85,17 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.reset_password_token_secret = secret
         self.verification_token_secret = secret
 
+    async def on_after_login(
+        self,
+        user: User,
+        request: Request | None = None,
+        response: Any = None,
+    ) -> None:
+        _audit_logger().info(
+            "auth.login.success",
+            user_id_hash=_user_id_hash(user.id),
+        )
+
     async def on_after_forgot_password(
         self,
         user: User,
@@ -68,6 +103,20 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
     ) -> None:
         await self._email.send_password_reset(user.email, token)
+        _audit_logger().info(
+            "auth.forgot_password.requested",
+            user_id_hash=_user_id_hash(user.id),
+        )
+
+    async def on_after_reset_password(
+        self,
+        user: User,
+        request: Request | None = None,
+    ) -> None:
+        _audit_logger().info(
+            "auth.password.reset.success",
+            user_id_hash=_user_id_hash(user.id),
+        )
 
     async def on_after_request_verify(
         self,

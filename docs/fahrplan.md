@@ -27,7 +27,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-05-02 (laufende Session — **M10 + M10.9 [ERLEDIGT]**. RC-Tag [`v0.1.0-rc.1`](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1) gesetzt, GitHub-Pre-Release sichtbar, GHCR-Image-Tags `:0.1.0-rc.1` + `:rc` für alle drei Images (backend, frontend, backup) anonym pullbar. Re-Smoke gegen das frische `:main` aus CI-Run [25235540977](https://github.com/Paddel87/HC-Map/actions/runs/25235540977) (digest `sha256:bbe2305e…`) bestätigte: Backend-Migrations-Image-Fix ist im publizierten Build drin. Doku-Postfix nach Tag korrigiert die `metadata-action`-`v`-Strip-Konvention quer durch ADR-051 §E, README, ops/runbook.md, .env.example, fahrplan.md (Image-Tag heißt `:0.1.0-rc.1`, nicht `:v0.1.0-rc.1`). M10 ist damit als RC-Bündel abgeschlossen; M11 (Promote RC → `v0.1.0` auf Patricks VPS) ist nun startbereit, sobald Patrick deployment-ready ist.)
 - **Laufende Phase:** Phase 1 (MVP) — M10 abgeschlossen
-- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen. **M11-Hotfix `M11-HOTFIX-002`** (Issue [#16](https://github.com/Paddel87/HC-Map/issues/16) — Frontend-Image-Healthcheck akzeptiert nur 200): **[ERLEDIGT] 2026-05-02** im Worktree (Edit `docker/frontend.Dockerfile:60` `=== 200` → `>= 200 && < 400`, ohne ADR — Image-Default-Korrektur analog Blocker #003-Fix), lokal verifiziert mit `hc-map-frontend:hotfix-002` (Healthcheck `healthy` bei 307-Redirect von `/` → `/login`); Push auf `main` und Issue-Schluss stehen aus.
+- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-Hotfix `M11-HOTFIX-001`** (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15) — Frontend-SSR-Backend-URL): **[ERLEDIGT] 2026-05-02** mit Commit [80ce568](https://github.com/Paddel87/HC-Map/commit/80ce568) auf `main`, ADR-053 (Accepted, Empfehlung A); RC-1-Operator muss bis RC-2 das Compose-File aus `main` ziehen oder die Zeile händisch ergänzen. **M11-Hotfix `M11-HOTFIX-002`** (Issue [#16](https://github.com/Paddel87/HC-Map/issues/16) — Frontend-Image-Healthcheck akzeptiert nur 200): **[ERLEDIGT] 2026-05-02** mit Commit [b781961](https://github.com/Paddel87/HC-Map/commit/b781961) auf `main` (Edit `docker/frontend.Dockerfile:60` `=== 200` → `>= 200 && < 400`, ohne ADR), Issue geschlossen. **M11-Hotfix `M11-HOTFIX-003`** (Issue [#21](https://github.com/Paddel87/HC-Map/issues/21) — strukturierter Access-Logger Variante B): **[ERLEDIGT] 2026-05-02** im Worktree (neue `app/logging_middleware.py`, Auth-Audit-Hooks in `auth/manager.py`, ADR-054 `Accepted`, 10 neue Tests, Suite 256/256 grün); Push auf `main` und Issue-Schluss stehen aus.
 - **M10-Akzeptanzkriterien (alle erfüllt):** Tag `v0.1.0-rc.1` als Pre-Release sichtbar ✓; Multi-Arch-Images `:0.1.0-rc.1` + `:rc` auf GHCR public, anonym pullbar ✓; Voll-Compose-Stack mit Caddy + Traefik alternativ erfolgreich gestartet, Smoke grün ✓; Backup-Roundtrip (pg_dump → age → rclone → restore in zweite DB) dokumentiert + erfolgreich ✓; README-Quickstart liest sich für eine Drittperson schlüssig (Patrick-Lese-Test offen, aber strukturell vollständig) ✓; Backend pytest 246/246 + Frontend vitest 278/278 grün, ruff/mypy/eslint/typecheck/format-check clean ✓.
 - **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M11, sollte aber vor `v0.1.0`-Final stehen.
 - **M10.9-Followups (Doku, nicht-blockierend):**
@@ -129,6 +129,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
 | 1 MVP   | M11-HOTFIX-001 | └─ Frontend SSR Backend-URL nicht durchgereicht (Issue #15) | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11-HOTFIX-002 | └─ Frontend-Image-Healthcheck akzeptiert nur HTTP 200 (Issue #16) | [ERLEDIGT] 2026-05-02 |
+| 1 MVP   | M11-HOTFIX-003 | └─ Strukturierter Access-Logger mit PII-Redaction (Issue #21, ADR-054) | [ERLEDIGT] 2026-05-02 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2002,6 +2003,37 @@ Folgen:
 - Issue: [#16 — Frontend-Image-Healthcheck akzeptiert nur HTTP 200, nicht 3xx-Redirects](https://github.com/Paddel87/HC-Map/issues/16) (Labels `bug`, `frontend`, `M11`).
 - Vorbild: Blocker #003-Fix in M10.9 (Dockerfile-Korrektur ohne ADR).
 - Operator-Kontext: Issue ist Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull.
+
+---
+
+### M11-HOTFIX-003 — Strukturierter Access-Logger mit PII-Redaction (Issue #21, ADR-054)
+
+**Status:** `[ERLEDIGT]` 2026-05-02 — ADR-054 (Variante B) am 2026-05-02 von Patrick freigegeben; Implementierung in [`backend/app/logging_middleware.py`](../backend/app/logging_middleware.py) + Auth-Audit-Hooks in [`backend/app/auth/manager.py`](../backend/app/auth/manager.py); 10 neue Tests in [`backend/tests/test_logging_middleware.py`](../backend/tests/test_logging_middleware.py); volle Suite **256/256** grün (vorher 246), `ruff check` + `ruff format --check` + `mypy --strict` clean.
+
+**Problem:**
+Während der M11-Operator-Begehung auf Nodica1 (Issue [#17](https://github.com/Paddel87/HC-Map/issues/17), 2026-05-02) wurden drei UX-Befunde gemeldet, deren Diagnose mangels Backend-Request-Logs nicht möglich war. `docker logs hcmap-backend` enthielt ausschließlich Startup- und Migrations-Zeilen — keine Access-Logs für eingehende Requests. Code-Audit: uvicorn wird ohne `--access-log`-Flag gestartet, und der structlog-Setup mit `PrintLoggerFactory` umkonfiguriert effektiv `uvicorn.access`/`uvicorn.error` über den root-Logger-Pfad.
+
+Die Spannung zwischen Operator-Diagnostik und dem Constraint „Keine personenbezogenen Daten in Logs" ([`project-context.md`](./project-context.md) §6) wurde mit Variante B aufgelöst (siehe ADR-054).
+
+**Deliverables (alle erledigt):**
+- Neue Datei [`backend/app/logging_middleware.py`](../backend/app/logging_middleware.py): outermost FastAPI-HTTP-Middleware `request_logger`, emittiert pro Request eine strukturierte Logzeile `event="http.request"` mit `method`, `route` (FastAPI-Route-Template z. B. `/api/events/{event_id}`), `status`, `duration_ms`, `request_id`. Log-Level: 1xx-3xx → `info`, 4xx → `warning`, 5xx → `error`. Query-String, Body, konkrete IDs werden **nicht** geloggt; UUID-Redaction-Fallback `{redacted_uuid}` für ungematchte Pfade.
+- [`backend/app/auth/manager.py`](../backend/app/auth/manager.py) erweitert um `_user_id_hash` (SHA-256 gekürzt auf 16 hex), neue Hooks `on_after_login` (Event `auth.login.success`), `on_after_reset_password` (Event `auth.password.reset.success`); bestehender `on_after_forgot_password` emittiert zusätzlich `auth.forgot_password.requested`. Alle Auth-Events tragen ausschließlich den User-ID-Hash, niemals E-Mail oder Klartext-UUID.
+- [`backend/app/main.py`](../backend/app/main.py): Middleware nach CSRF-Pipeline registriert (outermost). `request_id` per `structlog.contextvars.bind_contextvars` Task-lokal gebunden, damit alle Application-Logs (`migrations.*`, `services.*`, `auth.*`) automatisch dieselbe ID führen. Im Response-Header zurückgespiegelt (`X-Request-ID`).
+- [`backend/app/logging.py`](../backend/app/logging.py) Docstring auf den neuen Mechanismus aktualisiert.
+- ADR-054 in [`docs/decisions.md`](./decisions.md#adr-054--strukturierter-access-logger-mit-pii-redaction-variante-b-aus-issue-21) als `Accepted` (Variante B Begründung, Out-of-Scope, Risiken/Mitigationen, Folge-Arbeit).
+- 10 Tests in [`backend/tests/test_logging_middleware.py`](../backend/tests/test_logging_middleware.py): http.request-Emission, request-id-roundtrip, 4xx-Level-Eskalation, UUID-Redaction-Fallback, Login-Failure-Event, Login-Success mit User-Hash + No-PII-Assertion, Logout-Event, User-Hash-Stabilität, Route-Template für Path-Vars.
+
+**Verifikation:**
+- `uv run pytest -q` → **256/256 grün** (vorher 246/246, +10 neue Tests).
+- `uv run ruff check app tests` → All checks passed.
+- `uv run ruff format --check app tests` → 104 files already formatted.
+- `uv run mypy --strict app/logging_middleware.py app/auth/manager.py app/main.py app/logging.py` → Success: no issues found.
+
+**Bezug:**
+- Issue: [#21 — Backend: Strukturierter Access-Logger mit PII-Redaction (Variante B aus #17-Nebenbefund)](https://github.com/Paddel87/HC-Map/issues/21) (Labels `enhancement`, `M11`).
+- ADR: [ADR-054 — Strukturierter Access-Logger mit PII-Redaction (Variante B aus Issue #21)](./decisions.md#adr-054--strukturierter-access-logger-mit-pii-redaction-variante-b-aus-issue-21) (Status `Accepted`).
+- Vorgänger-Issues: [#17](https://github.com/Paddel87/HC-Map/issues/17) (Sammel-Operator-Bericht), `project-context.md` §6 (Datenschutz-Constraint).
+- Schaltet Diagnostik-Pfad für [#19](https://github.com/Paddel87/HC-Map/issues/19) (Katalog-Reproduktion) frei.
 
 ---
 

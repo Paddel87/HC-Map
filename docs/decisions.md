@@ -4731,4 +4731,120 @@ Wir folgen dieser Empfehlung für `setup-uv` — alle anderen acht Actions bleib
 
 ---
 
+## ADR-053 — Frontend SSR-Backend-Adressierung im Production-Container-Netz
+
+**Status:** Accepted
+**Datum:** 2026-05-02
+**Freigabe:** 2026-05-02 (Patrick — Empfehlung A)
+**Kategorie:** §4.1 Architektur (Adressierung Frontend↔Backend im Container-Netz, Kommunikationsmuster zwischen Modulen). Sekundär §4.7 (Build-/Deploy-Pipeline: Compose-File-Änderung).
+**Vorgänger:** ADR-051 §B (Reverse-Proxy-Wahlfreiheit über Compose-Overlays), §F (manueller Pull als Operator-Mechanik), §H (Operator-Quickstart-Doku).
+
+### Kontext
+
+Bug-Bericht aus M11-Provisionierung: Issue [#15](https://github.com/Paddel87/HC-Map/issues/15). Im RC-Image `ghcr.io/paddel87/hc-map-frontend:rc` rendert Next.js die Server-Side-Komponenten (Dashboard, Suche, Edit-Forms, Auth-Server-Probe) mit `fetch()`-Calls auf `http://127.0.0.1:8000`. Der Frontend-Container hat dort keinen Backend-Listener — `localhost` referenziert den Frontend-Prozess selbst. Folge: jede SSR-Route liefert `ECONNREFUSED`, der Browser sieht Next.js' Application-Error-Page. Statisch ausgelieferte Pfade (`GET /login` HTML) kommen durch und maskieren den Bug, weshalb der M10.9-RC-Smoke ihn nicht erkannt hat.
+
+**Befund aus Code-Audit (Issue-Triage 2026-05-02):**
+
+- Server-Components lesen die Backend-URL über `process.env.BACKEND_INTERNAL_URL` mit Fallback `"http://localhost:8000"` — der Mechanismus ist also bereits angelegt. Stellen:
+  - [`frontend/src/lib/auth-server.ts`](../frontend/src/lib/auth-server.ts) Zeile 5
+  - [`frontend/src/app/(protected)/page.tsx`](../frontend/src/app/(protected)/page.tsx) Zeile 10
+  - [`frontend/src/app/(protected)/search/page.tsx`](../frontend/src/app/(protected)/search/page.tsx) Zeile 6
+  - [`frontend/src/app/(protected)/events/[id]/edit/page.tsx`](../frontend/src/app/(protected)/events/[id]/edit/page.tsx) Zeile 9
+- [`docker/compose.prod.yml`](../docker/compose.prod.yml) `frontend`-Service: setzt nur `NODE_ENV`, `NEXT_PUBLIC_TILE_URL`, `NEXT_PUBLIC_DEFAULT_MAP_CENTER`. Kein `BACKEND_INTERNAL_URL`.
+- [`docker/docker-compose.yml`](../docker/docker-compose.yml) `frontend`-Service: gleiches Bild — nur `NODE_ENV`, sonst nichts. Dev-Setup ist latent vom selben Bug betroffen, fällt aber im Live-Modus + RxDB-Workflow weniger auf (Kern-UX-Pfade hängen nicht am SSR-Fetch).
+- [`.env.example`](../.env.example): `BACKEND_INTERNAL_URL` ist nicht dokumentiert.
+- [`docker/frontend.Dockerfile`](../docker/frontend.Dockerfile): kein `ARG`/`ENV` für `BACKEND_INTERNAL_URL` — die Variable ist **Runtime-Env**, kein Build-Inline. Image-Re-Build ist daher nicht erforderlich; ein neuer `compose up -d` mit ergänzter Env genügt operativ.
+
+Der Bug betrifft alle drei Reverse-Proxy-Pfade aus ADR-051 §B (Caddy-Overlay, Traefik-Overlay, externer Reverse-Proxy nach `runbook.md` §4.3) gleichermaßen, weil der Reverse-Proxy ausschließlich Browser↔Container-Verkehr routet — SSR-`fetch`-Calls verlassen den Frontend-Container und sehen den Reverse-Proxy nicht.
+
+### Entscheidungen
+
+**A. Adressierungs-Mechanismus: Runtime-Env `BACKEND_INTERNAL_URL`, gelesen aus `process.env` zur Request-Zeit.**
+
+Variable behält den Namen, unter dem sie bereits im Code existiert: `BACKEND_INTERNAL_URL`. Naming-Diskussion (siehe Punkt B). Default-Wert: `http://backend:8000` — der Container-Hostname, den Compose dem Backend-Service zuweist, ist konstant und Teil des öffentlichen Compose-Vertrags (in Repo-Doku und `compose.prod.yml`-Kommentar bereits genannt).
+
+Der bestehende Fallback `"http://localhost:8000"` im Code bleibt unverändert. Begründung: lokaler `pnpm dev`-Workflow (Frontend außerhalb Docker, Backend via `docker compose up backend db`) erwartet ein `localhost:8000`-Backend. Würden wir den Fallback auf `http://backend:8000` ändern, bricht dieser Pfad. Compose-basierte Setups setzen die Variable explizit; `pnpm dev` außerhalb Docker bekommt den Fallback.
+
+**B. Naming: kein `HCMAP_*`-Präfix für diese Variable.**
+
+Pfad-A-Konvention im Backend (ADR-051 §C: `HCMAP_SMTP_HOST`, `HCMAP_BASE_URL`, `HCMAP_COOKIE_DOMAIN`, …) gilt für **Backend-Pydantic-Settings**. Frontend-Server-Envs sind ein eigener Namespace mit eigener Konvention (Next.js: `NEXT_PUBLIC_*` für Browser-Bundle, sonstige `process.env.*`-Reads gelten Server-only). `BACKEND_INTERNAL_URL` ist Frontend-Server-only und damit **außerhalb** des `HCMAP_*`-Geltungsbereichs. Eine Umbenennung auf `HCMAP_BACKEND_INTERNAL_URL` würde rein kosmetische Konsistenz erzeugen und vier Code-Stellen plus alle Doku-Referenzen anfassen — verworfen zugunsten Minimal-Touch.
+
+**C. Operationalisierung in Compose-Files.**
+
+Beide Compose-Files erhalten den Default-Wert mit Operator-Override-Syntax:
+
+```yaml
+# docker/compose.prod.yml — frontend service
+environment:
+  NODE_ENV: production
+  BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+  NEXT_PUBLIC_TILE_URL: ${NEXT_PUBLIC_TILE_URL:-/api/tiles/{z}/{x}/{y}}
+  NEXT_PUBLIC_DEFAULT_MAP_CENTER: ${NEXT_PUBLIC_DEFAULT_MAP_CENTER:-52.5200,13.4050}
+```
+
+```yaml
+# docker/docker-compose.yml — frontend service
+environment:
+  NODE_ENV: production
+  BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+```
+
+Operator kann via `.env.prod` überschreiben, falls sein Reverse-Proxy-Pfad einen anderen Backend-Hostname erfordert (z. B. Pfad 4.3 mit externem Traefik, der den Backend-Container über ein anderes Netz adressiert).
+
+**D. `.env.example` Doku-Block.**
+
+Frontend-Block in `.env.example` erweitern um:
+
+```
+# Frontend SSR backend address (server-side fetch only, never sent to browser).
+# Default in compose: http://backend:8000 (Docker-internal hostname).
+# Override only if your reverse-proxy/compose topology changes the backend hostname,
+# e.g. when running an external reverse-proxy outside the compose network.
+BACKEND_INTERNAL_URL=http://backend:8000
+```
+
+**E. Runbook-Stolperer-Sektion (M10.8-Ergänzung).**
+
+`ops/runbook.md` erhält einen kurzen Stolperer-Hinweis im Abschnitt zum externen Reverse-Proxy (Pfad 4.3): wenn das Compose-Netz von einem externen Reverse-Proxy umgangen wird, muss der Operator prüfen, ob `backend:8000` aus dem Frontend-Container weiterhin auflösbar ist — wenn nicht (anderes Compose-Netz, Bridge-Trennung), muss `BACKEND_INTERNAL_URL` explizit gesetzt werden.
+
+**F. Image-Bytes unverändert — kein Re-Build nötig.**
+
+Die Variable wird zur Request-Zeit in den Server-Components ausgewertet (Next.js `process.env`-Read in App-Router-Server-Code, kein Inline durch den Build-Schritt). Damit wirkt der Fix sofort nach `compose up -d` mit gepatchtem Compose-File — der bestehende GHCR-Image-Tag `:0.1.0-rc.1` bleibt gültig. Der Hotfix erzeugt einen Patch-Commit auf `main`, daraus baut CI ein neues `:main` und (perspektivisch) ein RC-2 mit aktualisierter `compose.prod.yml`-Vorlage. Patrick kann das Issue auf seiner laufenden RC-Instanz **schon vor dem RC-2-Tag** beheben, indem er das Compose-File patcht.
+
+**G. Out-of-Scope (nicht Teil dieses ADR).**
+
+- Erweiterung des RC-Smoke-Sets um echte SSR-Login-/Dashboard-Routen, damit derselbe Bug-Modus im nächsten RC nicht durchschlüpft. Eigene Folge-Aufgabe, in `M14`-Monitoring-Bereich oder als M11-Lessons-Learned dokumentiert.
+- Frontend-Healthcheck-Status-Code-Whitelist (Image akzeptiert nur HTTP 200, nicht 307/308 — separater Bug, im Issue als Nebenbefund erwähnt). Eigener Folge-Issue empfohlen.
+
+### Verworfene Alternativen
+
+- **Issue-Vorschlag (a) — neue Variable `HCMAP_INTERNAL_API_URL` einführen.** Würde den bestehenden `BACKEND_INTERNAL_URL`-Mechanismus ignorieren, vier Code-Stellen ändern, zwei Variablen für dieselbe Sache hinterlassen oder einen Refactor erzwingen. Verworfen — der bestehende Mechanismus ist sauber, es fehlt nur das Durchreichen.
+- **Issue-Vorschlag (b) — Build-Arg `BACKEND_URL` mit Default.** Würde die URL ins Image inlinen; Override erfordert Image-Re-Build. Operator-feindlich für Multi-Instanz (jedes Setup mit anderer Topologie braucht eigenes Image). Verworfen.
+- **Issue-Vorschlag (c) — SSR-fetches relativ über den eigenen Reverse-Proxy.** Frontend müsste seinen externen Hostname kennen, TLS-Zertifikat aus Container-Sicht vertrauen, DNS-Auflösung mitbringen. Erhöht Komplexität. Verworfen.
+- **Code-Fallback auf `http://backend:8000` ändern (statt `localhost:8000`).** Bricht lokales `pnpm dev`-Setup außerhalb Docker. Verworfen.
+- **Auf `HCMAP_BACKEND_INTERNAL_URL` umbenennen.** Rein kosmetische Konsistenz mit Backend-Settings, vier Code-Stellen + Doku-Touch. Verworfen — Frontend-Server-Env ist eigener Namespace.
+
+### Risiken und Mitigationen
+
+- **R1. Operator setzt `BACKEND_INTERNAL_URL` aus Versehen auf einen externen Hostname (z. B. `https://hc-map.example.org`).** Folge: SSR-Fetches gehen über den eigenen Reverse-Proxy zurück nach innen — funktioniert, ist aber ineffizient (extra TLS-Handshake, doppelter Hop). Mitigation: `.env.example` und Runbook-Stolperer-Sektion erklären den Default und wann er überschrieben werden sollte.
+- **R2. Compose-Override-Syntax `${VAR:-default}` wird in alten Docker-Versionen nicht interpretiert.** Mitigation: Repo unterstützt Compose ≥ v2.0 (siehe ADR-048 / `compose.prod.yml`-Header); diese Syntax ist seit v1.x stabil. Kein Risiko.
+- **R3. `pnpm dev`-Pfad bleibt latent kaputt für SSR-Routes außerhalb von Docker.** Tatsächlich: Backend in Docker erreichbar als `localhost:8000`, Frontend `pnpm dev` außerhalb Docker — der Fallback-Wert `http://localhost:8000` greift, Pfad funktioniert. Kein Regression.
+- **R4. Im `:rc`-Image existiert die Compose-Patches noch nicht.** Operator, der ein älteres `compose.prod.yml`-Template aus dem Tag-`v0.1.0-rc.1`-Snapshot verwendet, sieht den Bug weiter. Mitigation: README + Runbook erhalten unter „Bekannte Probleme im RC-1" einen Hinweis, nach Hotfix-Merge das Compose-File aus `main` zu beziehen (oder auf RC-2 zu warten).
+
+### Folge-Arbeit
+
+- **M11-HOTFIX-001** (Fahrplan-Eintrag mit Status `[WARTET-AUF-FREIGABE]`) → nach Annahme dieser ADR direkt umsetzen (Compose-Files + .env.example + Runbook-Stolperer-Sektion). Akzeptanzkriterien dort.
+- **RC-Smoke-Härtung:** echter SSR-Login-Pfad in den nächsten Smoke-Run. Eigener Folge-Eintrag, nicht-blockierend für M11.
+- **Frontend-Healthcheck-Status-Codes** (nur 200 statt auch 307/308): eigener Folge-Issue empfohlen, nicht Teil von M11-HOTFIX-001.
+- **Optional nach M11 / vor `v0.1.0`-Final:** Konsolidierung der vier `BACKEND_URL`-Konstanten in einen einzelnen Server-Config-Helper (`frontend/src/lib/server-config.ts`), damit der Default an einer einzigen Stelle definiert ist. Refactoring innerhalb eines Moduls (CLAUDE.md §5 freigabefrei), aber nicht für den Hotfix nötig.
+
+### Referenzen
+
+- [Issue #15 — Frontend SSR macht ECONNREFUSED 127.0.0.1:8000 statt Backend-Service zu nutzen](https://github.com/Paddel87/HC-Map/issues/15)
+- [ADR-051 — Implementierungsstrategie M10](#adr-051--implementierungsstrategie-m10-release-candidate-bündel-deployment-ready-durch-jedermann) §B (Reverse-Proxy-Wahlfreiheit), §F (Operator-Pull-Mechanik)
+- [Fahrplan §M11-HOTFIX-001](./fahrplan.md#m11-hotfix-001--frontend-ssr-backend-url-nicht-durchgereicht-issue-15)
+- Code-Stellen: [`lib/auth-server.ts:5`](../frontend/src/lib/auth-server.ts#L5), [`(protected)/page.tsx:10`](../frontend/src/app/(protected)/page.tsx#L10), [`(protected)/search/page.tsx:6`](../frontend/src/app/(protected)/search/page.tsx#L6), [`(protected)/events/[id]/edit/page.tsx:9`](../frontend/src/app/(protected)/events/[id]/edit/page.tsx#L9)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

@@ -85,6 +85,11 @@ services:
     pull_policy: always
     environment:
       NODE_ENV: production
+      # Server-side fetch target for Next.js SSR (read at request time from
+      # process.env). Default points at the in-network backend service. See
+      # ADR-053 / M11-HOTFIX-001. Override via .env.prod only if the topology
+      # changes (e.g. external reverse-proxy outside this compose network).
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
       NEXT_PUBLIC_TILE_URL: ${NEXT_PUBLIC_TILE_URL:-/api/tiles/{z}/{x}/{y}}
       NEXT_PUBLIC_DEFAULT_MAP_CENTER: ${NEXT_PUBLIC_DEFAULT_MAP_CENTER:-52.5200,13.4050}
     depends_on:

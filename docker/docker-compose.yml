@@ -45,6 +45,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      # SSR fetch target inside the compose network (ADR-053, M11-HOTFIX-001).
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
     depends_on:
       - backend
     ports:

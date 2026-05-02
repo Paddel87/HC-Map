@@ -245,6 +245,21 @@ Der externe Reverse-Proxy muss dann:
 Ein Beispiel für nginx ist nicht Teil des RC-Scopes (siehe ADR-051 §B);
 Caddy/Traefik decken die typischen Fälle ab.
 
+> **Stolperer SSR↔Backend (Issue #15, ADR-053):** Das Frontend-Server-Side-
+> Rendering ruft das Backend **direkt** aus dem Container heraus auf — der
+> Reverse-Proxy sieht diesen Verkehr nicht. Default ist `BACKEND_INTERNAL_URL=
+> http://backend:8000` und funktioniert, solange der Frontend-Container den
+> Backend-Container über den Compose-internen Hostname `backend` erreicht.
+> Wenn dein externer Reverse-Proxy auf einem **anderen Compose-Netz** sitzt
+> oder du Backend/Frontend in **getrennte Compose-Stacks** trennst, ist der
+> Hostname `backend` aus Frontend-Sicht nicht mehr auflösbar — dann musst du
+> `BACKEND_INTERNAL_URL` in deiner `.env.prod` explizit auf den im jeweiligen
+> Setup erreichbaren Backend-Hostname setzen (z. B. den Container-Namen
+> `hcmap-backend` oder einen vom Operator vergebenen DNS-Eintrag im
+> Reverse-Proxy-Netz). Symptom bei falschem Wert: jede SSR-Seite liefert
+> eine Next.js-Application-Error-Page, in `docker compose logs frontend`
+> steht `connect ECONNREFUSED <hostname>:8000`.
+
 ---
 
 ## 5. Mail-Backend (SMTP)
@@ -716,6 +731,7 @@ Wichtige Volumes:
 | Neuer Admin-Bootstrap weigert sich (`Refusing to bootstrap`) | Es existiert bereits ein User. Über die Login-UI mit dem ursprünglichen Bootstrap-Account anmelden und dort weiteren Admin anlegen. |
 | `docker logs caddy` zeigt `permission denied: /etc/caddy/Caddyfile` | Die Datei `docker/Caddyfile` fehlt — nur das `.example` ist im Repo. Schritt 4.1 wiederholen. |
 | Statistik-Aggregate wirken niedriger als erwartet | Anonymisierte Personen werden in Aggregaten weiterhin gezählt, aber nicht namentlich aufgelöst (siehe ADR-002 / ADR-015). Das ist Designentscheidung, kein Bug. |
+| Login-Seite zeigt „Application error" / `connect ECONNREFUSED 127.0.0.1:8000` in den Frontend-Logs | RC-1 (`v0.1.0-rc.1`) shipt mit einer `compose.prod.yml`, die `BACKEND_INTERNAL_URL` nicht durchreicht — siehe Issue #15 / ADR-053. Auf RC-1: das Compose-File aus `main` ziehen oder die Zeile `BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}` im `frontend`-Service händisch ergänzen, dann `docker compose ... up -d frontend`. Ab RC-2 / Final ist der Default eingebaut; Override nur nötig bei externem Reverse-Proxy außerhalb des Compose-Netzes (siehe §4.3). |
 
 ---
 

@@ -27,7 +27,7 @@ Status-Marker (gemäß CLAUDE.md Abschnitt 7):
 
 - **Stand vom:** 2026-05-02 (laufende Session — **M10 + M10.9 [ERLEDIGT]**. RC-Tag [`v0.1.0-rc.1`](https://github.com/Paddel87/HC-Map/releases/tag/v0.1.0-rc.1) gesetzt, GitHub-Pre-Release sichtbar, GHCR-Image-Tags `:0.1.0-rc.1` + `:rc` für alle drei Images (backend, frontend, backup) anonym pullbar. Re-Smoke gegen das frische `:main` aus CI-Run [25235540977](https://github.com/Paddel87/HC-Map/actions/runs/25235540977) (digest `sha256:bbe2305e…`) bestätigte: Backend-Migrations-Image-Fix ist im publizierten Build drin. Doku-Postfix nach Tag korrigiert die `metadata-action`-`v`-Strip-Konvention quer durch ADR-051 §E, README, ops/runbook.md, .env.example, fahrplan.md (Image-Tag heißt `:0.1.0-rc.1`, nicht `:v0.1.0-rc.1`). M10 ist damit als RC-Bündel abgeschlossen; M11 (Promote RC → `v0.1.0` auf Patricks VPS) ist nun startbereit, sobald Patrick deployment-ready ist.)
 - **Laufende Phase:** Phase 1 (MVP) — M10 abgeschlossen
-- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt.
+- **Nächster Schritt:** **M11 (Go-Live Pfad A: Promote RC → `v0.1.0`) [OFFEN]** — Patrick provisioniert seinen eigenen VPS gemäß [ops/runbook.md](../ops/runbook.md), pullt `:0.1.0-rc.1`, fährt den Stack hoch, lädt Mitglieder ein, Bestand wird via M5c (Nachträgliche Erfassung) eingepflegt. Nach mind. 7 Tagen stabilem Betrieb: Git-Tag `v0.1.0` (Final), GHCR-Image-Tags `:0.1.0` + `:0.1` + `:0` + `:latest` werden gesetzt. **M11-blockierender Hotfix offen:** `M11-HOTFIX-001` (Issue [#15](https://github.com/Paddel87/HC-Map/issues/15)) — Frontend-SSR fällt im Production-Compose auf `http://localhost:8000` zurück, weil `BACKEND_INTERNAL_URL` weder in `docker/compose.prod.yml` noch in `docker/docker-compose.yml` durchgereicht wird; jede SSR-Seite kracht mit `ECONNREFUSED`. Status `[WARTET-AUF-FREIGABE]` — siehe Sub-Step unten und ADR-Vorschlag.
 - **M10-Akzeptanzkriterien (alle erfüllt):** Tag `v0.1.0-rc.1` als Pre-Release sichtbar ✓; Multi-Arch-Images `:0.1.0-rc.1` + `:rc` auf GHCR public, anonym pullbar ✓; Voll-Compose-Stack mit Caddy + Traefik alternativ erfolgreich gestartet, Smoke grün ✓; Backup-Roundtrip (pg_dump → age → rclone → restore in zweite DB) dokumentiert + erfolgreich ✓; README-Quickstart liest sich für eine Drittperson schlüssig (Patrick-Lese-Test offen, aber strukturell vollständig) ✓; Backend pytest 246/246 + Frontend vitest 278/278 grün, ruff/mypy/eslint/typecheck/format-check clean ✓.
 - **Sub-Folgearbeit aus ADR-050:** M5c-NACH (Legacy-External-Ref im Edit/Backfill-UI) bleibt [OFFEN], nicht-blockierend für M11, sollte aber vor `v0.1.0`-Final stehen.
 - **M10.9-Followups (Doku, nicht-blockierend):**
@@ -127,6 +127,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M10         | Release-Candidate-Bündel (deployment-ready durch jedermann) | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M10.9       | └─ RC-Smoke + Tag `v0.1.0-rc.1` + GitHub-Pre-Release | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11         | Go-Live Pfad A (Promote RC → `v0.1.0`)           | [OFFEN]     |
+| 1 MVP   | M11-HOTFIX-001 | └─ Frontend SSR Backend-URL nicht durchgereicht (Issue #15) | [IN ARBEIT] 2026-05-02 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -1924,6 +1925,45 @@ Strategie-ADR: [ADR-052](./decisions.md#adr-052--github-actions-major-bumps-auf-
 - `v0.1.0`-Tag und Final-Release auf GitHub.
 
 **Abhängigkeiten:** M0 – M10. M5c-NACH wird **vor** dem Final-Tag empfohlen (RC kann ohne, Final-Tag sollte den Legacy-Ref-UI-Pfad abdecken).
+
+---
+
+### M11-HOTFIX-001 — Frontend SSR Backend-URL nicht durchgereicht (Issue #15)
+
+**Status:** `[IN ARBEIT]` 2026-05-02 — ADR-053 (Empfehlung A) am 2026-05-02 von Patrick freigegeben; Implementierung läuft. Blockiert M11-Go-Live, da App ohne Fix im Production-Compose nicht nutzbar ist.
+
+**Problem:**
+Im RC-Image `ghcr.io/paddel87/hc-map-frontend:rc` rufen die Server-Components Backend-URL via `process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000"` auf (4 Code-Stellen: [lib/auth-server.ts:5](../frontend/src/lib/auth-server.ts#L5), [(protected)/page.tsx:10](../frontend/src/app/(protected)/page.tsx#L10), [(protected)/search/page.tsx:6](../frontend/src/app/(protected)/search/page.tsx#L6), [(protected)/events/[id]/edit/page.tsx:9](../frontend/src/app/(protected)/events/[id]/edit/page.tsx#L9)). Weder [docker/compose.prod.yml](../docker/compose.prod.yml) noch [docker/docker-compose.yml](../docker/docker-compose.yml) setzen die Variable, und [.env.example](../.env.example) dokumentiert sie nicht. Im Container-Netzwerk ist `localhost:8000` der Frontend-Container selbst — Backend hört dort nicht. Ergebnis: jede SSR-Route (Dashboard, Suche, Edit-Forms, Login-Layout-Probe) liefert `ECONNREFUSED` und Next.js zeigt die Error-Page. Statisch gerenderte Pfade (`/login`-GET) kommen durch, deshalb hat M10.9-RC-Smoke den Bug nicht abgedeckt — ein echter SSR-getriggerter Login-Flow war nicht im Smoke-Set.
+
+Bug betrifft **alle drei Reverse-Proxy-Pfade** aus ADR-051 §B (Caddy, Traefik, externer Proxy), weil der Reverse-Proxy ausschließlich Browser↔Frontend/Backend routet — SSR-Fetches gehen direkt aus dem Frontend-Container und sehen den Reverse-Proxy nicht.
+
+**Deliverables:**
+- `BACKEND_INTERNAL_URL` als Pflicht-Env in [docker/compose.prod.yml](../docker/compose.prod.yml) und [docker/docker-compose.yml](../docker/docker-compose.yml) `frontend`-Service durchgereicht, Default `http://backend:8000`.
+- [.env.example](../.env.example) um Doku-Eintrag (Frontend-Block) erweitert.
+- [ops/runbook.md](../ops/runbook.md) Stolperer-Sektion: was tun, wenn ein eigener Reverse-Proxy außerhalb des Compose-Netzes verwendet wird (Pfad 4.3) — dann muss `BACKEND_INTERNAL_URL` händisch auf den im jeweiligen Setup erreichbaren Backend-Hostname gesetzt werden.
+- Image **muss neu gebaut werden? Nein** — die Variable wird zur Request-Time aus `process.env` gelesen (Next.js Server-Components), kein Build-Inline. Ein Image-Re-Build ist *nicht* nötig; ein `compose up -d` mit ergänzter Env genügt. Operator-relevant: sobald Patches gemerged + ein neuer `:rc`-Build durchläuft, decken auch Operator ohne lokale Compose-Änderung den Default `http://backend:8000` ab.
+- Naming-Entscheid (siehe ADR-053): Variable behält ihren bestehenden Namen `BACKEND_INTERNAL_URL` ohne `HCMAP_*`-Präfix, weil sie eine Frontend-/Next.js-Server-Env ist (separater Namespace zu Backend-Pydantic-Settings); Begründung im ADR.
+- Smoke-Test (Folge-Aufgabe nach Fix): RC-Smoke-Set um echten SSR-Login-Pfad erweitern, sodass dieser Bug-Modus beim nächsten RC nicht mehr durchschlüpft. Nicht Teil dieses Hotfix-Sub-Steps; eigener Eintrag nach Final-Tag (oder als Zusatz in M14).
+
+**Akzeptanzkriterien:**
+- Browser-Aufruf von `https://<domain>/login` rendert SSR-Login-Page (HTTP 200, kein `ECONNREFUSED` mehr in `docker compose logs frontend`).
+- Browser-Aufruf von `https://<domain>/` (Dashboard-Redirect bei Auth) liefert Login-Form, kein Application-Error.
+- Frontend-Container hat `BACKEND_INTERNAL_URL=http://backend:8000` in `docker exec hcmap-frontend env`.
+- Issue #15 geschlossen mit Verweis auf Commit + ADR-053.
+- Doku-Cross-Check: Drittperson liest `runbook.md` + `.env.example` und versteht, wann/wie die Variable überschrieben werden muss.
+
+**Verifikations-Plan (im Worktree):**
+1. Patches in `docker/compose.prod.yml`, `docker/docker-compose.yml`, `.env.example` einbringen.
+2. Lokaler Compose-Test (`docker/docker-compose.yml`): `pnpm dev` ist nicht ausreichend — wir brauchen den Container-Pfad. `docker compose -f docker/docker-compose.yml up -d --build frontend backend db`, dann `curl -s http://localhost:3000/login | grep -q "Anmelden"` (oder analoger SSR-Marker).
+3. Falls Operator-Pfad via `docker exec hcmap-frontend env` lokal nicht reproduzierbar ist (Worktree ohne laufendes Compose), dann Smoke nach Merge auf einem CI-Branch oder Patrick-VPS-Test.
+4. Issue #15 mit Befund-Kommentar und Commit-Referenz schließen.
+
+**Abhängigkeiten:** ADR-053 freigegeben.
+
+**Bezug:**
+- Issue: [#15 — Frontend SSR macht ECONNREFUSED 127.0.0.1:8000](https://github.com/Paddel87/HC-Map/issues/15) (Labels `bug`, `frontend`, `severity:blocker`, `M11`).
+- ADR: [ADR-053 — Frontend SSR-Backend-Adressierung im Production-Container-Netz](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (Status `Proposed`).
+- Vorgänger: ADR-051 §B (Reverse-Proxy-Wahlfreiheit), §F (manueller Pull, Operator-Mechanik).
 
 ---
 

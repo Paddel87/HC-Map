@@ -41,6 +41,7 @@ import Map, {
 import { GeocodeSearchBox } from "@/components/map/geocode-search-box";
 import { MapFilterPanel } from "@/components/map/map-filter-panel";
 import { Button } from "@/components/ui/button";
+import { formatEventTime } from "@/lib/event-time";
 import {
   DEFAULT_MAP_CENTER,
   applyEventFilter,
@@ -383,7 +384,7 @@ function EventPopupContent({ event }: { event: MappableEvent }) {
         </div>
       ) : null}
       <div className={trimmedTitle ? "text-xs text-slate-600" : "font-medium"}>
-        {formatDate(event.started_at)}
+        {formatEventTime(event.started_at, event.time_precision)}
       </div>
       <div className="text-xs text-slate-600">
         {event.lat.toFixed(5)}, {event.lon.toFixed(5)}
@@ -475,11 +476,4 @@ function useEventParticipants(): EventParticipantDocType[] {
 
 function roundCoord(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("de-DE", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }

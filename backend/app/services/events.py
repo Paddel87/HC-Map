@@ -62,6 +62,7 @@ async def create_event(
         reveal_participants=payload.reveal_participants,
         title=payload.title,
         note=payload.note,
+        time_precision=payload.time_precision,
         legacy_external_ref=payload.legacy_external_ref,
         created_by=created_by,
     )
@@ -122,6 +123,7 @@ async def start_event(
         reveal_participants=payload.reveal_participants,
         title=payload.title,
         note=payload.note,
+        time_precision=payload.time_precision,
         created_by=created_by,
     )
     session.add(event)

@@ -242,6 +242,7 @@ async def _insert_event_or_conflict(
         reveal_participants=new_doc.reveal_participants,
         title=new_doc.title,
         note=new_doc.note,
+        time_precision=new_doc.time_precision,
         created_by=user.id,
         is_deleted=new_doc.deleted,
         deleted_at=new_doc.deleted_at if new_doc.deleted else None,
@@ -292,6 +293,7 @@ def _apply_event_update(existing: Event, new_doc: EventDoc) -> None:
     # LWW.
     existing.title = new_doc.title
     existing.note = new_doc.note
+    existing.time_precision = new_doc.time_precision
     existing.reveal_participants = new_doc.reveal_participants
     existing.legacy_external_ref = new_doc.legacy_external_ref
     # Soft-delete flip.
@@ -504,6 +506,7 @@ def _event_to_doc(row: Event) -> EventDoc:
         reveal_participants=row.reveal_participants,
         title=row.title,
         note=row.note,
+        time_precision=row.time_precision,
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,

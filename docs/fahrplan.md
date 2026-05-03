@@ -136,6 +136,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11-HOTFIX-007 | └─ MapLibre `GeolocateControl` in Karten-Komponenten (Issue #22) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-008 | └─ Optionales `event.title`-Feld (Issue #27 Befund 4+5, ADR-056) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-009 | └─ Application-Lifecycle Auto-Stop bei Event-Ende (Issue #23 Befund 2, ADR-057) | [ERLEDIGT] 2026-05-03 |
+| 1 MVP   | M11-HOTFIX-010 | └─ Event.`time_precision`-Marker für retrospektive Erfassung (Issue #24, ADR-058) | [ERLEDIGT] 2026-05-03 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2105,6 +2106,54 @@ Höchste Wahrscheinlichkeit: `BACKEND_INTERNAL_URL` ist im Frontend-Container ni
 - Verwandt: [#15](https://github.com/Paddel87/HC-Map/issues/15) (gleiche Wurzel-Hypothese), [ADR-053 §A/§C/§F](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (etabliertes Mechanismus, jetzt zusätzlich im Image gepinnt).
 - Operator-Kontext: Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull; lokale Repro grün, Production-Verifikation steht aus.
 - Folge: HOTFIX-005 hat Hypothese 1 (SSR-Backend-URL) gehärtet, traf aber den eigentlichen Bug nicht — der ist Reverse-Proxy-Routing-Konflikt, gelöst in M11-HOTFIX-006.
+
+---
+
+### M11-HOTFIX-010 — Event.`time_precision`-Marker für retrospektive Erfassung (Issue #24, ADR-058)
+
+**Status:** `[ERLEDIGT]` 2026-05-03 — Owner-Freigabe von Patrick im RC-3-Triage-Block (Variante A); ADR-058 `Accepted`. Branch `claude/m11-hotfix-010-time-precision` gestackt auf PR [#30](https://github.com/Paddel87/HC-Map/pull/30).
+
+**Problem:** Issue [#24](https://github.com/Paddel87/HC-Map/issues/24) (Operator-Feldtest, RC-3-Phase Nodica1): Im Backfill-Modus erzwingt die UI volles Datetime — für **frische** Erinnerungen passend, für **ältere** unrealistisch („Sommer 2024", „irgendwann im März"). Operator muss Pseudo-Genauigkeit erfinden oder Eintrag weglassen — beides degradiert Datenqualität unsichtbar.
+
+**Deliverables (alle erledigt):**
+- **ADR-058** (`Accepted`) in [`docs/decisions.md`](./decisions.md): Variante A (Marker auf Event, fünf Werte `year`/`month`/`day`/`hour`/`minute`, Default `'minute'`), B/C verworfen, vier Out-of-Scope-Punkte.
+- **Backend-Migration** [`backend/migrations/versions/20260503_2000_event_precision.py`](../backend/migrations/versions/20260503_2000_event_precision.py): `time_precision VARCHAR(10) NOT NULL DEFAULT 'minute' + CHECK constraint`. Bestehende Rows bekommen automatisch `'minute'` (backwards-kompatibel).
+- **Backend-Modell** [`backend/app/models/event.py`](../backend/app/models/event.py): `time_precision` Mapped + CHECK-Constraint auf Tabellen-Ebene.
+- **Backend-Pydantic** [`backend/app/schemas/event.py`](../backend/app/schemas/event.py): `TimePrecision = Literal[...]`, in `EventBase`/`EventStart`/`EventUpdate` (Default `'minute'`).
+- **Backend-Sync** [`backend/app/sync/schemas.py`](../backend/app/sync/schemas.py): `EventDoc.time_precision` mit Pydantic-Literal.
+- **Backend-Sync-Service** [`backend/app/sync/services.py`](../backend/app/sync/services.py): durchgereicht in `_insert_event`, `_apply_event_update` (LWW), `_event_to_doc`.
+- **Backend-Service** [`backend/app/services/events.py`](../backend/app/services/events.py): `create_event` + `start_event` reichen `payload.time_precision` durch. `update_event` greift via `model_dump(exclude_unset=True)`.
+- **Backend-Route** [`backend/app/routes/events.py`](../backend/app/routes/events.py): `_build_detail`-Helper um `time_precision` ergänzt.
+- **RxDB-Schema-Bump v2→v3** [`frontend/src/lib/rxdb/schemas/event.schema.json`](../frontend/src/lib/rxdb/schemas/event.schema.json): `version: 3`, neues `time_precision`-Property mit `enum` und `default`.
+- **RxDB-Migration-Strategie** [`frontend/src/lib/rxdb/database.ts`](../frontend/src/lib/rxdb/database.ts): `migrationStrategies[3] = (doc) => ({ ...doc, time_precision: 'minute' })`.
+- **Frontend-Types** [`frontend/src/lib/rxdb/types.ts`](../frontend/src/lib/rxdb/types.ts), [`frontend/src/lib/types.ts`](../frontend/src/lib/types.ts), [`frontend/src/lib/map/event-marker-data.ts`](../frontend/src/lib/map/event-marker-data.ts): `TimePrecision` Type-Alias, in `EventDocType`/`EventListItem`/`MappableEvent`/`EventStartPayload`.
+- **Frontend-Helper** [`frontend/src/lib/event-time.ts`](../frontend/src/lib/event-time.ts): zentrale `formatEventTime`/`formatEventTimeRange`-Funktionen für die fünf Granularitäten (`year` → „2024", `month` → „Mai 2024", `day` → „01.05.2024", `hour` → „01.05.2024, 12 Uhr", `minute` → „01.05.2024, 12:30").
+- **Frontend-UI** (5 Stellen):
+  - [`event-create-form.tsx`](../frontend/src/components/event/event-create-form.tsx): Live-Modus-Insert setzt explizit `time_precision: 'minute'`.
+  - [`event-backfill-form.tsx`](../frontend/src/components/event/event-backfill-form.tsx): neuer Granularitäts-Wechsler (`<select data-testid="event-backfill-precision">`) mit dynamischen Eingabefeldern (`year` → number-Input, `month` → Monat-Select + Jahr-Input, `day` → date-Input, `hour`/`minute` → bisheriges datetime-local). Pure Helper `precisionStartedIso`/`precisionEndedIso` normalisieren Eingabe auf ISO-Timestamps; `ended_at` ist bei year/month/day automatisch null.
+  - [`event-detail-view.tsx`](../frontend/src/components/event/event-detail-view.tsx): `MergedEvent.time_precision` durchgereicht, neuer `[data-testid="event-detail-time"]`-Span in `CardDescription` zeigt `formatEventTime(event.started_at, event.time_precision)`.
+  - [`(protected)/page.tsx`](../frontend/src/app/(protected)/page.tsx) Dashboard: `formatEventTime`-Aufruf für Title-Fallback und Meta-Zeile.
+  - [`map-view.tsx`](../frontend/src/components/map/map-view.tsx) `EventPopupContent`: alte `formatDate`-Helper durch `formatEventTime` ersetzt.
+
+**Verifikation:**
+- `uv run pytest -q` → **258/258 grün** (gleicher Count wie M11-HOTFIX-009; `test_rxdb_schema_drift.py` bestätigt JSON-Schema ↔ Pydantic-Sync automatisch).
+- `uv run ruff check app tests` → All checks passed.
+- `uv run ruff format --check app tests migrations` → 114 files already formatted.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean (nach Quote-Escape-Fix in CardDescription).
+- `pnpm test` → **282/282 grün** (nach Test-Helper-Update in `event-marker-data.test.ts` für die neuen Felder `title` + `time_precision`).
+- `pnpm prettier --check` (per-file) → clean.
+- **Browser-Verifikation** (Dev-Stack lokal hochgefahren via `preview_*`, Migration angewandt):
+  - POST `/api/events` mit `time_precision: 'year'` und `started_at: '2024-01-01T00:00:00Z'` → 201, Response enthält `time_precision: 'year'`.
+  - Detail-View für year-Event: `[data-testid="event-detail-time"]` zeigt **„2024"**.
+  - Detail-View für month-Event: `[data-testid="event-detail-time"]` zeigt **„Mai 2024"**.
+  - Backfill-Form `/events/new/backfill`: `[data-testid="event-backfill-precision"]`-Select hat alle 5 Optionen, Auswahl „Jahr" rendert `[data-testid="event-backfill-year"]` als number-Input mit Min=1900/Max=2100.
+
+**Bezug:**
+- Issue: [#24 — Variable Zeitangabe-Präzision](https://github.com/Paddel87/HC-Map/issues/24).
+- ADR: [ADR-058 — Event.`time_precision`-Marker](./decisions.md) (Status `Accepted`).
+- Vorgänger-ADRs: ADR-029 (FWW vs LWW), ADR-031 (Schema-Drift-Test), ADR-039 (Backfill), ADR-056 (Schema-Bump-Pattern).
+- Folge: Operator-Verifikation auf Nodica1 nach Stack-Merge — Backfill-Test mit „Sommer 2024"-Eintrag, prüfen dass Anzeige in Dashboard/Detail/Map als „Mai 2024" (oder beliebiges Monat) erscheint, nicht als „01.05.2024 00:00".
 
 ---
 

@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState, type CSSProperties } from "react";
-import Map, { Marker, NavigationControl, type MapLayerMouseEvent } from "react-map-gl/maplibre";
+import Map, {
+  GeolocateControl,
+  Marker,
+  NavigationControl,
+  type GeolocateResultEvent,
+  type MapLayerMouseEvent,
+} from "react-map-gl/maplibre";
 
 import { DEFAULT_MAP_CENTER, rasterTileStyle } from "@/lib/map";
 
@@ -39,6 +45,11 @@ export function LocationPickerMap({
     onChange({ lat: roundCoord(event.lngLat.lat), lon: roundCoord(event.lngLat.lng) });
   }
 
+  function handleGeolocate(event: GeolocateResultEvent) {
+    const { latitude, longitude } = event.coords;
+    onChange({ lat: roundCoord(latitude), lon: roundCoord(longitude) });
+  }
+
   return (
     <div
       className={className}
@@ -52,6 +63,13 @@ export function LocationPickerMap({
         cursor="crosshair"
       >
         <NavigationControl position="top-right" showCompass={false} />
+        <GeolocateControl
+          position="top-right"
+          positionOptions={{ enableHighAccuracy: true }}
+          trackUserLocation={false}
+          showAccuracyCircle={false}
+          onGeolocate={handleGeolocate}
+        />
         {lat !== null && lon !== null ? (
           <Marker
             latitude={lat}

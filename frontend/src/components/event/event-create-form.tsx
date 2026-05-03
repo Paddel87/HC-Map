@@ -36,6 +36,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
   const geolocation = useGeolocation({ auto: true });
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [recipient, setRecipient] = useState<PersonRead | null>(null);
+  const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -72,6 +73,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
         lon: coords.lon,
         legacy_external_ref: null,
         reveal_participants: false,
+        title: title.trim() || null,
         note: note.trim() || null,
         // Server overrides created_by with the authenticated user (ADR-029).
         created_by: user.id,
@@ -177,6 +179,26 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
             value={recipient}
             onChange={setRecipient}
             excludePersonIds={[user.person_id]}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Titel (optional)</CardTitle>
+          <CardDescription>
+            Kurze Bezeichnung zur Wiederfindung im Dashboard und auf der Karte. Maximal 120 Zeichen.
+            Leer lassen = Anzeige fällt auf Startzeit + Koordinaten zurück.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <input
+            type="text"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="z. B. „Konzert in Bremen"
+            maxLength={120}
+            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:focus-visible:ring-slate-300"
           />
         </CardContent>
       </Card>

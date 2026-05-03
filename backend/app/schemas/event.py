@@ -17,6 +17,7 @@ class EventBase(BaseModel):
     lat: Decimal = Field(..., ge=Decimal("-90"), le=Decimal("90"))
     lon: Decimal = Field(..., ge=Decimal("-180"), le=Decimal("180"))
     reveal_participants: bool = False
+    title: str | None = Field(default=None, max_length=120)
     note: str | None = None
     legacy_external_ref: str | None = None
 
@@ -37,6 +38,7 @@ class EventStart(BaseModel):
     lon: Decimal = Field(..., ge=Decimal("-180"), le=Decimal("180"))
     recipient_id: uuid.UUID | None = None
     reveal_participants: bool = False
+    title: str | None = Field(default=None, max_length=120)
     note: str | None = None
 
 
@@ -46,6 +48,7 @@ class EventUpdate(BaseModel):
     lat: Decimal | None = Field(default=None, ge=Decimal("-90"), le=Decimal("90"))
     lon: Decimal | None = Field(default=None, ge=Decimal("-180"), le=Decimal("180"))
     reveal_participants: bool | None = None
+    title: str | None = Field(default=None, max_length=120)
     note: str | None = None
     legacy_external_ref: str | None = None
 

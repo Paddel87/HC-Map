@@ -374,9 +374,17 @@ function FilterToggleButton({ active, onClick }: { active: boolean; onClick: () 
 
 function EventPopupContent({ event }: { event: MappableEvent }) {
   const isLive = event.ended_at === null;
+  const trimmedTitle = event.title?.trim();
   return (
     <div className="flex flex-col gap-1 text-sm" data-testid="map-event-popup">
-      <div className="font-medium">{formatDate(event.started_at)}</div>
+      {trimmedTitle ? (
+        <div className="font-medium" data-testid="map-event-popup-title">
+          {trimmedTitle}
+        </div>
+      ) : null}
+      <div className={trimmedTitle ? "text-xs text-slate-600" : "font-medium"}>
+        {formatDate(event.started_at)}
+      </div>
       <div className="text-xs text-slate-600">
         {event.lat.toFixed(5)}, {event.lon.toFixed(5)}
       </div>

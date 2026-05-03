@@ -37,6 +37,7 @@ class EventDoc(BaseModel):
     lon: float = Field(ge=-180, le=180)
     legacy_external_ref: str | None = None
     reveal_participants: bool = False
+    title: str | None = Field(default=None, max_length=120)
     note: str | None = None
     created_by: uuid.UUID | None = None
     created_at: datetime

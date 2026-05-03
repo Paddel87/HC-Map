@@ -79,11 +79,15 @@ async function buildDatabase(): Promise<HCMapDatabase> {
       // Schema v0 → v1 (ADR-050): rename `w3w_legacy` to
       // `legacy_external_ref`. Old field is dropped, new field carries
       // the same value (or null for docs that never had one).
+      // Schema v1 → v2 (ADR-056, M11-HOTFIX-008): add optional `title`
+      // (default null — UI falls back to start-time/coordinate display
+      // when unset).
       migrationStrategies: {
         1: (doc: Record<string, unknown>) => {
           const { w3w_legacy, ...rest } = doc;
           return { ...rest, legacy_external_ref: w3w_legacy ?? null };
         },
+        2: (doc: Record<string, unknown>) => ({ ...doc, title: null }),
       },
     },
     applications: {

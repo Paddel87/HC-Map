@@ -270,6 +270,7 @@ async def _build_detail(session: AsyncSession, event_id: uuid.UUID, user: User) 
         lat=event.lat,
         lon=event.lon,
         reveal_participants=event.reveal_participants,
+        title=event.title,
         note=event.note,
         legacy_external_ref=event.legacy_external_ref,
         created_by=event.created_by,

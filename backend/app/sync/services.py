@@ -506,7 +506,7 @@ def _event_to_doc(row: Event) -> EventDoc:
         reveal_participants=row.reveal_participants,
         title=row.title,
         note=row.note,
-        time_precision=row.time_precision,  # type: ignore[arg-type]
+        time_precision=row.time_precision,
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,

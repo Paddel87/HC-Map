@@ -135,6 +135,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11-HOTFIX-006 | └─ SQLAdmin auf `/sqladmin/` umziehen (Issue #19, ADR-055) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-007 | └─ MapLibre `GeolocateControl` in Karten-Komponenten (Issue #22) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-008 | └─ Optionales `event.title`-Feld (Issue #27 Befund 4+5, ADR-056) | [ERLEDIGT] 2026-05-03 |
+| 1 MVP   | M11-HOTFIX-009 | └─ Application-Lifecycle Auto-Stop bei Event-Ende (Issue #23 Befund 2, ADR-057) | [ERLEDIGT] 2026-05-03 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2104,6 +2105,47 @@ Höchste Wahrscheinlichkeit: `BACKEND_INTERNAL_URL` ist im Frontend-Container ni
 - Verwandt: [#15](https://github.com/Paddel87/HC-Map/issues/15) (gleiche Wurzel-Hypothese), [ADR-053 §A/§C/§F](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (etabliertes Mechanismus, jetzt zusätzlich im Image gepinnt).
 - Operator-Kontext: Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull; lokale Repro grün, Production-Verifikation steht aus.
 - Folge: HOTFIX-005 hat Hypothese 1 (SSR-Backend-URL) gehärtet, traf aber den eigentlichen Bug nicht — der ist Reverse-Proxy-Routing-Konflikt, gelöst in M11-HOTFIX-006.
+
+---
+
+### M11-HOTFIX-009 — Application-Lifecycle Auto-Stop bei Event-Ende (Issue #23 Befund 2, ADR-057)
+
+**Status:** `[ERLEDIGT]` 2026-05-03 — Owner-Freigabe von Patrick im RC-3-Triage-Block (Variante A); ADR-057 `Accepted`. Branch `claude/m11-hotfix-009-app-lifecycle-autostop` gestackt auf PR [#29](https://github.com/Paddel87/HC-Map/pull/29).
+
+**Problem:** Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 2 (Operator-Feldtest, RC-3-Phase Nodica1) — drei zusammengehörige Beobachtungen:
+- 2a: Live-Event wird beendet, Applications bleiben offen-laufend → Lifecycle-Inkonsistenz.
+- 2b: Im laufenden Live-Event hat eine einzelne Application keinen sichtbaren Stop-Button — Workaround über „Event bearbeiten" mit manueller Eingabe.
+- 2c: Backend-Validatoren („Application endet nach Event-Ende") greifen korrekt, aber UX ist Sackgasse — User läuft erst beim Submit in den Konflikt.
+
+**Deliverables (alle erledigt):**
+- **ADR-057** (`Accepted`) in [`docs/decisions.md`](./decisions.md): Variante A (Backend Auto-Stop + Stop-Button + Pre-Submit-Hint), B/C verworfen, vier Out-of-Scope-Punkte (Auto-Restart, Multi-Active im Live-Modus, Audit-Log, Migrations-Daten-Reparatur).
+- **Backend-Helper** [`backend/app/services/events.py:auto_stop_open_applications`](../backend/app/services/events.py): UPDATE-by-event_id-Query, idempotent, Trigger setzt `updated_at` (RxDB-Cursor advanciert).
+- **Backend-Pfad 1 (POST `/api/events/{id}/end`):** [`end_event`](../backend/app/services/events.py) ruft Helper nach `flush()`. Direkter Trigger.
+- **Backend-Pfad 2 (PATCH `/api/events/{id}`):** [`update_event`](../backend/app/services/events.py) merkt sich `was_open = ended_at is None` vor dem Update, ruft Helper wenn `ended_at` von null auf non-null wechselt.
+- **Backend-Pfad 3 (RxDB-Push):** [`push_events`](../backend/app/sync/services.py) macht denselben `was_open`-Check innerhalb der `begin_nested()`-Savepoint-Transaktion. Lazy-Import von `auto_stop_open_applications` zur Vermeidung zirkulärer Module-Imports.
+- **Frontend-Stop-Button** in [`event-detail-view.tsx:ApplicationsTimeline`](../frontend/src/components/event/event-detail-view.tsx): pro aktive Application (`isLive && isActive`) ein `[data-testid="applications-timeline-stop"]`-Button mit `Square`-Icon, Klick ruft existierenden `handleEndApplication`-Handler. Komponente um Props `isLive` + `onStop` erweitert.
+- **Frontend Live-Validation** in [`event-edit-form.tsx`](../frontend/src/components/event/event-edit-form.tsx): `validateBackfill` läuft via `useMemo` auf jeden Form-State-Change. Errors werden auf `bounds`/`duration`/`overlap` gefiltert, bis der User submit drückt — ab dann sind alle Errors sichtbar (verhindert Noise auf First-Paint). Submit-Pfad nutzt dieselben `liveErrors` als Block-Bedingung statt Re-Validation.
+
+**Verifikation:**
+- Zwei neue pytest-Tests in [`backend/tests/test_events_live_api.py`](../backend/tests/test_events_live_api.py):
+  - `test_end_event_auto_stops_running_applications`: Event → 2 Applications, eine manuell beendet vor Event-Ende, andere läuft → Event-Ende, beide haben `ended_at`, Auto-gestoppte hat exakt `event.ended_at`-Timestamp.
+  - `test_patch_event_with_ended_at_auto_stops_applications`: PATCH-Pfad-Variante.
+- `uv run pytest -q` → **258/258 grün** (256 + 2 neue).
+- `uv run ruff check app tests` → All checks passed.
+- `uv run ruff format` (auto-applied auf services.py + test): clean nach Re-Format.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean.
+- `pnpm test` → **282/282 grün**.
+- `pnpm prettier --check` (per-file) → clean.
+- **Browser-Verifikation** (Dev-Stack lokal hochgefahren via `preview_*`, Alembic-Migration aus M11-HOTFIX-008 angewandt):
+  - End-to-End API-Smoke: Event-Start mit Title → 2 Applications gestartet → Event beendet → beide Applications haben `ended_at` exakt = `event.ended_at` (Auto-Stop greift).
+  - Frontend Stop-Button: Event-Detail-View zeigt `[data-testid="applications-timeline-stop"]`-Button für aktive Application; Klick → Status wechselt von „läuft" zu „beendet", Button verschwindet (kein zweiter Stop möglich).
+
+**Bezug:**
+- Issue: [#23 — Operator-Befundbericht I Befund 2](https://github.com/Paddel87/HC-Map/issues/23) (Application-Lifecycle).
+- ADR: [ADR-057 — Application-Lifecycle Auto-Stop](./decisions.md) (Status `Accepted`).
+- Vorgänger: ADR-011 (Live-Modus Lifecycle), ADR-029 (FWW vs LWW), ADR-038 (Detail-View), ADR-039/040 (Backfill-/Edit-Validation).
+- Folge: Operator-Verifikation auf Nodica1 nach Stack-Merge (idealerweise live-Event mit zwei parallelen Applications anlegen, Event beenden, prüfen dass beide auf ended_at gesetzt sind).
 
 ---
 

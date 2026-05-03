@@ -100,7 +100,31 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
   const [applications, setApplications] = useState<EditableApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
-  const [errors, setErrors] = useState<BackfillError[]>([]);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+
+  // ADR-057 §E: re-run validateBackfill on every form-state change so
+  // bounds/duration violations surface inline instead of waiting for
+  // the user to hit submit. Errors are only rendered after the first
+  // submit attempt to avoid noisy first-paint complaints about empty
+  // fields the user hasn't touched yet.
+  const liveErrors = useMemo<BackfillError[]>(() => {
+    if (!event) return [];
+    const result = validateBackfill({
+      lat: typeof initialEvent.lat === "number" ? initialEvent.lat : Number(initialEvent.lat),
+      lon: typeof initialEvent.lon === "number" ? initialEvent.lon : Number(initialEvent.lon),
+      startedAt: initialEvent.started_at,
+      endedAt: localToIso(event.endedAt),
+      applications: applications.map((a) => ({
+        uiId: a.id,
+        startedAt: localToIso(a.startedAt),
+        endedAt: localToIso(a.endedAt),
+        recipientId: a.recipientId || null,
+        note: a.note || null,
+      })),
+    });
+    return result.valid ? [] : result.errors;
+  }, [event, applications, initialEvent]);
+  const errors = submitAttempted ? liveErrors : liveErrors.filter(isBoundsOrDuration);
 
   // Load event + applications from RxDB once (ADR-040 §F).
   useEffect(() => {
@@ -200,31 +224,15 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
 
   async function handleSubmit(formEvent: React.FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
+    setSubmitAttempted(true);
     if (!database || !event || !eventInitial) return;
 
-    // Validate via the M5c.3 helper — started_at values are immutable
-    // here, so we hand them through unchanged (ADR-040 §G).
-    const validation = validateBackfill({
-      lat: typeof initialEvent.lat === "number" ? initialEvent.lat : Number(initialEvent.lat),
-      lon: typeof initialEvent.lon === "number" ? initialEvent.lon : Number(initialEvent.lon),
-      startedAt: initialEvent.started_at,
-      endedAt: localToIso(event.endedAt),
-      applications: applications.map((a) => ({
-        uiId: a.id,
-        startedAt: localToIso(a.startedAt),
-        endedAt: localToIso(a.endedAt),
-        recipientId: a.recipientId || null,
-        note: a.note || null,
-      })),
-    });
-    if (!validation.valid) {
-      setErrors(validation.errors);
-      toast.error(`${validation.errors.length} Eingabe-Probleme`, {
+    if (liveErrors.length > 0) {
+      toast.error(`${liveErrors.length} Eingabe-Probleme`, {
         description: "Bitte die markierten Felder prüfen.",
       });
       return;
     }
-    setErrors([]);
 
     setPending(true);
     try {
@@ -584,4 +592,9 @@ function setEquals(a: readonly string[], b: readonly string[]): boolean {
     if (!set.has(item)) return false;
   }
   return true;
+}
+
+function isBoundsOrDuration(err: BackfillError): boolean {
+  if (err.kind === "event") return err.field === "duration";
+  return err.field === "bounds" || err.field === "duration" || err.field === "overlap";
 }

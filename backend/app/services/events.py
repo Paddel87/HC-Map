@@ -172,7 +172,9 @@ async def auto_stop_open_applications(
         )
         .values(ended_at=ended_at)
     )
-    return int(result.rowcount or 0)
+    # `result` is a CursorResult for bulk DML, which carries rowcount;
+    # the typed Result[Any] return signature hides that, hence the cast.
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 async def list_participants(session: AsyncSession, event_id: uuid.UUID) -> Sequence[Person]:

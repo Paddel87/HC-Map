@@ -5357,4 +5357,67 @@ Application-Zeiten werden weiter mit voller `toLocaleString`-Formatierung angeze
 
 ---
 
+## ADR-059 — `reveal_participants`-Toggle im Beteiligte-Tab statt versteckt im Edit-UI (Issue #23 Befund 1, korrigiert via #27)
+
+**Status:** Accepted
+**Datum:** 2026-05-03
+**Freigabe:** 2026-05-03 (Patrick — Variante A, Reihenfolge-Freigabe nach Operator-Befundbericht-Triage)
+**Kategorie:** §5 (UX-Platzierung, Frontend-only) — formal autonom, aber als ADR dokumentiert wegen Privacy-Architektur-Bezug.
+**Vorgänger:** [ADR-038](./decisions.md) (Detail-View Maskierung), [ADR-040](./decisions.md) (Edit-UI mit `reveal_participants`-Checkbox).
+
+### Kontext
+
+Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 1 (Operator-Feldtest, RC-3-Phase Nodica1) wurde im Folgebericht [#27](https://github.com/Paddel87/HC-Map/issues/27) **korrigiert**: ursprünglich vermutet als „Privacy by Default zu streng — Operator sieht eigene Beteiligte nicht", in [#27](https://github.com/Paddel87/HC-Map/issues/27) entdeckte Patrick selbst, dass im Edit-UI ein `reveal_participants`-Toggle existiert. Die strikte Default-Logik („Klardaten sichtbar nur via expliziter, audit-fähiger Aktion") ist DSGVO-konform und bleibt korrekt.
+
+**Eigentlicher UX-Defekt (nach Korrektur):** der Toggle ist im Edit-UI versteckt — selbst der Event-Ersteller findet ihn nur durch Zufall. Operator-Folgerung: „der Sichtbarkeits-Toggle ist im Bearbeiten-Modus versteckt und nicht auffindbar".
+
+### Entscheidungen
+
+**A. Toggle prominent im Beteiligte-Tab platzieren (Variante A aus dem Triage-Block).**
+
+Drei Alternativen wurden Patrick vorgelegt:
+- **A — Toggle im Beteiligte-Tab** (dort wo `[verborgen]` steht), mit Erklärungstext „Aktiviert die Anzeige der Klardaten für dich. Diese Aktion wird protokolliert."
+- **B — Eigener „Sichtbarkeit / Berechtigungen"-Block** im Event-Detail. Verworfen: überstrukturiert solange es nur ein Flag ist; mehr UI-Fläche, kein klarer Mehrwert.
+- **C — Status quo + Tooltip am `[verborgen]`-Marker.** Verworfen: löst nicht das Problem (Toggle bleibt im Edit-UI versteckt), nur die Frustration.
+
+**Patrick wählt A.** Begründung: Toggle gehört semantisch dort hin, wo der versteckte Inhalt sichtbar wird.
+
+**B. Sichtbarkeit nur für Editoren.**
+
+Der Toggle erscheint nur, wenn `canEditEvent(user, { created_by: event.created_by })` → true (Admin oder Event-Ersteller). Andere User sehen wie bisher die Beteiligten-Liste mit Maskierung, ohne Toggle. Das verhindert versehentliche Sichtbarkeits-Änderungen durch nicht-berechtigte Beteiligte.
+
+**C. Implementation: bestehender RxDB-Patch-Pfad.**
+
+Der Toggle ruft denselben `database.events.findOne(id).patch({ reveal_participants: ..., updated_at: ... })`-Pfad, der vom Edit-UI bereits genutzt wird. Sync nach Backend läuft über RxDB-Replication (LWW per ADR-029). Der bestehende Edit-UI-Toggle bleibt unverändert — der neue Detail-View-Toggle ist eine zusätzliche Eintrittstür, kein Ersatz.
+
+**D. UI-Form.**
+
+Im Beteiligte-Card-Header (vor der Liste): kompakter Switch/Checkbox mit Label „Klarnamen sichtbar" plus Hint-Text „Audit-pflichtige Aktion — wird protokolliert" (kursiv, klein). Live-Update der Maskierungs-Logik über die existierende RxDB-Subscription (ADR-038 §C).
+
+**E. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **Audit-Log für Toggle-Klick:** kein Audit-Log-System im Repo. Die Erklärungstext-Aussage „wird protokolliert" verweist auf den `updated_at`-Cursor, der die Änderung in RxDB-Sync-Logs sichtbar macht (M11-HOTFIX-003 Logger). Echtes Audit-Log = M14/M16-Folge-ADR.
+- **Pro-Person-Sichtbarkeit:** weiterhin alles-oder-nichts (Event-Flag), keine Einzel-Person-Berechtigung.
+- **Server-Side-RBAC für reveal_participants:** Backend-Validierung wird in ADR-040 §C bereits durchgesetzt (Patch-Route gibt 403 für Nicht-Editoren); Frontend-Toggle macht das sichtbar, aber Backend bleibt die Source of Truth.
+
+### Verworfene Alternativen
+
+- **Variante B (Eigener Sichtbarkeits-Block).** Überstrukturiert für ein einzelnes Flag; mehr UI-Fläche, kein klarer Mehrwert.
+- **Variante C (Tooltip ohne Toggle).** Löst nicht das eigentliche Problem (Toggle bleibt schwer erreichbar).
+- **Toggle für alle User sichtbar.** Verworfen: nicht-berechtigte Beteiligte könnten versehentlich klicken; auch wenn Backend 403 gibt, ist das verwirrend.
+
+### Folgearbeit
+
+- **M11-HOTFIX-011** (Fahrplan-Eintrag): Implementierung dieser ADR.
+- **#23 Befund 1 schließen** nach Operator-Verifikation auf Production (Toggle erscheint im Beteiligte-Tab, Klick schaltet Klarnamen frei, andere Beteiligte sehen den Toggle nicht).
+
+### Referenzen
+
+- [Issue #23 — Operator-Befundbericht I Befund 1](https://github.com/Paddel87/HC-Map/issues/23) und [Issue #27 — Korrektur zu Befund 1](https://github.com/Paddel87/HC-Map/issues/27)
+- [ADR-038 — Maskierung im Detail-View](./decisions.md)
+- [ADR-040 — Edit-UI mit `reveal_participants`-Checkbox](./decisions.md)
+- Code-Stellen: [`frontend/src/components/event/event-detail-view.tsx`](../frontend/src/components/event/event-detail-view.tsx), [`frontend/src/lib/rbac.ts`](../frontend/src/lib/rbac.ts) (canEditEvent)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

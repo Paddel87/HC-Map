@@ -75,6 +75,7 @@ export function EventCreateForm({ user }: EventCreateFormProps) {
         reveal_participants: false,
         title: title.trim() || null,
         note: note.trim() || null,
+        time_precision: "minute",
         // Server overrides created_by with the authenticated user (ADR-029).
         created_by: user.id,
         created_at: now,

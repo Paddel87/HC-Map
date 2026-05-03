@@ -82,12 +82,15 @@ async function buildDatabase(): Promise<HCMapDatabase> {
       // Schema v1 → v2 (ADR-056, M11-HOTFIX-008): add optional `title`
       // (default null — UI falls back to start-time/coordinate display
       // when unset).
+      // Schema v2 → v3 (ADR-058, M11-HOTFIX-010): add `time_precision`
+      // (default 'minute' — backwards-compatible with existing rows).
       migrationStrategies: {
         1: (doc: Record<string, unknown>) => {
           const { w3w_legacy, ...rest } = doc;
           return { ...rest, legacy_external_ref: w3w_legacy ?? null };
         },
         2: (doc: Record<string, unknown>) => ({ ...doc, title: null }),
+        3: (doc: Record<string, unknown>) => ({ ...doc, time_precision: "minute" }),
       },
     },
     applications: {

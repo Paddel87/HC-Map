@@ -14,6 +14,9 @@
  * indicator, which dovetails neatly with ADR-030.
  */
 
+/** ADR-058: granularity marker for retrospective event entry. */
+export type TimePrecision = "year" | "month" | "day" | "hour" | "minute";
+
 export interface EventDocType {
   id: string;
   started_at: string; // ISO 8601, UTC
@@ -24,6 +27,7 @@ export interface EventDocType {
   reveal_participants: boolean;
   title: string | null;
   note: string | null;
+  time_precision: TimePrecision;
   created_by: string | null;
   created_at: string;
   updated_at: string;

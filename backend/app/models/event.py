@@ -42,6 +42,10 @@ class Event(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     __table_args__ = (
         CheckConstraint("lat >= -90 AND lat <= 90", name="lat_range"),
         CheckConstraint("lon >= -180 AND lon <= 180", name="lon_range"),
+        CheckConstraint(
+            "time_precision IN ('year', 'month', 'day', 'hour', 'minute')",
+            name="event_time_precision_check",
+        ),
         Index("ix_event_started_at", "started_at"),
         Index("ix_event_ended_at", "ended_at"),
         Index("ix_event_created_by", "created_by"),
@@ -70,6 +74,16 @@ class Event(Base, TimestampMixin, CreatedByMixin, SoftDeleteMixin):
     )
     title: Mapped[str | None] = mapped_column(String(120), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ADR-058: granularity marker for retrospective entries. Live-mode
+    # always sets 'minute' (backend default); backfill-mode UI exposes
+    # a switcher. Sort/filter logic stays on started_at; only display
+    # is conditioned on time_precision.
+    time_precision: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="minute",
+        server_default="minute",
+    )
     # ADR-030: updated_at is the RxDB pull cursor → NOT NULL with a server-side
     # default (clock_timestamp matches the set_updated_at trigger from M1).
     updated_at: Mapped[datetime] = mapped_column(

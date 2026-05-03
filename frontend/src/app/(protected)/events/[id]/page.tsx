@@ -238,6 +238,7 @@ function synthesizeFromRxdb(doc: EventDocType, participantIds: string[]): EventD
     reveal_participants: doc.reveal_participants,
     title: doc.title,
     note: doc.note,
+    time_precision: doc.time_precision ?? "minute",
     legacy_external_ref: doc.legacy_external_ref,
     created_by: doc.created_by,
     created_at: doc.created_at,

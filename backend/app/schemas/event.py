@@ -5,10 +5,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.person import PersonRead
+
+# ADR-058: granularity marker for retrospective event entry.
+TimePrecision = Literal["year", "month", "day", "hour", "minute"]
 
 
 class EventBase(BaseModel):
@@ -19,6 +23,7 @@ class EventBase(BaseModel):
     reveal_participants: bool = False
     title: str | None = Field(default=None, max_length=120)
     note: str | None = None
+    time_precision: TimePrecision = "minute"
     legacy_external_ref: str | None = None
 
 
@@ -40,6 +45,7 @@ class EventStart(BaseModel):
     reveal_participants: bool = False
     title: str | None = Field(default=None, max_length=120)
     note: str | None = None
+    time_precision: TimePrecision = "minute"
 
 
 class EventUpdate(BaseModel):
@@ -50,6 +56,7 @@ class EventUpdate(BaseModel):
     reveal_participants: bool | None = None
     title: str | None = Field(default=None, max_length=120)
     note: str | None = None
+    time_precision: TimePrecision | None = None
     legacy_external_ref: str | None = None
 
 

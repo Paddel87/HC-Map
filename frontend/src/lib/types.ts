@@ -17,6 +17,7 @@ export interface EventListItem {
   lat: number | string;
   lon: number | string;
   reveal_participants: boolean;
+  title: string | null;
   note: string | null;
   legacy_external_ref: string | null;
   created_by: string | null;
@@ -58,6 +59,7 @@ export interface EventStartPayload {
   lon: number;
   recipient_id?: string;
   reveal_participants?: boolean;
+  title?: string;
   note?: string;
 }
 

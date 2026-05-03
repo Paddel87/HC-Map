@@ -9,6 +9,9 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ### Added
 
+- **M11-HOTFIX-008 — Optionales `event.title`-Feld für Identifikation und Wiederfindung (2026-05-03, Issue [#27](https://github.com/Paddel87/HC-Map/issues/27) Befund 4+5, ADR-056).**
+  Events bekommen ein optionales Titel-Feld (max. 120 Zeichen) zur schnellen Wiederfindung im Dashboard und auf der Karte. Backend-Migration `event.title VARCHAR(120) NULL`, RxDB-Schema-Bump v1→v2 mit Migrations-Strategie (alte Docs erhalten `title=null`), neues Eingabefeld in beiden Erfassungs-Forms (Live + Backfill) sowie editierbar in der Bearbeiten-Ansicht. Anzeige als Hauptzeile im Dashboard, prominenter Header im Event-Detail, erste Zeile im Karten-Marker-Popup. Fallback bei NULL: aktuelle Startzeit-/Koordinaten-Darstellung. Volle Backend-Suite **256/256** + Frontend-Suite **282/282** grün, Browser-Smoke bestätigt End-to-End-Pipeline (POST API → DB → RxDB-Sync → alle UI-Stellen).
+
 - **M11-HOTFIX-007 — MapLibre `GeolocateControl` (Fadenkreuz) in Karten-Komponenten (2026-05-03, Issue [#22](https://github.com/Paddel87/HC-Map/issues/22)).**
   Beide Karten-Komponenten ([`frontend/src/components/map/map-view.tsx`](frontend/src/components/map/map-view.tsx) und [`frontend/src/components/map/location-picker-map.tsx`](frontend/src/components/map/location-picker-map.tsx)) zeigen jetzt das MapLibre-Standard-Crosshair-Control unter den Zoom-Buttons oben rechts. Tap zentriert die Karte auf den eigenen GPS-Fix; im `LocationPickerMap` wird zusätzlich der Marker direkt auf die User-Position gesetzt — kein separater zweiter Tap nötig. Operator-Wunsch aus dem RC-3-Mobile-Test auf Nodica1: Pan/Zoom-Aufwand entfällt, gerade wenn Default-Karten-Region weit weg vom aktuellen Standort liegt. Kein neuer Stack-Bestandteil, keine Datenmodell-/API-Änderung; volle Suite **282/282** grün, Browser-Verifikation auf `/map` und `/events/new` bestätigt das Control-DOM.
 

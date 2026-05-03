@@ -5080,4 +5080,97 @@ Der alte `/admin/login`-Redirect entfällt; `/admin/login` ist nun eine Frontend
 
 ---
 
+## ADR-056 — Optionales `event.title`-Feld für Identifikation und Wiederfindung (Issue #27 Befund 4+5)
+
+**Status:** Accepted
+**Datum:** 2026-05-03
+**Freigabe:** 2026-05-03 (Patrick — Variante A, Reihenfolge-Freigabe nach Operator-Befundbericht-II-Triage)
+**Kategorie:** §4.4 Datenmodell-Änderung (neue Spalte am Event-Modell, RxDB-Schema-Bump v1→v2).
+**Vorgänger:** [ADR-029](./decisions.md#adr-029--rxdb-replication-protokoll) (Sync-Protokoll), [ADR-030](./decisions.md#adr-030--soft-delete-und-cursor) (Cursor + Soft-Delete), [ADR-031](./decisions.md#adr-031--rxdb-json-schema-vs-pydantic-drift-test) (Schema-Drift-Test), [ADR-050](./decisions.md#adr-050--m9-w3w-migration-verworfen-eventw3w_legacy-zu-legacy_external_ref-umgewidmet) (vorheriger Schema-Bump v0→v1).
+
+### Kontext
+
+Issue [#27](https://github.com/Paddel87/HC-Map/issues/27) Befund 4 (Operator-Feldtest, RC-3-Phase Nodica1): Events haben kein Titel-/Bezeichnungs-Feld. Im Erfassungs-Workflow gibt es nur GPS + Startzeit + optionale Notiz. Folge:
+
+- **Dashboard:** Events erscheinen mit Startzeit + Koordinaten — schwer voneinander zu unterscheiden, gerade bei mehreren Events am gleichen Tag/Ort.
+- **Karten-Marker (Befund 5):** Punkte zeigen nur Koordinaten + Zeitstempel — visuell „kryptische Zahlen", keine Schnell-Identifikation.
+- **Wiederfindung:** ohne Titel kein mentaler Anker („Konzert in Bremen"), nur exakte Zeit/Ort als Suchschlüssel.
+
+Das `note`-Feld eignet sich als Workaround nicht — es ist semantisch für längere Beobachtungen (Verlauf, Kontext, Stimmung) und in Listen-Ansichten ungekürzt unbrauchbar.
+
+### Entscheidungen
+
+**A. Optionales `title`-Feld auf `event` (Variante A aus dem Triage-Block).**
+
+Drei Alternativen wurden Patrick im Triage-Block vorgelegt:
+- **A — Optionales `title VARCHAR(120) NULL` auf Event.** Anzeige: Dashboard-Hauptzeile, Karten-Marker-Tooltip/Label, Edit-Header. Fallback bei NULL: aktuelle Darstellung (Startzeit + Koordinaten).
+- **B — Status quo.** Operator nutzt `note`-Feld als Workaround. Verworfen: `note` ist für längere Beobachtungen, in Listen-Ansichten unbrauchbar.
+- **C — Synthetisch im Frontend** aus `note`-First-Line. Verworfen: keine echte Identifier-Semantik, nicht editierbar als Identifikator, vermischt zwei orthogonale Felder.
+
+**Patrick wählt A.** Begründung: niedrigschwellige Migration (eine Spalte, nullable, kein Constraint), löst Befund 4 + 5 + die „Wiederfindung"-Sorge aus Befund 6 ein Stück weit. Wirkt sich an drei UI-Stellen aus (Dashboard, Karten-Marker, Edit-Form), klar abgrenzbar.
+
+**B. Schema-Form: `title VARCHAR(120)`, NULL erlaubt, kein Default.**
+
+- `VARCHAR(120)` deckt typische Bezeichnungen ab (Operator-Vorschlag war ~80 Zeichen, mit Puffer auf 120 für Mehrteiler wie „Konzert in Bremen — Halle 7").
+- Nullable=True: Operator kann das Feld leer lassen → Fallback auf bestehende Darstellung (Startzeit + Koordinaten). **Keine Pflicht** — sonst wäre der Live-Modus mit Schnell-Erfassung „Tap → Standort → Start" gestört.
+- Kein Server-Default — `NULL` ist die explizite Markierung „nicht gesetzt".
+- Kein Volltext-Index initial — Such-Use-Case kommt erst mit M5c-NACH/M16; falls Volltextsuche nötig, kann der `note`-FTS-Index aus M3 erweitert werden (eigener Folge-ADR).
+
+**C. RxDB-Schema-Bump v1 → v2 mit Migrations-Strategie.**
+
+`frontend/src/lib/rxdb/schemas/event.schema.json` bekommt `version: 2` und ein neues `title`-Property (`type: ["string", "null"]`, `maxLength: 120`). `frontend/src/lib/rxdb/database.ts` ergänzt:
+
+```typescript
+migrationStrategies: {
+  1: ...,  // v0 → v1 aus ADR-050
+  2: (doc) => ({ ...doc, title: null }),  // v1 → v2: Default null
+}
+```
+
+Bestehende lokale RxDB-Docs in IndexedDB werden bei nächstem Mount automatisch transformiert. Backend-DB-Migration setzt `title=NULL` für alle bestehenden Rows, was identisch ist — keine Daten-Reparatur nötig.
+
+**D. UI-Stellen.**
+
+- **Erfassungs-Forms** (`event-create-form.tsx`, `event-backfill-form.tsx`): neues optionales Eingabefeld „Titel" (`<input maxLength={120}>`), positioniert vor dem `Notiz`-Block.
+- **Edit-Form** (`event-edit-form.tsx`): `title` als editierbares Feld in der bestehenden Editable-Felder-Liste (analog `note`).
+- **Detail-View** (`event-detail-view.tsx`): `title` als Page-Header (oben prominent), Fallback auf bisherige Startzeit-Darstellung wenn NULL.
+- **Dashboard** (`(protected)/page.tsx`): `title` als Hauptzeile (statt/zusätzlich zur Startzeit). Fallback wie oben.
+- **MapView Popup** (`map-view.tsx`): `title` als Erste Zeile im Popup, Fallback Startzeit.
+
+**E. Sync-Protokoll und Backend-Schemas.**
+
+- `backend/app/sync/schemas.py` — `EventDoc.title: str | None = None`.
+- `backend/app/sync/services.py` — `title` durchreichen analog `note`.
+- `backend/app/schemas/event.py` — `EventBase.title`, `EventStart.title`, `EventUpdate.title`. LWW-Verhalten analog `note` (ADR-029).
+- `backend/tests/test_rxdb_schema_drift.py` läuft automatisch mit, sobald JSON-Schema und Pydantic synchron sind.
+
+**F. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **Volltextsuche über `title`:** kommt mit M16-Tags-Suche oder einem expliziten Folge-ADR.
+- **Karten-Marker-Cluster mit Titel-Aggregation** (Befund 5 weitergehend): aktuell zeigt der Cluster nur die Anzahl. Titel-Tooltip beim Tap auf einzelnen Marker reicht für RC-3.
+- **Validierung gegen leere/Whitespace-only Titel**: trim auf Frontend-Seite, Backend akzeptiert NULL = leer (kein Constraint nötig).
+- **Migration bestehender `note`-First-Lines in `title`:** verworfen (Variante C-Reste). Operator pflegt manuell wenn gewünscht.
+
+### Verworfene Alternativen
+
+- **Variante B (Status quo).** Operator-Befund ist konkret und nicht hypothetisch; Workaround über `note` bricht die Listen-Ansichten.
+- **Variante C (Frontend-synthetisch aus `note`-First-Line).** Vermischt zwei semantisch verschiedene Felder, nicht-editierbar als Identifier, und der Cursor-basierte RxDB-Sync würde die Title-Anzeige nicht reaktiv aktualisieren.
+- **`title NOT NULL` mit Pflicht.** Verworfen: bricht Live-Modus-Schnellerfassung („Tap → Standort → Start").
+- **Längere `VARCHAR`-Limits (255, 500).** Verworfen: Titel ist Identifier, kein Beschreibungstext (das ist `note`). 120 Zeichen reichen für die typischen Operator-Use-Cases.
+
+### Folgearbeit
+
+- **M11-HOTFIX-008** (Fahrplan-Eintrag): Implementierung dieser ADR (Migration, Backend-Modell + Schemas, RxDB-Schema-Bump, fünf UI-Stellen, Tests).
+- **#27 Befund 6 (Wiederfindung):** weiterhin offen, gehört zu M5c-NACH/M16 — Filter/Suche-Implementierung erhält durch `title` eine sinnvolle zusätzliche Such-Dimension.
+
+### Referenzen
+
+- [Issue #27 — Operator-Befundbericht II Befund 4+5](https://github.com/Paddel87/HC-Map/issues/27)
+- [ADR-029 — RxDB-Replication-Protokoll](./decisions.md#adr-029--rxdb-replication-protokoll)
+- [ADR-031 — RxDB-JSON-Schema vs Pydantic Drift-Test](./decisions.md#adr-031--rxdb-json-schema-vs-pydantic-drift-test)
+- [ADR-050 — Vorheriger Schema-Bump v0→v1 (Pattern-Vorlage)](./decisions.md#adr-050--m9-w3w-migration-verworfen-eventw3w_legacy-zu-legacy_external_ref-umgewidmet)
+- Code-Stellen: [`backend/app/models/event.py`](../backend/app/models/event.py), [`backend/app/sync/schemas.py`](../backend/app/sync/schemas.py), [`frontend/src/lib/rxdb/schemas/event.schema.json`](../frontend/src/lib/rxdb/schemas/event.schema.json), [`frontend/src/lib/rxdb/database.ts`](../frontend/src/lib/rxdb/database.ts)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

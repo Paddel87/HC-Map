@@ -15,6 +15,7 @@ interface EventListItem {
   ended_at: string | null;
   lat: number | string;
   lon: number | string;
+  title: string | null;
   note: string | null;
 }
 
@@ -93,22 +94,28 @@ export default async function DashboardPage() {
           <CardContent className="text-sm">
             {events && events.items.length > 0 ? (
               <ul className="flex flex-col gap-2">
-                {events.items.map((event) => (
-                  <li key={event.id}>
-                    <Link
-                      href={`/events/${event.id}`}
-                      className="flex flex-col gap-0.5 rounded-md border border-slate-100 px-3 py-2 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
-                    >
-                      <span className="font-medium">
-                        {new Date(event.started_at).toLocaleString("de-DE")}
-                      </span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400">
-                        {coerceNumber(event.lat).toFixed(4)}, {coerceNumber(event.lon).toFixed(4)}
-                        {event.note ? ` — ${event.note}` : ""}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                {events.items.map((event) => {
+                  const trimmedTitle = event.title?.trim();
+                  return (
+                    <li key={event.id}>
+                      <Link
+                        href={`/events/${event.id}`}
+                        className="flex flex-col gap-0.5 rounded-md border border-slate-100 px-3 py-2 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                      >
+                        <span className="font-medium">
+                          {trimmedTitle ?? new Date(event.started_at).toLocaleString("de-DE")}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {trimmedTitle
+                            ? `${new Date(event.started_at).toLocaleString("de-DE")} · `
+                            : ""}
+                          {coerceNumber(event.lat).toFixed(4)}, {coerceNumber(event.lon).toFixed(4)}
+                          {event.note ? ` — ${event.note}` : ""}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p className="text-slate-500 dark:text-slate-400">

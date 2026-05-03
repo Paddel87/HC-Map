@@ -14,6 +14,7 @@ export interface MappableEvent {
   lon: number;
   started_at: string;
   ended_at: string | null;
+  title: string | null;
   note: string | null;
   reveal_participants: boolean;
 }
@@ -62,6 +63,7 @@ export function selectMappableEvents(docs: readonly EventDocType[]): MappableEve
       lon: doc.lon,
       started_at: doc.started_at,
       ended_at: doc.ended_at,
+      title: doc.title,
       note: doc.note,
       reveal_participants: doc.reveal_participants,
     });

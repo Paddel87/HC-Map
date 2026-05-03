@@ -59,6 +59,7 @@ async def create_event(
         lat=payload.lat,
         lon=payload.lon,
         reveal_participants=payload.reveal_participants,
+        title=payload.title,
         note=payload.note,
         legacy_external_ref=payload.legacy_external_ref,
         created_by=created_by,
@@ -113,6 +114,7 @@ async def start_event(
         lat=payload.lat,
         lon=payload.lon,
         reveal_participants=payload.reveal_participants,
+        title=payload.title,
         note=payload.note,
         created_by=created_by,
     )

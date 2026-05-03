@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getServerMe } from "@/lib/auth-server";
-import { coerceNumber } from "@/lib/types";
+import { formatEventTime } from "@/lib/event-time";
+import { coerceNumber, type TimePrecision } from "@/lib/types";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL ?? "http://localhost:8000";
 
@@ -17,6 +18,7 @@ interface EventListItem {
   lon: number | string;
   title: string | null;
   note: string | null;
+  time_precision: TimePrecision;
 }
 
 interface EventListResponse {
@@ -96,19 +98,19 @@ export default async function DashboardPage() {
               <ul className="flex flex-col gap-2">
                 {events.items.map((event) => {
                   const trimmedTitle = event.title?.trim();
+                  const timeLabel = formatEventTime(
+                    event.started_at,
+                    event.time_precision ?? "minute",
+                  );
                   return (
                     <li key={event.id}>
                       <Link
                         href={`/events/${event.id}`}
                         className="flex flex-col gap-0.5 rounded-md border border-slate-100 px-3 py-2 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
                       >
-                        <span className="font-medium">
-                          {trimmedTitle ?? new Date(event.started_at).toLocaleString("de-DE")}
-                        </span>
+                        <span className="font-medium">{trimmedTitle ?? timeLabel}</span>
                         <span className="text-xs text-slate-500 dark:text-slate-400">
-                          {trimmedTitle
-                            ? `${new Date(event.started_at).toLocaleString("de-DE")} · `
-                            : ""}
+                          {trimmedTitle ? `${timeLabel} · ` : ""}
                           {coerceNumber(event.lat).toFixed(4)}, {coerceNumber(event.lon).toFixed(4)}
                           {event.note ? ` — ${event.note}` : ""}
                         </span>

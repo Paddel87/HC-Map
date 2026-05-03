@@ -10,6 +10,8 @@ export interface PersonRead {
   created_at: string;
 }
 
+export type TimePrecision = "year" | "month" | "day" | "hour" | "minute";
+
 export interface EventListItem {
   id: string;
   started_at: string;
@@ -19,6 +21,7 @@ export interface EventListItem {
   reveal_participants: boolean;
   title: string | null;
   note: string | null;
+  time_precision: TimePrecision;
   legacy_external_ref: string | null;
   created_by: string | null;
   created_at: string;
@@ -61,6 +64,7 @@ export interface EventStartPayload {
   reveal_participants?: boolean;
   title?: string;
   note?: string;
+  time_precision?: TimePrecision;
 }
 
 export interface ApplicationLiveStartPayload {

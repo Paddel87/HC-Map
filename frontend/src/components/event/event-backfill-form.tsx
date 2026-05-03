@@ -39,7 +39,7 @@ import {
 } from "@/lib/event-backfill-validation";
 import { DEFAULT_MAP_CENTER } from "@/lib/map";
 import { useDatabase } from "@/lib/rxdb/provider";
-import type { PersonRead } from "@/lib/types";
+import type { PersonRead, TimePrecision } from "@/lib/types";
 
 const LocationPickerMap = dynamic(
   () => import("@/components/map/location-picker-map").then((mod) => mod.LocationPickerMap),
@@ -72,6 +72,10 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [eventStartedAt, setEventStartedAt] = useState("");
   const [eventEndedAt, setEventEndedAt] = useState("");
+  const [precision, setPrecision] = useState<TimePrecision>("minute");
+  const [yearValue, setYearValue] = useState("");
+  const [monthValue, setMonthValue] = useState("");
+  const [dayValue, setDayValue] = useState("");
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [applications, setApplications] = useState<ApplicationRow[]>([]);
@@ -121,9 +125,23 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
       return;
     }
 
+    const startedIsoForValidation = precisionStartedIso(
+      precision,
+      yearValue,
+      monthValue,
+      dayValue,
+      eventStartedAt,
+    );
+    const endedIsoForValidation = precisionEndedIso(
+      precision,
+      yearValue,
+      monthValue,
+      dayValue,
+      eventEndedAt,
+    );
     const input: BackfillEventInput = {
-      startedAt: localToIso(eventStartedAt),
-      endedAt: localToIso(eventEndedAt),
+      startedAt: startedIsoForValidation,
+      endedAt: endedIsoForValidation,
       lat: coords?.lat ?? null,
       lon: coords?.lon ?? null,
       applications: applications.map<BackfillApplicationInput>((a) => ({
@@ -147,8 +165,8 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
 
     setPending(true);
     const eventId = crypto.randomUUID();
-    const startedIso = localToIso(eventStartedAt)!;
-    const endedIso = localToIso(eventEndedAt);
+    const startedIso = startedIsoForValidation!;
+    const endedIso = endedIsoForValidation;
     const now = new Date().toISOString();
     try {
       await database.events.insert({
@@ -161,6 +179,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         reveal_participants: false,
         title: title.trim() || null,
         note: note.trim() || null,
+        time_precision: precision,
         created_by: user.id,
         created_at: now,
         updated_at: now,
@@ -267,45 +286,138 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         <CardHeader>
           <CardTitle className="text-base">Zeitraum</CardTitle>
           <CardDescription>
-            Wann hat das Event stattgefunden? Ende kann offen bleiben (z. B. wenn nur der Start
-            festgehalten werden soll).
+            Wie genau erinnerst du das Event? Bei groben Erinnerungen (Beispiel: Sommer 2024) reicht
+            eine niedrigere Granularität — ehrlicher als erfundene Pseudo-Genauigkeit (ADR-058).
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <CardContent className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <Label htmlFor="event-started-at">Start</Label>
-            <Input
-              id="event-started-at"
-              type="datetime-local"
-              value={eventStartedAt}
-              onChange={(e) => setEventStartedAt(e.target.value)}
-              aria-invalid={hasFieldError(eventErrors, "started_at")}
-              data-testid="event-backfill-started-at"
-            />
-            {hasFieldError(eventErrors, "started_at") ? (
-              <p className="text-xs text-red-600 dark:text-red-400" role="alert">
-                {fieldErrorMessage(eventErrors, "started_at")}
-              </p>
-            ) : null}
+            <Label htmlFor="event-precision">Genauigkeit</Label>
+            <select
+              id="event-precision"
+              value={precision}
+              onChange={(e) => setPrecision(e.target.value as TimePrecision)}
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-800 dark:bg-slate-950"
+              data-testid="event-backfill-precision"
+            >
+              <option value="minute">Datum + Uhrzeit</option>
+              <option value="hour">Datum + Stunde</option>
+              <option value="day">Datum</option>
+              <option value="month">Monat</option>
+              <option value="year">Jahr</option>
+            </select>
           </div>
-          <div className="flex flex-col gap-1">
-            <Label htmlFor="event-ended-at">Ende (optional)</Label>
-            <Input
-              id="event-ended-at"
-              type="datetime-local"
-              value={eventEndedAt}
-              onChange={(e) => setEventEndedAt(e.target.value)}
-              aria-invalid={
-                hasFieldError(eventErrors, "ended_at") || hasFieldError(eventErrors, "duration")
-              }
-              data-testid="event-backfill-ended-at"
-            />
-            {hasFieldError(eventErrors, "duration") ? (
-              <p className="text-xs text-red-600 dark:text-red-400" role="alert">
-                {fieldErrorMessage(eventErrors, "duration")}
-              </p>
-            ) : null}
-          </div>
+          {precision === "year" ? (
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="event-year">Jahr</Label>
+              <Input
+                id="event-year"
+                type="number"
+                inputMode="numeric"
+                min={1900}
+                max={2100}
+                value={yearValue}
+                onChange={(e) => setYearValue(e.target.value)}
+                placeholder="2024"
+                data-testid="event-backfill-year"
+              />
+              {hasFieldError(eventErrors, "started_at") ? (
+                <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+                  {fieldErrorMessage(eventErrors, "started_at")}
+                </p>
+              ) : null}
+            </div>
+          ) : precision === "month" ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="event-month">Monat</Label>
+                <select
+                  id="event-month"
+                  value={monthValue}
+                  onChange={(e) => setMonthValue(e.target.value)}
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-800 dark:bg-slate-950"
+                  data-testid="event-backfill-month"
+                >
+                  <option value="">— Monat —</option>
+                  <option value="1">Januar</option>
+                  <option value="2">Februar</option>
+                  <option value="3">März</option>
+                  <option value="4">April</option>
+                  <option value="5">Mai</option>
+                  <option value="6">Juni</option>
+                  <option value="7">Juli</option>
+                  <option value="8">August</option>
+                  <option value="9">September</option>
+                  <option value="10">Oktober</option>
+                  <option value="11">November</option>
+                  <option value="12">Dezember</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="event-month-year">Jahr</Label>
+                <Input
+                  id="event-month-year"
+                  type="number"
+                  inputMode="numeric"
+                  min={1900}
+                  max={2100}
+                  value={yearValue}
+                  onChange={(e) => setYearValue(e.target.value)}
+                  placeholder="2024"
+                />
+              </div>
+            </div>
+          ) : precision === "day" ? (
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="event-day">Datum</Label>
+              <Input
+                id="event-day"
+                type="date"
+                value={dayValue}
+                onChange={(e) => setDayValue(e.target.value)}
+                data-testid="event-backfill-day"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="event-started-at">
+                  Start {precision === "hour" ? "(Datum + Stunde)" : ""}
+                </Label>
+                <Input
+                  id="event-started-at"
+                  type={precision === "hour" ? "datetime-local" : "datetime-local"}
+                  value={eventStartedAt}
+                  onChange={(e) => setEventStartedAt(e.target.value)}
+                  aria-invalid={hasFieldError(eventErrors, "started_at")}
+                  data-testid="event-backfill-started-at"
+                />
+                {hasFieldError(eventErrors, "started_at") ? (
+                  <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+                    {fieldErrorMessage(eventErrors, "started_at")}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="event-ended-at">Ende (optional)</Label>
+                <Input
+                  id="event-ended-at"
+                  type="datetime-local"
+                  value={eventEndedAt}
+                  onChange={(e) => setEventEndedAt(e.target.value)}
+                  aria-invalid={
+                    hasFieldError(eventErrors, "ended_at") || hasFieldError(eventErrors, "duration")
+                  }
+                  data-testid="event-backfill-ended-at"
+                />
+                {hasFieldError(eventErrors, "duration") ? (
+                  <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+                    {fieldErrorMessage(eventErrors, "duration")}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -510,6 +622,57 @@ function localToIso(value: string): string | null {
   const ms = Date.parse(value);
   if (Number.isNaN(ms)) return null;
   return new Date(ms).toISOString();
+}
+
+/**
+ * ADR-058: derive the started_at ISO timestamp from the precision-
+ * specific input fields. For year/month/day the timestamp anchors to
+ * the first instant of the chosen range; for hour/minute the regular
+ * datetime-local field is used.
+ */
+function precisionStartedIso(
+  precision: TimePrecision,
+  year: string,
+  month: string,
+  day: string,
+  startedAt: string,
+): string | null {
+  if (precision === "year") {
+    const y = Number(year);
+    if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+    return new Date(Date.UTC(y, 0, 1, 0, 0, 0)).toISOString();
+  }
+  if (precision === "month") {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+    if (!Number.isFinite(m) || m < 1 || m > 12) return null;
+    return new Date(Date.UTC(y, m - 1, 1, 0, 0, 0)).toISOString();
+  }
+  if (precision === "day") {
+    if (!day) return null;
+    return new Date(`${day}T00:00:00`).toISOString();
+  }
+  return localToIso(startedAt);
+}
+
+/**
+ * ADR-058: derive the ended_at ISO timestamp from precision-specific
+ * inputs. For year/month/day there is no separate end-input — the end
+ * is conceptually "the same range" and we leave ended_at at null
+ * (operator can refine later if a tighter window matters).
+ */
+function precisionEndedIso(
+  precision: TimePrecision,
+  _year: string,
+  _month: string,
+  _day: string,
+  endedAt: string,
+): string | null {
+  if (precision === "year" || precision === "month" || precision === "day") {
+    return null;
+  }
+  return localToIso(endedAt);
 }
 
 function hasFieldError(errors: BackfillError[], field: string): boolean {

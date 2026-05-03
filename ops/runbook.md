@@ -260,6 +260,19 @@ Caddy/Traefik decken die typischen Fälle ab.
 > eine Next.js-Application-Error-Page, in `docker compose logs frontend`
 > steht `connect ECONNREFUSED <hostname>:8000`.
 
+> **Migration ab RC-3 (Issue #19, ADR-055):** SQLAdmin ist von `/admin/`
+> auf `/sqladmin/` umgezogen. Der Repo-Patch greift in `Caddyfile.example`
+> und `compose.traefik.yml`-Overlay automatisch — bei einem **eigenen**
+> Reverse-Proxy außerhalb der Compose-Overlays (Variante 4.3) musst du
+> die Routing-Regel **manuell** umstellen, sonst landet `/admin/catalogs`
+> (Frontend-Admin-Seite) weiter beim Backend und liefert 404. Konkret:
+> die alte Regel `/admin/*` → backend in zwei Regeln aufsplitten —
+> `/sqladmin/*` → backend, alles andere unter `/admin/*` ans Frontend
+> (gemäß der Liste oben in §4.3 mit `/api/*` + `/sqladmin/*` ans Backend,
+> Rest ans Frontend). Verifikation per `curl`: `GET /admin/catalogs`
+> liefert nach Patch ein `307 → /login?next=…` (Frontend-Auth-Guard),
+> nicht mehr ein `404` aus dem Backend-Log mit `route=/admin/catalogs`.
+
 ---
 
 ## 5. Mail-Backend (SMTP)

@@ -7,6 +7,11 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Fixed
+
+- **M11-HOTFIX-009 — Application-Lifecycle Auto-Stop bei Event-Ende (2026-05-03, Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 2, ADR-057).**
+  Wenn ein Event beendet wird, werden alle noch laufenden Applications dieses Events automatisch auf den Event-Ende-Zeitstempel gesetzt — Lifecycle-Kaskade ist jetzt konzeptkonform. Greift an drei Server-Pfaden: `POST /api/events/{id}/end` (Live-Modus), `PATCH /api/events/{id}` (Edit-Form) und RxDB-Event-Push (Offline-Reconnect-Fall). Frontend ergänzt um Stop-Button pro aktive Application in der Timeline (kein Umweg mehr über „Event bearbeiten") und um Live-Validation im Edit-Form (Bounds-Verletzungen sind sofort sichtbar, nicht erst nach Submit-Klick). Volle Backend-Suite **258/258** + Frontend-Suite **282/282** grün, End-to-End-Browser-Smoke bestätigt: Event mit zwei laufenden Applications → Event-Ende → beide Applications haben exakt `event.ended_at`-Timestamp.
+
 ### Added
 
 - **M11-HOTFIX-008 — Optionales `event.title`-Feld für Identifikation und Wiederfindung (2026-05-03, Issue [#27](https://github.com/Paddel87/HC-Map/issues/27) Befund 4+5, ADR-056).**

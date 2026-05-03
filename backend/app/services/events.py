@@ -6,9 +6,10 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.application import Application
 from app.models.event import Event, EventParticipant
 from app.models.person import Person
 from app.schemas.event import EventCreate, EventStart, EventUpdate
@@ -83,9 +84,14 @@ async def update_event(
     event: Event,
     payload: EventUpdate,
 ) -> Event:
+    was_open = event.ended_at is None
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(event, field, value)
     await session.flush()
+    # ADR-057: when ended_at transitions from null to non-null, cascade
+    # to any still-running applications.
+    if was_open and event.ended_at is not None:
+        await auto_stop_open_applications(session, event.id, event.ended_at)
     await session.refresh(event)
     return event
 
@@ -129,12 +135,44 @@ async def start_event(
 
 
 async def end_event(session: AsyncSession, event: Event) -> Event:
-    """Set ``ended_at = now()`` if not already set (idempotent)."""
+    """Set ``ended_at = now()`` if not already set (idempotent).
+
+    Also auto-stops every still-running Application of the event by
+    setting their ``ended_at`` to the same timestamp (ADR-057). This
+    keeps the lifecycle cascade consistent — a finished event must
+    not have running children.
+    """
     if event.ended_at is None:
-        event.ended_at = datetime.now(tz=UTC)
+        ended_at = datetime.now(tz=UTC)
+        event.ended_at = ended_at
         await session.flush()
+        await auto_stop_open_applications(session, event.id, ended_at)
         await session.refresh(event)
     return event
+
+
+async def auto_stop_open_applications(
+    session: AsyncSession,
+    event_id: uuid.UUID,
+    ended_at: datetime,
+) -> int:
+    """Close every running, non-deleted Application of the event (ADR-057).
+
+    Returns the number of Application rows that were updated. Idempotent:
+    if no Applications are running, the UPDATE matches zero rows and
+    nothing is changed. ``updated_at`` is left to the database trigger
+    (``set_updated_at``, see M1 migration) so the RxDB cursor advances.
+    """
+    result = await session.execute(
+        update(Application)
+        .where(
+            Application.event_id == event_id,
+            Application.ended_at.is_(None),
+            Application.is_deleted.is_(False),
+        )
+        .values(ended_at=ended_at)
+    )
+    return int(result.rowcount or 0)
 
 
 async def list_participants(session: AsyncSession, event_id: uuid.UUID) -> Sequence[Person]:

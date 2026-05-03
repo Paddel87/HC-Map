@@ -45,7 +45,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.services.hcmap-backend.loadbalancer.server.port=8000"
-      - "traefik.http.routers.hcmap-backend-api.rule=Host(`${HCMAP_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/admin`))"
+      - "traefik.http.routers.hcmap-backend-api.rule=Host(`${HCMAP_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/sqladmin`))"
       - "traefik.http.routers.hcmap-backend-api.entrypoints=websecure"
       - "traefik.http.routers.hcmap-backend-api.tls.certresolver=letsencrypt"
       - "traefik.http.routers.hcmap-backend-api.service=hcmap-backend"

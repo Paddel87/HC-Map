@@ -147,12 +147,13 @@ def create_app() -> FastAPI:
     app.include_router(sync_router, prefix="/api")
     app.include_router(admin_router, prefix="/api")
 
-    # SQLAdmin's default ``/admin/login`` template would shows a username/
-    # password form that we never use - bounce direct hits to the SPA
-    # login. Registered before ``register_admin`` so SQLAdmin's mount
-    # doesn't shadow it.
-    @app.get("/admin/login", include_in_schema=False)
-    async def _admin_login_redirect() -> RedirectResponse:
+    # SQLAdmin's default ``/sqladmin/login`` template would show a
+    # username/password form that we never use - bounce direct hits to
+    # the SPA login. Registered before ``register_admin`` so SQLAdmin's
+    # mount doesn't shadow it. ``/admin/login`` is now a frontend route
+    # (ADR-055, fixes #19).
+    @app.get("/sqladmin/login", include_in_schema=False)
+    async def _sqladmin_login_redirect() -> RedirectResponse:
         return RedirectResponse(url="/login", status_code=302)
 
     register_admin(app)

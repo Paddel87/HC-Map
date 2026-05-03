@@ -64,13 +64,20 @@ def _build_session_maker() -> async_sessionmaker[AsyncSession]:
 
 
 def register_admin(app: FastAPI, **admin_kwargs: Any) -> Admin:
-    """Mount SQLAdmin on ``/admin`` and register all ModelViews."""
+    """Mount SQLAdmin on ``/sqladmin`` and register all ModelViews.
+
+    The ``/admin`` namespace belongs to the Next.js frontend (Catalog,
+    Users, Persons sub-routes); SQLAdmin sits on its own prefix so the
+    reverse-proxy can route ``/sqladmin/*`` to the backend without
+    catching frontend admin pages (ADR-055, fixes #19).
+    """
     from app.admin_ui.views import ALL_MODEL_VIEWS
 
     admin = Admin(
         app=app,
         engine=get_engine(),
         session_maker=_build_session_maker(),
+        base_url="/sqladmin",
         title="HC-Map Admin",
         authentication_backend=build_admin_auth_backend(),
         **admin_kwargs,

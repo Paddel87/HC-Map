@@ -237,8 +237,8 @@ services:
 
 Der externe Reverse-Proxy muss dann:
 
-- alle `/api/*`- und `/admin/*`-Routes an `127.0.0.1:8000` weiterreichen,
-- alles andere an `127.0.0.1:3000`,
+- alle `/api/*`- und `/sqladmin/*`-Routes an `127.0.0.1:8000` weiterreichen,
+- alles andere (inkl. `/admin/*` für die Frontend-Admin-Seiten) an `127.0.0.1:3000`,
 - `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-For` setzen,
 - TLS terminieren und HTTP→HTTPS-Redirect erzwingen.
 
@@ -504,7 +504,9 @@ Output bei Erfolg: `Bootstrapped admin user admin@example.org (role=admin).`
 
 Anschließend einloggen unter `https://hc-map.example.org/login`. Über den
 Admin-Bereich (`/admin`) legst du die übrigen Mitglieder als User an und
-verknüpfst sie mit ihren Personen-Datensätzen.
+verknüpfst sie mit ihren Personen-Datensätzen. Für direkten Tabellen-
+Zugriff steht SQLAdmin unter `/sqladmin/` zur Verfügung (ADR-055; das
+Frontend bedient `/admin/*`).
 
 > **Sicherheitshinweis:** Das Bootstrap-Passwort steht für ein paar
 > Sekunden in der Shell-History des Hosts. Auf einem Mehrbenutzer-VPS

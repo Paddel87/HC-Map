@@ -8,7 +8,7 @@ We focus on the contracts the bridge has to satisfy:
   every registered ModelView - this also exercises the
   ``StampingAsyncSession`` since SQLAdmin runs queries with FORCE-RLS
   active.
-* The ``/admin/login`` route returns the SPA redirect, not the SQLAdmin
+* The ``/sqladmin/login`` route returns the SPA redirect, not the SQLAdmin
   template, even on direct hits.
 """
 
@@ -28,14 +28,14 @@ pytestmark = pytest.mark.asyncio
 
 _LOGIN_PATH = "/login"
 _MODEL_PATHS = [
-    "/admin/user/list",
-    "/admin/person/list",
-    "/admin/event/list",
-    "/admin/application/list",
-    "/admin/restraint-type/list",
-    "/admin/arm-position/list",
-    "/admin/hand-position/list",
-    "/admin/hand-orientation/list",
+    "/sqladmin/user/list",
+    "/sqladmin/person/list",
+    "/sqladmin/event/list",
+    "/sqladmin/application/list",
+    "/sqladmin/restraint-type/list",
+    "/sqladmin/arm-position/list",
+    "/sqladmin/hand-position/list",
+    "/sqladmin/hand-orientation/list",
 ]
 
 
@@ -52,7 +52,7 @@ async def admin_client(
 async def test_admin_root_redirects_anonymous_to_spa_login(
     client: AsyncClient,
 ) -> None:
-    resp = await client.get("/admin/", follow_redirects=False)
+    resp = await client.get("/sqladmin/", follow_redirects=False)
     # SQLAdmin's root view sits behind @login_required. Anonymous hits
     # bounce off our authenticate() which returns RedirectResponse(/login).
     assert resp.status_code == 302
@@ -62,7 +62,7 @@ async def test_admin_root_redirects_anonymous_to_spa_login(
 async def test_admin_login_get_redirects_to_spa(
     client: AsyncClient,
 ) -> None:
-    resp = await client.get("/admin/login", follow_redirects=False)
+    resp = await client.get("/sqladmin/login", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"] == _LOGIN_PATH
 
@@ -72,7 +72,7 @@ async def test_editor_role_is_rejected(
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await login_as(client, async_session_factory, role=UserRole.EDITOR)
-    resp = await client.get("/admin/", follow_redirects=False)
+    resp = await client.get("/sqladmin/", follow_redirects=False)
     assert resp.status_code == 302
     assert _LOGIN_PATH in resp.headers["location"]
 
@@ -82,7 +82,7 @@ async def test_viewer_role_is_rejected(
     async_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     await login_as(client, async_session_factory, role=UserRole.VIEWER)
-    resp = await client.get("/admin/", follow_redirects=False)
+    resp = await client.get("/sqladmin/", follow_redirects=False)
     assert resp.status_code == 302
     assert _LOGIN_PATH in resp.headers["location"]
 
@@ -103,14 +103,14 @@ async def test_inactive_admin_is_rejected(
         assert u is not None
         u.is_active = False
 
-    resp = await client.get("/admin/", follow_redirects=False)
+    resp = await client.get("/sqladmin/", follow_redirects=False)
     assert resp.status_code == 302
     assert _LOGIN_PATH in resp.headers["location"]
 
 
 async def test_admin_can_open_root(admin_client: AsyncClient) -> None:
-    resp = await admin_client.get("/admin", follow_redirects=False)
-    # SQLAdmin redirects /admin to /admin/ then to its index. After
+    resp = await admin_client.get("/sqladmin", follow_redirects=False)
+    # SQLAdmin redirects /sqladmin to /sqladmin/ then to its index. After
     # auth we expect a non-redirect-to-login response.
     assert resp.status_code in {200, 302, 307}
     if resp.status_code in {302, 307}:
@@ -130,6 +130,6 @@ async def test_admin_can_list_every_modelview(admin_client: AsyncClient, path: s
 async def test_logout_clears_session_and_redirects(
     admin_client: AsyncClient,
 ) -> None:
-    resp = await admin_client.get("/admin/logout", follow_redirects=False)
+    resp = await admin_client.get("/sqladmin/logout", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"] == _LOGIN_PATH

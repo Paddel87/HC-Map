@@ -4964,4 +4964,120 @@ Wenn `await call_next(request)` eine unbehandelte Exception wirft, emittiert die
 
 ---
 
+## ADR-055 — SQLAdmin auf `/sqladmin/` umziehen (Routing-Konflikt-Auflösung Issue #19)
+
+**Status:** Accepted
+**Datum:** 2026-05-03
+**Freigabe:** 2026-05-03 (Patrick — Variante A)
+**Kategorie:** §4.5 (API-Vertrag: SQLAdmin-URL ändert sich von `/admin/` auf `/sqladmin/`). Sekundär §4.7 (Build-/Deploy-Pipeline: Reverse-Proxy-Configs im Caddyfile + compose.traefik.yml).
+**Vorgänger:** [ADR-049](./decisions.md#adr-049--admin-bereich-implementierungs-plan-m8) §A–§D (SQLAdmin-Mount auf `/admin/`), [ADR-053](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (SSR-Backend-URL), [ADR-054](./decisions.md#adr-054--strukturierter-access-logger-mit-pii-redaction-variante-b-aus-issue-21) (Access-Logger als Diagnose-Werkzeug).
+
+### Kontext
+
+Issue [#19](https://github.com/Paddel87/HC-Map/issues/19) — Operator-Bericht: _"Katalog (Handfesseln) lässt sich nicht öffnen"_ auf der Production-Instanz Nodica1, obwohl der Katalog lokal funktioniert. Diagnose-Update am 2026-05-03 (Patrick mit M11-HOTFIX-003-Logger):
+
+```json
+{"method":"GET","route":"/admin/catalogs","status":404,"duration_ms":9.14,"level":"warning"}
+```
+
+Das Frontend-Log zeigt für `/admin/catalogs` **keinen** Eintrag — der Request kommt nie beim Frontend an. Wurzel:
+
+- Frontend Next.js-Seiten existieren unter `/admin/...`:
+  - `/admin/catalogs`, `/admin/catalogs/[kind]`, `/admin/catalogs/[kind]/new`, `/admin/catalogs/[kind]/[id]/edit`
+  - `/admin/users`, `/admin/users/new`, `/admin/persons`, `/admin/` (Dashboard)
+- Backend hat unter `/admin/` SQLAdmin (ADR-049 §A) sowie `/api/admin/*` für User-Mgmt (ADR-049 §E–§G).
+- Der Reverse-Proxy-Default ([`docker/Caddyfile.example`](../docker/Caddyfile.example)) routet **alles** `/admin/*` ans Backend:
+
+```caddy
+handle /api/* { reverse_proxy backend:8000 }
+handle /admin/* { reverse_proxy backend:8000 }
+handle { reverse_proxy frontend:3000 }
+```
+
+Das Backend antwortet erwartungsgemäß 404 für `/admin/catalogs`, weil es dort keine Route gibt — `/admin/catalogs` ist eine Frontend-Seite. Damit ist die **gesamte** Frontend-Admin-UI hinter jedem Reverse-Proxy-Setup nicht erreichbar.
+
+**Lokal funktioniert es,** weil das Dev-Setup (`pnpm dev` auf 3000, Backend auf 8000) keinen Reverse-Proxy hat — der Browser geht direkt auf `localhost:3000/admin/catalogs` und bekommt das Frontend.
+
+**Tragweite:** alle drei Reverse-Proxy-Pfade aus ADR-051 §B (Caddy-Overlay, Traefik-Overlay, externer Proxy) sind betroffen, weil sie alle dem Caddyfile-Default folgen.
+
+**M11-HOTFIX-005 (`BACKEND_INTERNAL_URL` als Image-ENV-Default)** war Defense-in-Depth, hat aber den eigentlichen Bug nicht getroffen — die SSR-Hypothese war falsch. Der Fix bleibt drin (Härtung gegen den Bug-Modus aus ADR-053), war aber für #19 wirkungslos.
+
+### Entscheidungen
+
+**A. SQLAdmin zieht von `/admin/` auf `/sqladmin/` um.**
+
+Drei Alternativen wurden Patrick vorgelegt (siehe Issue #19):
+- **A — SQLAdmin auf `/sqladmin/`** umziehen. Frontend behält `/admin/*`. Reverse-Proxy bekommt zwei klar getrennte Backend-Pfade (`/api/*` und `/sqladmin/*`).
+- **B — Reverse-Proxy-Routing fein granulieren.** Caddy + Traefik mit mehreren Pfad-Matchern (`/admin/` exakt + `/admin/statics/*` + `/api/admin/*` ans Backend, alles andere ans Frontend). Funktional gleichwertig, aber jeder Reverse-Proxy-Setup trägt die Komplexität, und SQLAdmin-Updates können neue Sub-Routes mitbringen, die wir vergessen.
+- **C — Frontend-Pfade umziehen** (Catalog/Users/Persons unter `/admin-dash/`). Stimmt zwar mit ursprünglicher README-Planung überein, aber viele Code-Stellen (Frontend, Tests, Nav, Doku) zu ändern.
+
+**Patrick wählt A.** Begründung: SQLAdmin ist der nachträgliche Eindringling im Admin-Namespace (M8.2 / ADR-049 §A); ein Move auf `/sqladmin/` macht das Reverse-Proxy-Routing trivial (nur `/api/*` und `/sqladmin/*` ans Backend, sonst alles ans Frontend), und der Code-Change ist auf einen `base_url`-Parameter im SQLAdmin-Konstruktor begrenzt. Variante (b) verschiebt die Komplexität auf den Operator-Routing-Pfad und ist anfälliger für SQLAdmin-Internas; Variante (c) macht weiträumig Code-Touch ohne Mehrwert für die Architektur.
+
+**B. Implementation: `Admin(app, ..., base_url="/sqladmin")`.**
+
+[`backend/app/admin_ui/setup.py:70-77`](../backend/app/admin_ui/setup.py#L70-L77) wird um `base_url="/sqladmin"` erweitert. SQLAdmin re-mounted dann alle internen Routes (`/sqladmin/`, `/sqladmin/login`, `/sqladmin/logout`, `/sqladmin/<model>/list`, `/sqladmin/statics/*`) auf den neuen Präfix. Der Default-`base_url`-Wert ist `/admin`, ein expliziter `base_url="/sqladmin"`-Parameter genügt.
+
+**C. `/admin/login`-Redirect umziehen auf `/sqladmin/login`.**
+
+Der Redirect aus [`backend/app/main.py:148-150`](../backend/app/main.py#L148-L150) (SQLAdmin-Default-Login → SPA-Login) wird auf den neuen Präfix umgestellt:
+
+```python
+@app.get("/sqladmin/login", include_in_schema=False)
+async def _sqladmin_login_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/login", status_code=302)
+```
+
+Der alte `/admin/login`-Redirect entfällt; `/admin/login` ist nun eine Frontend-Route (existiert dort nicht, wird zu 404 vom Frontend — kein Backend-Konflikt mehr).
+
+**D. Reverse-Proxy-Configs auf `/sqladmin/` umstellen.**
+
+- [`docker/Caddyfile.example`](../docker/Caddyfile.example): `handle /admin/* { ... }` → `handle /sqladmin/* { ... }`. Die `/api/*`-Regel bleibt unverändert (deckt `/api/admin/*` weiter ab).
+- [`docker/compose.traefik.yml`](../docker/compose.traefik.yml): Router-Rule `PathPrefix(`/admin`)` → `PathPrefix(`/sqladmin`)`.
+- [`docker/traefik/dynamic.yml.example`](../docker/traefik/dynamic.yml.example): keine Änderung (keine pfad-spezifischen Regeln dort).
+
+**E. Tests aktualisieren.**
+
+[`backend/tests/test_admin_ui.py`](../backend/tests/test_admin_ui.py) hat 8 ModelView-Pfade und 4 Auth-Bridge-Pfade auf `/admin/...`. Alle ziehen auf `/sqladmin/...` um. Test `test_admin_login_get_redirects_to_spa` deckt jetzt `/sqladmin/login` ab.
+
+**F. Doku-Updates.**
+
+- [`README.md`](../README.md): SQLAdmin-Verweise auf `/sqladmin/`.
+- [`ops/runbook.md`](../ops/runbook.md): SQLAdmin-Operator-Pfade auf `/sqladmin/`.
+
+**G. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **SQLAdmin-Header-Link „← Zurück zur App"** ([Issue #20](https://github.com/Paddel87/HC-Map/issues/20)): bleibt offen, separat zu lösen — nicht-blockierend für #19.
+- **Frontend-`/admin-dash/`-Move (Variante C):** verworfen (siehe oben), kein Folge-ADR.
+- **Operator-Migration alter `/admin/`-Bookmarks:** `/admin/` ist auf RC-1 nur kurz live gewesen; einziger relevanter Operator (Patrick) wird per RC-2-Release-Notes informiert.
+
+### Verworfene Alternativen
+
+- **Variante B (Routing fein granulieren).** Verschiebt die Komplexität in jeden Reverse-Proxy-Setup; SQLAdmin-Internas (Static-Asset-Pfade, neue Endpoints) müssen manuell mitgepflegt werden. Operator-feindlich für Multi-Instanz-Setups.
+- **Variante C (Frontend-Pfade auf `/admin-dash/`).** Größerer Code-Touch (Routes, Nav, Tests, Doku) ohne Architektur-Mehrwert; SQLAdmin als kleinerer Eindringling sollte stattdessen umziehen.
+- **`/admin/api/*` für Backend-API-Endpoints.** Die `/api/admin/*`-Routes (User-Mgmt, Stats, Export, Person-Merge) bleiben unverändert — sie liegen unter `/api/*` und sind vom Routing-Konflikt nicht betroffen. Eine zusätzliche Umbenennung auf `/api/admin/*` → `/api/sqladmin/*` wäre rein kosmetisch und würde Frontend-API-Calls aufwendig anpassen. Verworfen.
+
+### Risiken und Mitigationen
+
+- **R1. RC-1-Operator hat Bookmark auf `/admin/` (SQLAdmin):** das Bookmark führt nach RC-2 ins Frontend (`/admin/` zeigt das Admin-Dashboard, nicht SQLAdmin). Mitigation: RC-2-Release-Notes weisen explizit darauf hin.
+- **R2. SQLAdmin's interne URL-Generation respektiert `base_url`:** verifiziert via Smoke-Test im RC-2-Smoke (alle ModelView-Pfade unter `/sqladmin/...` erreichbar).
+- **R3. Frontend-Layout `(protected)/admin/layout.tsx` wird ggf. von SQLAdmin-URLs erfasst:** geprüft — Frontend-Layout greift nur für Next.js-Routes, nicht für Backend-mounted-Pfade. Reverse-Proxy entscheidet vorher.
+- **R4. CSRF-Token-Pfad:** SQLAdmin macht selbst keine CSRF-Token-Logik im Sinne unseres `hcmap_csrf`-Cookie-Mechanismus; das Auth-Backend trägt die Cookie-Bridge. Pfad-Änderung ändert daran nichts.
+- **R5. Test-Suite-Drift:** 11 Test-Pfade in `test_admin_ui.py` sind hartkodiert. Mit dem ADR-Move alle auf `/sqladmin/...` umgestellt; Suite läuft auf 256 → 256 grün (kein Test-Count-Change).
+
+### Folge-Arbeit
+
+- **M11-HOTFIX-006** (Fahrplan-Eintrag mit Status `[IN ARBEIT]`): Implementierung dieser ADR (Backend `base_url`, Redirect, Caddyfile, Traefik-Compose, Tests, Doku).
+- **RC-3-Tag** nach Hotfix-Merge (analog RC-2-Pattern aus M10.9): bündelt M11-HOTFIX-006, re-mapped `:rc`. **Empfehlung als Folge-Aufgabe**, separater Patrick-Entscheid.
+- **Issue [#19](https://github.com/Paddel87/HC-Map/issues/19) Schluss** nach Operator-Verifikation auf Production (Browser → `/admin/catalogs` zeigt Frontend-Seite).
+
+### Referenzen
+
+- [Issue #19 — Katalog-Übersicht öffnet nicht](https://github.com/Paddel87/HC-Map/issues/19) (Diagnose-Update 2026-05-03)
+- [ADR-049 §A — SQLAdmin-Mount](./decisions.md#adr-049--admin-bereich-implementierungs-plan-m8) (vorheriger `base_url=/admin`)
+- [ADR-051 §B — Reverse-Proxy-Wahlfreiheit](./decisions.md#adr-051--implementierungsstrategie-m10-release-candidate-bündel-deployment-ready-durch-jedermann)
+- [ADR-054 — Access-Logger als Diagnose-Werkzeug](./decisions.md#adr-054--strukturierter-access-logger-mit-pii-redaction-variante-b-aus-issue-21) (404-Diagnose erst durch HOTFIX-003 möglich geworden)
+- Code-Stellen: [`backend/app/admin_ui/setup.py:70`](../backend/app/admin_ui/setup.py#L70), [`backend/app/main.py:148`](../backend/app/main.py#L148), [`docker/Caddyfile.example:25`](../docker/Caddyfile.example#L25), [`docker/compose.traefik.yml:48`](../docker/compose.traefik.yml#L48)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

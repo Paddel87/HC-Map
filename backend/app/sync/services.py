@@ -233,6 +233,7 @@ async def _insert_event_or_conflict(
         lon=Decimal(str(new_doc.lon)),
         legacy_external_ref=new_doc.legacy_external_ref,
         reveal_participants=new_doc.reveal_participants,
+        title=new_doc.title,
         note=new_doc.note,
         created_by=user.id,
         is_deleted=new_doc.deleted,
@@ -282,6 +283,7 @@ def _apply_event_update(existing: Event, new_doc: EventDoc) -> None:
     if existing.ended_at is None and new_doc.ended_at is not None:
         existing.ended_at = new_doc.ended_at
     # LWW.
+    existing.title = new_doc.title
     existing.note = new_doc.note
     existing.reveal_participants = new_doc.reveal_participants
     existing.legacy_external_ref = new_doc.legacy_external_ref
@@ -493,6 +495,7 @@ def _event_to_doc(row: Event) -> EventDoc:
         lon=float(row.lon),
         legacy_external_ref=row.legacy_external_ref,
         reveal_participants=row.reveal_participants,
+        title=row.title,
         note=row.note,
         created_by=row.created_by,
         created_at=row.created_at,

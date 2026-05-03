@@ -134,6 +134,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11-HOTFIX-005 | └─ Defense-in-Depth `BACKEND_INTERNAL_URL` als Image-ENV-Default (Issue #19) | [ERLEDIGT] 2026-05-02 |
 | 1 MVP   | M11-HOTFIX-006 | └─ SQLAdmin auf `/sqladmin/` umziehen (Issue #19, ADR-055) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-007 | └─ MapLibre `GeolocateControl` in Karten-Komponenten (Issue #22) | [ERLEDIGT] 2026-05-03 |
+| 1 MVP   | M11-HOTFIX-008 | └─ Optionales `event.title`-Feld (Issue #27 Befund 4+5, ADR-056) | [ERLEDIGT] 2026-05-03 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2103,6 +2104,57 @@ Höchste Wahrscheinlichkeit: `BACKEND_INTERNAL_URL` ist im Frontend-Container ni
 - Verwandt: [#15](https://github.com/Paddel87/HC-Map/issues/15) (gleiche Wurzel-Hypothese), [ADR-053 §A/§C/§F](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (etabliertes Mechanismus, jetzt zusätzlich im Image gepinnt).
 - Operator-Kontext: Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull; lokale Repro grün, Production-Verifikation steht aus.
 - Folge: HOTFIX-005 hat Hypothese 1 (SSR-Backend-URL) gehärtet, traf aber den eigentlichen Bug nicht — der ist Reverse-Proxy-Routing-Konflikt, gelöst in M11-HOTFIX-006.
+
+---
+
+### M11-HOTFIX-008 — Optionales `event.title`-Feld (Issue #27 Befund 4+5, ADR-056)
+
+**Status:** `[ERLEDIGT]` 2026-05-03 — Owner-Freigabe von Patrick im RC-3-Triage-Block (Variante A); ADR-056 `Accepted`. Branch `claude/m11-hotfix-008-event-title` gestackt auf PR [#28](https://github.com/Paddel87/HC-Map/pull/28).
+
+**Problem:** Issue [#27](https://github.com/Paddel87/HC-Map/issues/27) Befund 4+5 (Operator-Feldtest, RC-3-Phase Nodica1): Events haben kein Titel-/Bezeichnungs-Feld. Dashboard und Karten-Marker zeigen nur Startzeit + GPS-Koordinaten — schwer voneinander zu unterscheiden, keine Schnell-Identifikation. `note`-Workaround bricht Listen-Ansichten.
+
+**Deliverables (alle erledigt):**
+- **ADR-056** (`Accepted`) in [`docs/decisions.md`](./decisions.md): Variante A (`title VARCHAR(120) NULL` auf Event), B/C verworfen, fünf Out-of-Scope-Punkte.
+- **Backend-Migration** [`backend/migrations/versions/20260503_1800_event_title.py`](../backend/migrations/versions/20260503_1800_event_title.py): `add_column` + `drop_column` (transaktional, rückwärtskompatibel).
+- **Backend-Modell** [`backend/app/models/event.py`](../backend/app/models/event.py): `title: Mapped[str | None] = mapped_column(String(120), nullable=True)`.
+- **Backend-Pydantic** [`backend/app/schemas/event.py`](../backend/app/schemas/event.py): `title` in `EventBase`/`EventStart`/`EventUpdate` (`max_length=120`).
+- **Backend-Sync** [`backend/app/sync/schemas.py`](../backend/app/sync/schemas.py) + [`backend/app/sync/services.py`](../backend/app/sync/services.py): `EventDoc.title`, Insert/Update-LWW + `_event_to_doc`-Reverse durchgereicht (analog `note`).
+- **Backend-Service** [`backend/app/services/events.py`](../backend/app/services/events.py): `create_event` + `start_event` reichen `payload.title` durch. `update_event` greift via `model_dump(exclude_unset=True)`.
+- **Backend-Route** [`backend/app/routes/events.py`](../backend/app/routes/events.py): `_build_detail`-Helper um `title=event.title` ergänzt (Bug entdeckt + gefixt während Browser-Smoke — POST gab `null` zurück, weil das manuelle EventDetail-Construct `title` nicht durchschleifte).
+- **RxDB-Schema-Bump v1→v2** [`frontend/src/lib/rxdb/schemas/event.schema.json`](../frontend/src/lib/rxdb/schemas/event.schema.json): `version: 2`, neues `title`-Property (`type: ["string", "null"]`, `maxLength: 120`).
+- **RxDB-Migration-Strategie** [`frontend/src/lib/rxdb/database.ts`](../frontend/src/lib/rxdb/database.ts): `migrationStrategies[2] = (doc) => ({ ...doc, title: null })`. Browser-Smoke bestätigt: alte v1-IndexedDB-Stores werden in neue v2-Stores migriert.
+- **Frontend-Types** [`frontend/src/lib/rxdb/types.ts`](../frontend/src/lib/rxdb/types.ts), [`frontend/src/lib/types.ts`](../frontend/src/lib/types.ts), [`frontend/src/lib/map/event-marker-data.ts`](../frontend/src/lib/map/event-marker-data.ts): `title: string | null` in `EventDocType`/`EventListItem`/`MappableEvent`/`EventStartPayload`.
+- **Frontend-UI** (5 Stellen):
+  - [`event-create-form.tsx`](../frontend/src/components/event/event-create-form.tsx): neue „Titel (optional)"-Card vor Notiz, `<input maxLength={120}>` mit Trim auf null.
+  - [`event-backfill-form.tsx`](../frontend/src/components/event/event-backfill-form.tsx): selbiges Pattern, `data-testid="event-backfill-title"`.
+  - [`event-edit-form.tsx`](../frontend/src/components/event/event-edit-form.tsx): editierbares Feld in Editable-Felder-Liste (LWW analog `note`), Diff-Logik.
+  - [`event-detail-view.tsx`](../frontend/src/components/event/event-detail-view.tsx): `title` als Page-Header (oben prominent, `data-testid="event-detail-title"`), Fallback auf bisherige Startzeit-Darstellung wenn NULL. `MergedEvent.title` durchgereicht.
+  - [`(protected)/page.tsx`](../frontend/src/app/(protected)/page.tsx) Dashboard: `title` als Hauptzeile, Datum + Koordinaten als Meta. Fallback wenn NULL.
+  - [`map-view.tsx`](../frontend/src/components/map/map-view.tsx) `EventPopupContent`: `title` als erste Zeile (`data-testid="map-event-popup-title"`), Datum darunter.
+- [`(protected)/events/[id]/page.tsx`](../frontend/src/app/(protected)/events/[id]/page.tsx): `synthesizeFromRxdb` reicht `title` durch (sonst TS2741 für `EventDetail`).
+
+**Verifikation:**
+- `uv run pytest -q` → **256/256 grün** (gleicher Count wie vor Hotfix; `test_rxdb_schema_drift.py` bestätigt JSON-Schema ↔ Pydantic-Sync automatisch).
+- `uv run ruff check app tests` → All checks passed.
+- `uv run ruff format --check app tests migrations` → 113 files already formatted.
+- `uv run mypy --strict app/models/event.py app/schemas/event.py app/sync/schemas.py app/sync/services.py app/services/events.py` → Success: no issues found.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean.
+- `pnpm test` → **282/282 grün**.
+- `pnpm prettier --check` (per-file für die 12 berührten Frontend-Dateien) → clean.
+- **Browser-Verifikation** (Dev-Stack lokal hochgefahren via `preview_*`, Alembic-Migration angewandt, eingeloggt als Admin):
+  - POST `/api/events` mit `title: "Konzert in Bremen"` → 201, Response enthält `title` korrekt.
+  - DB-Direkt-Probe (`docker exec ... psql ... SELECT title FROM event`) → `Konzert in Bremen`.
+  - Dashboard `/`: Title als Hauptzeile, Datum + Koordinaten als Meta-Sub-Zeile.
+  - Detail-View `/events/{id}`: `[data-testid="event-detail-title"]` zeigt „Konzert in Bremen" als prominenten Header.
+  - Edit-Form `/events/{id}/edit`: `[data-testid="event-edit-title"]` mit `value="Konzert in Bremen"`, `maxLength=120`.
+  - MapView `/map`: Status-Bar zeigt „2 Events sichtbar"; IndexedDB-Direktinspektion bestätigt RxDB-v2-Schema-Migration (Datenbank `rxdb-dexie-hcmap--2--events` enthält beide Events mit `title` befüllt).
+
+**Bezug:**
+- Issue: [#27 — Operator-Befundbericht II Befund 4+5](https://github.com/Paddel87/HC-Map/issues/27) (Event-Titel + Karten-Marker-Label).
+- ADR: [ADR-056 — Optionales `event.title`-Feld](./decisions.md#adr-056--optionales-eventtitle-feld-für-identifikation-und-wiederfindung-issue-27-befund-45) (Status `Accepted`).
+- Vorgänger-ADRs: [ADR-029](./decisions.md), [ADR-030](./decisions.md), [ADR-031](./decisions.md), [ADR-050](./decisions.md) (Schema-Bump-Pattern).
+- Folge: Operator-Verifikation auf Nodica1 nach RC-4-Tag (oder Stack-Merge), `#27` bleibt als Sammelbericht-Anker offen.
 
 ---
 

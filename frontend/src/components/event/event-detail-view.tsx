@@ -112,6 +112,14 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
     <div className="flex flex-col gap-4" data-testid="event-detail-view">
       <Card>
         <CardHeader>
+          {event.title?.trim() ? (
+            <p
+              className="text-lg font-semibold leading-tight text-slate-900 dark:text-slate-100"
+              data-testid="event-detail-title"
+            >
+              {event.title.trim()}
+            </p>
+          ) : null}
           <CardTitle className="flex items-center justify-between gap-2 text-base">
             <span>{isLive ? "Event läuft" : "Event beendet"}</span>
             <span className="font-mono text-2xl tabular-nums">{formatDuration(totalSeconds)}</span>
@@ -222,6 +230,7 @@ interface MergedEvent {
   ended_at: string | null;
   lat: number | string;
   lon: number | string;
+  title: string | null;
   note: string | null;
   plus_code: string;
   participants: readonly PersonRead[];
@@ -236,6 +245,7 @@ function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent 
     ended_at: doc.ended_at,
     lat: doc.lat,
     lon: doc.lon,
+    title: doc.title,
     note: doc.note,
     plus_code: server.plus_code,
     participants: server.participants,

@@ -50,6 +50,7 @@ const PLATFORM_CONFIRM_LOCK = (message: string): boolean =>
 
 interface EditableEvent {
   endedAt: string; // datetime-local; "" if currently null
+  title: string;
   note: string;
   revealParticipants: boolean;
 }
@@ -116,6 +117,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
       if (cancelled) return;
       const eventEditable: EditableEvent = {
         endedAt: isoToLocal(eventDoc?.ended_at ?? initialEvent.ended_at),
+        title: eventDoc?.title ?? initialEvent.title ?? "",
         note: eventDoc?.note ?? initialEvent.note ?? "",
         revealParticipants: eventDoc?.reveal_participants ?? initialEvent.reveal_participants,
       };
@@ -229,6 +231,9 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
       const eventDoc = await database.events.findOne(initialEvent.id).exec();
       if (eventDoc) {
         const patch: Partial<EventDocType> = {};
+        if (event.title !== eventInitial.title) {
+          patch.title = event.title.trim() || null;
+        }
         if (event.note !== eventInitial.note) {
           patch.note = event.note.trim() || null;
         }
@@ -340,6 +345,18 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
                 {fieldErrorMessage(eventErrors, "duration")}
               </p>
             ) : null}
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="event-edit-title">Titel (optional, max. 120 Zeichen)</Label>
+            <Input
+              id="event-edit-title"
+              type="text"
+              value={event.title}
+              onChange={(e) => patchEvent({ title: e.target.value })}
+              maxLength={120}
+              placeholder="z. B. „Konzert in Bremen"
+              data-testid="event-edit-title"
+            />
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="event-edit-note">Notiz</Label>

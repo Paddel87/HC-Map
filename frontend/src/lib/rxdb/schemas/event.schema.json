@@ -1,7 +1,7 @@
 {
   "title": "Event",
   "description": "Event document replicated via /api/sync/events. Wire-format contract shared with backend Pydantic EventDoc (ADR-031).",
-  "version": 1,
+  "version": 2,
   "primaryKey": "id",
   "type": "object",
   "properties": {
@@ -34,6 +34,10 @@
     },
     "reveal_participants": {
       "type": "boolean"
+    },
+    "title": {
+      "type": ["string", "null"],
+      "maxLength": 120
     },
     "note": {
       "type": ["string", "null"]

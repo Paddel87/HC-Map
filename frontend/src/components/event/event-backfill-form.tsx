@@ -72,6 +72,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [eventStartedAt, setEventStartedAt] = useState("");
   const [eventEndedAt, setEventEndedAt] = useState("");
+  const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [applications, setApplications] = useState<ApplicationRow[]>([]);
   const [errors, setErrors] = useState<BackfillError[]>([]);
@@ -158,6 +159,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         lon: coords!.lon,
         legacy_external_ref: null,
         reveal_participants: false,
+        title: title.trim() || null,
         note: note.trim() || null,
         created_by: user.id,
         created_at: now,
@@ -304,6 +306,26 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
               </p>
             ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Titel (optional)</CardTitle>
+          <CardDescription>
+            Kurze Bezeichnung zur Wiederfindung im Dashboard und auf der Karte. Maximal 120 Zeichen.
+            Leer lassen = Anzeige fällt auf Startzeit + Koordinaten zurück.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="z. B. „Konzert in Bremen"
+            maxLength={120}
+            data-testid="event-backfill-title"
+          />
         </CardContent>
       </Card>
 

@@ -22,6 +22,7 @@ export interface EventDocType {
   lon: number;
   legacy_external_ref: string | null;
   reveal_participants: boolean;
+  title: string | null;
   note: string | null;
   created_by: string | null;
   created_at: string;

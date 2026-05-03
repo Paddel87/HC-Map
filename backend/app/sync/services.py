@@ -207,10 +207,17 @@ async def push_events(
         if conflict is not None:
             conflicts.append(conflict)
             continue
+        was_open = existing.ended_at is None
         _apply_event_update(existing, new_doc)
         try:
             async with session.begin_nested():
                 await session.flush()
+                # ADR-057: cascade auto-stop to running applications when
+                # the event transitions from open to ended.
+                if was_open and existing.ended_at is not None:
+                    from app.services.events import auto_stop_open_applications
+
+                    await auto_stop_open_applications(session, existing.id, existing.ended_at)
         except (IntegrityError, ProgrammingError):
             # Savepoint already rolled back; outer TX still alive. The local
             # ORM state is dirty but we abandon this item.

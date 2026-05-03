@@ -16,7 +16,7 @@
  *      defense-in-depth step described in ADR-036 §B.
  */
 
-import { Flag, Pause, Pencil, Play, Plus } from "lucide-react";
+import { Flag, Pause, Pencil, Play, Plus, Square } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -188,7 +188,12 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
                 : "In diesem Event wurden keine Applications erfasst."}
             </p>
           ) : (
-            <ApplicationsTimeline applications={applications} now={now} />
+            <ApplicationsTimeline
+              applications={applications}
+              now={now}
+              isLive={isLive}
+              onStop={isLive ? handleEndApplication : undefined}
+            />
           )}
         </CardContent>
       </Card>
@@ -292,9 +297,13 @@ function useApplications(eventId: string): ApplicationDocType[] {
 function ApplicationsTimeline({
   applications,
   now,
+  isLive,
+  onStop,
 }: {
   applications: ApplicationDocType[];
   now: number;
+  isLive: boolean;
+  onStop?: (applicationId: string) => Promise<void> | void;
 }) {
   // M7.5: resolve restraint_type_ids → display names via the M7.x
   // catalog cache. Same query key the picker uses, so this view shares
@@ -402,7 +411,21 @@ function ApplicationsTimeline({
                 </p>
               ) : null}
             </div>
-            <span className="font-mono text-base tabular-nums">{formatDuration(seconds)}</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-base tabular-nums">{formatDuration(seconds)}</span>
+              {isLive && isActive && onStop ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void onStop(application.id)}
+                  data-testid="applications-timeline-stop"
+                  aria-label={`Application #${application.sequence_no} beenden`}
+                >
+                  <Square aria-hidden /> Stop
+                </Button>
+              ) : null}
+            </div>
           </li>
         );
       })}

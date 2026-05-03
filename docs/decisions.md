@@ -5173,4 +5173,85 @@ Bestehende lokale RxDB-Docs in IndexedDB werden bei nächstem Mount automatisch 
 
 ---
 
+## ADR-057 — Application-Lifecycle: Auto-Stop bei Event-Ende + Stop-Button pro Application (Issue #23 Befund 2)
+
+**Status:** Accepted
+**Datum:** 2026-05-03
+**Freigabe:** 2026-05-03 (Patrick — Variante A, Reihenfolge-Freigabe nach Operator-Befundbericht-Triage)
+**Kategorie:** §4.5 API-Vertrags-Änderung (zusätzliche Server-Side-Effekte beim Event-Ende: Auto-Cascade auf laufende Applications). Sekundär §4.4 (Service-Layer-Logik im Sync-Pfad).
+**Vorgänger:** [ADR-011](./decisions.md) (Live-Modus Lifecycle), [ADR-029](./decisions.md) (RxDB-Replication / FWW vs LWW), [ADR-038](./decisions.md) (Event-Detail-View), [ADR-039](./decisions.md) (Backfill-Validation), [ADR-040](./decisions.md) (Edit-UI).
+
+### Kontext
+
+Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 2 (Operator-Feldtest, RC-3-Phase Nodica1) — drei zusammengehörige Beobachtungen:
+
+- **2a:** Ein Live-Event wird beendet, aber zugehörige Applications bleiben offen-laufend. Der Container-Event ist terminiert, die Children sind es nicht — inkonsistent gegenüber der erwartbaren Lifecycle-Kaskade.
+- **2b:** Im laufenden Live-Event hat eine einzelne Application keinen sichtbaren Stop-Button. Der einzige Weg zum Beenden geht über „Event bearbeiten" + manuelle Ende-Datum-Eingabe — fehleranfällig (siehe 2c).
+- **2c:** Backend-Validatoren („Application endet nach dem Event-Ende", „Application-Ende liegt vor dem Start") greifen korrekt, sind aber UX-Sackgassen. Wenn das Frontend dieselbe Logik kennt, sollte es sie verwenden, statt den User in eine Backend-Validator-Kollision laufen zu lassen.
+
+### Entscheidungen
+
+**A. Backend Auto-Stop (Variante A aus dem Triage-Block).**
+
+Drei Alternativen wurden Patrick vorgelegt:
+- **A — Backend-Auto-Stop + Stop-Button + Frontend-Pre-Submit-Hint.** Beim Event-Ende setzt der Service alle nicht-beendeten Applications dieses Events transaktional auf `ended_at = event.ended_at`.
+- **B — Frontend-only Auto-Stop.** Beim Event-Beenden iteriert das Frontend über offene Applications und schickt einzelne PATCH-Requests. Verworfen: Race-Conditions bei Offline/Reconnect, mehrere Requests statt einer Transaktion.
+- **C — Nur Stop-Button + Pre-Submit-Hint, kein Auto-Stop.** Verworfen: Befund 2a (Konzeptbruch durch Lifecycle-Inkonsistenz) bleibt bestehen.
+
+**Patrick wählt A.** Begründung: Auto-Stop ist die einzige Variante, die die Lifecycle-Kaskade konzeptkonform macht — ohne sie bleibt der Datenstand inkonsistent (beendetes Event mit laufenden Applications). Backend-Touch ist klein.
+
+**B. Server-Side Auto-Stop an drei Code-Pfaden.**
+
+Auto-Stop muss überall greifen, wo `event.ended_at` von `null` auf `not null` wechselt:
+
+1. **`POST /api/events/{id}/end`** ([`backend/app/services/events.py:end_event`](../backend/app/services/events.py)) — Live-Modus-Beenden. Direkter Trigger.
+2. **`PATCH /api/events/{id}`** ([`backend/app/services/events.py:update_event`](../backend/app/services/events.py)) — Edit-Form setzt `ended_at` nachträglich (FWW-only-when-null, ADR-040 §C).
+3. **RxDB-Push** ([`backend/app/sync/services.py:_apply_event_update`](../backend/app/sync/services.py)) — Frontend-RxDB pusht ein Event mit `ended_at != null`.
+
+Alle drei Pfade rufen einen neuen Helper `auto_stop_open_applications(session, event_id, ended_at)` auf, der per UPDATE alle Application-Rows im Event mit `ended_at IS NULL AND is_deleted=false` auf den übergebenen Zeitstempel setzt. Transaktional Teil derselben Session — entweder beide Writes (Event + Children) oder keiner.
+
+**C. Idempotenz und FWW-Kompatibilität.**
+
+- **Idempotenz:** Wenn das Event bereits `ended_at` hat, ändert sich nichts. Der Helper läuft trotzdem, hat aber leere Working-Set (keine offenen Applications mehr).
+- **FWW-Kompatibilität:** Application's `ended_at` ist bisher LWW-frei (kein FWW-Constraint im Sync-Service). Der Auto-Stop überschreibt also keinen vom User gewollten späteren `ended_at`-Wert — wenn der Operator eine Application explizit später beenden wollte, muss er sie *vor* dem Event-Ende beenden.
+
+**D. Frontend: Stop-Button pro laufende Application.**
+
+In [`frontend/src/components/event/event-detail-view.tsx:ApplicationsTimeline`](../frontend/src/components/event/event-detail-view.tsx) bekommt jede aktive Application (`ended_at === null`) einen Stop-Button neben der Timer-Anzeige. Klick ruft denselben Handler wie der bestehende „Aktuelle beenden"-Button im Header (`handleEndApplication(id)`).
+
+Sichtbarkeit: nur wenn `isLive === true` (sonst gibt es keine aktiven Applications) und `endedAt === null`. `data-testid="applications-timeline-stop"` für Tests.
+
+**E. Frontend: Pre-Submit-Hint im Edit-Form.**
+
+Der bestehende [`validateBackfill`](../frontend/src/lib/event-backfill-validation.ts)-Helper liefert bereits `bounds`-Errors für „Application endet nach dem Event-Ende". Im [`event-edit-form.tsx`](../frontend/src/components/event/event-edit-form.tsx) wird die Validierung **bereits beim Tippen** (statt erst beim Submit) ausgewertet, wenn der User ein `ended_at`-Feld editiert. Der Hint erscheint inline am betroffenen Feld, der Submit-Pfad nutzt denselben Validator. Damit muss der Operator nicht erst submit klicken, um die Backend-Validator-Meldung zu sehen — der Konflikt wird sichtbar, sobald der Wert getippt ist.
+
+Implementiert über `useMemo` auf den aktuellen Form-State, der validateBackfill mit den lokalen Werten aufruft und die Errors anzeigt. Submit nutzt dieselben `errors` als Block-Bedingung.
+
+**F. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **Auto-Restart:** Wenn ein Admin ein Event aus dem Soft-Delete restored (ended_at bleibt erhalten), werden Applications nicht „auto-resumed". Restore ist bereits Admin-only, manuelle Korrektur erlaubt.
+- **Auto-Stop im Live-Modus „Neue Application"-Trigger:** Wenn der Operator eine zweite Application startet während die erste läuft, beendet das die erste *nicht* automatisch. Multi-Active ist explizit erlaubt (parallele Restraints).
+- **Audit-Log für Auto-Stop:** Bisher kein dediziertes Audit (kein Audit-Log-System im Repo). Falls später eingeführt, würde Auto-Stop ein Audit-Event auslösen.
+- **Migrations-Daten-Reparatur:** Bestehende inkonsistente Rows (beendete Events mit laufenden Applications) werden *nicht* automatisch repariert. Der Operator kann Edit-Form nutzen.
+
+### Verworfene Alternativen
+
+- **Variante B (Frontend-only Auto-Stop).** Race-Conditions, mehrere Requests statt Transaktion, schwierig bei Offline/Reconnect-Replay.
+- **Variante C (nur Stop-Button + Hint, kein Auto-Stop).** Operator-Befund 2a (Lifecycle-Kaskade) bleibt unbehoben.
+- **Auto-Restart bei Event-Restore.** Operator-Erwartung wäre uneindeutig; manuelle Korrektur ist sicherer.
+
+### Folgearbeit
+
+- **M11-HOTFIX-009** (Fahrplan-Eintrag): Implementierung dieser ADR (Helper, drei Service-Pfade, Stop-Button, Edit-Form-Live-Validation, Tests).
+- **#23 Befund 2 schließen** nach Operator-Verifikation auf Production (Live-Event mit zwei Applications anlegen, Event beenden, beide Applications auf den Event-Ende-Zeitstempel gesetzt).
+
+### Referenzen
+
+- [Issue #23 — Operator-Befundbericht I Befund 2](https://github.com/Paddel87/HC-Map/issues/23)
+- [ADR-011 — Live-Modus Lifecycle](./decisions.md)
+- [ADR-029 — RxDB-Replication FWW vs LWW](./decisions.md)
+- Code-Stellen: [`backend/app/services/events.py`](../backend/app/services/events.py), [`backend/app/services/applications.py`](../backend/app/services/applications.py), [`backend/app/sync/services.py`](../backend/app/sync/services.py), [`frontend/src/components/event/event-detail-view.tsx`](../frontend/src/components/event/event-detail-view.tsx), [`frontend/src/components/event/event-edit-form.tsx`](../frontend/src/components/event/event-edit-form.tsx)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

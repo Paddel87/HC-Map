@@ -27,6 +27,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
+  GeolocateControl,
   Layer,
   NavigationControl,
   Popup,
@@ -304,6 +305,12 @@ export function MapView() {
         cursor="auto"
       >
         <NavigationControl position="top-right" showCompass={false} />
+        <GeolocateControl
+          position="top-right"
+          positionOptions={{ enableHighAccuracy: true }}
+          trackUserLocation={false}
+          showAccuracyCircle={false}
+        />
         <Source
           id={SOURCE_ID}
           type="geojson"

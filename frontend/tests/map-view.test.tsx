@@ -132,6 +132,7 @@ vi.mock("react-map-gl/maplibre", () => ({
     </div>
   ),
   NavigationControl: () => <div data-testid="mock-nav" />,
+  GeolocateControl: () => <div data-testid="mock-geolocate" />,
 }));
 
 vi.mock("@/components/map/map-filter-panel", () => ({

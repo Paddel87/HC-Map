@@ -7,6 +7,11 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M11-HOTFIX-007 — MapLibre `GeolocateControl` (Fadenkreuz) in Karten-Komponenten (2026-05-03, Issue [#22](https://github.com/Paddel87/HC-Map/issues/22)).**
+  Beide Karten-Komponenten ([`frontend/src/components/map/map-view.tsx`](frontend/src/components/map/map-view.tsx) und [`frontend/src/components/map/location-picker-map.tsx`](frontend/src/components/map/location-picker-map.tsx)) zeigen jetzt das MapLibre-Standard-Crosshair-Control unter den Zoom-Buttons oben rechts. Tap zentriert die Karte auf den eigenen GPS-Fix; im `LocationPickerMap` wird zusätzlich der Marker direkt auf die User-Position gesetzt — kein separater zweiter Tap nötig. Operator-Wunsch aus dem RC-3-Mobile-Test auf Nodica1: Pan/Zoom-Aufwand entfällt, gerade wenn Default-Karten-Region weit weg vom aktuellen Standort liegt. Kein neuer Stack-Bestandteil, keine Datenmodell-/API-Änderung; volle Suite **282/282** grün, Browser-Verifikation auf `/map` und `/events/new` bestätigt das Control-DOM.
+
 ### Changed
 
 - **M10.9-Postfix — GHCR-Image-Tag-Konvention klargestellt (2026-05-02).**

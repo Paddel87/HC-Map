@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +40,9 @@ class EventDoc(BaseModel):
     reveal_participants: bool = False
     title: str | None = Field(default=None, max_length=120)
     note: str | None = None
+    # ADR-058: display-only granularity marker. Storage stays full
+    # datetime; only the rendered representation is conditioned.
+    time_precision: Literal["year", "month", "day", "hour", "minute"] = "minute"
     created_by: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime

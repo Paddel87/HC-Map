@@ -33,10 +33,11 @@ import { useCatalogList } from "@/lib/catalog/api";
 import { isRestraintTypeEntry } from "@/lib/catalog/types";
 import { diffSeconds, formatDuration } from "@/lib/duration";
 import { isMasked, maskParticipants } from "@/lib/masking";
+import { formatEventTime } from "@/lib/event-time";
 import { canEditEvent } from "@/lib/rbac";
 import { useDatabase } from "@/lib/rxdb/provider";
 import type { ApplicationDocType, EventDocType } from "@/lib/rxdb/types";
-import { coerceNumber, type EventDetail, type PersonRead } from "@/lib/types";
+import { coerceNumber, type EventDetail, type PersonRead, type TimePrecision } from "@/lib/types";
 
 const RECIPIENT_DRAFT_PREFIX = "hcmap:event-recipient:";
 
@@ -125,6 +126,10 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
             <span className="font-mono text-2xl tabular-nums">{formatDuration(totalSeconds)}</span>
           </CardTitle>
           <CardDescription>
+            <span data-testid="event-detail-time">
+              {formatEventTime(event.started_at, event.time_precision)}
+            </span>
+            {" · "}
             Standort: {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
             {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}
           </CardDescription>
@@ -237,6 +242,7 @@ interface MergedEvent {
   lon: number | string;
   title: string | null;
   note: string | null;
+  time_precision: TimePrecision;
   plus_code: string;
   participants: readonly PersonRead[];
   reveal_participants: boolean;
@@ -252,6 +258,7 @@ function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent 
     lon: doc.lon,
     title: doc.title,
     note: doc.note,
+    time_precision: doc.time_precision ?? "minute",
     plus_code: server.plus_code,
     participants: server.participants,
     reveal_participants: doc.reveal_participants,

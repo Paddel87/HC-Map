@@ -6,7 +6,7 @@
  * the filter / mapping / GeoJSON logic is unit-testable without WebGL.
  */
 
-import type { EventDocType } from "@/lib/rxdb/types";
+import type { EventDocType, TimePrecision } from "@/lib/rxdb/types";
 
 export interface MappableEvent {
   id: string;
@@ -16,6 +16,7 @@ export interface MappableEvent {
   ended_at: string | null;
   title: string | null;
   note: string | null;
+  time_precision: TimePrecision;
   reveal_participants: boolean;
 }
 
@@ -65,6 +66,7 @@ export function selectMappableEvents(docs: readonly EventDocType[]): MappableEve
       ended_at: doc.ended_at,
       title: doc.title,
       note: doc.note,
+      time_precision: doc.time_precision ?? "minute",
       reveal_participants: doc.reveal_participants,
     });
   }

@@ -5254,4 +5254,107 @@ Implementiert über `useMemo` auf den aktuellen Form-State, der validateBackfill
 
 ---
 
+## ADR-058 — Event.`time_precision`-Marker für ehrliche retrospektive Erfassung (Issue #24)
+
+**Status:** Accepted
+**Datum:** 2026-05-03
+**Freigabe:** 2026-05-03 (Patrick — Variante A, Reihenfolge-Freigabe nach Operator-Befundbericht-Triage)
+**Kategorie:** §4.4 Datenmodell-Änderung (neue Spalte am Event-Modell, RxDB-Schema-Bump v2→v3).
+**Vorgänger:** [ADR-029](./decisions.md), [ADR-030](./decisions.md), [ADR-031](./decisions.md), [ADR-039](./decisions.md) (Backfill-Modus), [ADR-056](./decisions.md) (Schema-Bump-Pattern).
+
+### Kontext
+
+Issue [#24](https://github.com/Paddel87/HC-Map/issues/24) (Operator-Feldtest, RC-3-Phase Nodica1): Im Modus „Nachträglich erfassen" ist die Zeit-Eingabe zwingend volles Datetime (`datetime-local`). Für **frische** Backfills („gestern 14–16 Uhr") passend, für **ältere Erinnerungen** unrealistisch („Sommer 2024", „irgendwann im März"). Operator muss entweder Pseudo-Genauigkeit erfinden (`01.06.2024 12:00` für „Sommer 2024") oder den Eintrag weglassen — beides degradiert Datenqualität unsichtbar.
+
+Operator-Produkt-Frage im Issue: „präzises Erfassungswerkzeug bleiben oder explizit auch retrospektives Logbuch?" → Patrick wählt: explizit auch retrospektives Logbuch, grobe Erinnerung gleichberechtigt.
+
+### Entscheidungen
+
+**A. `time_precision`-Spalte auf `event` (Variante A aus dem Triage-Block).**
+
+Drei Alternativen wurden Patrick vorgelegt:
+- **A — Marker auf Event, fünf Werte (`year`/`month`/`day`/`hour`/`minute`), Default `minute`.** Live-Modus bleibt minutengenau (Default), nachträglicher Modus zeigt Granularitäts-Wechsler. Application erbt im Display, hat kein eigenes Marker-Feld.
+- **B — Status quo.** Operator akzeptiert Pseudo-Genauigkeit. Verworfen: zerstört Datenqualität.
+- **C — A plus eigener Marker an Application.** Verworfen: Application liegt sowieso im Event-Fenster, eigenständige Granularität ist Overengineering ohne klaren Anwendungsfall.
+
+**Patrick wählt A.** Begründung: minimale Migration (eine Spalte), löst Operator-Befund vollständig ohne Frontend-Aufblähung an der Application-UI.
+
+**B. Schema-Form: `time_precision VARCHAR(10) NOT NULL DEFAULT 'minute' CHECK (time_precision IN ('year','month','day','hour','minute'))`.**
+
+- **NOT NULL + Default `'minute'`:** alle bestehenden Rows bekommen automatisch `'minute'` (Backwards-Kompatibilität — entspricht dem bisherigen Verhalten, sortier- und filterbar wie zuvor).
+- **CHECK-Constraint statt Postgres ENUM:** CHECK ist evolvierbar (zukünftige `quarter`/`season`-Werte würden nur den CHECK-Update erfordern, kein Migration-Stunt mit `ALTER TYPE`). Postgres-ENUMs sind beim Entfernen alter Werte fragil.
+- **VARCHAR(10):** ausreichend für die fünf aktuellen Werte und potenzielle Erweiterungen (`quarter` = 7 Zeichen).
+- **Pydantic-Typ:** `Literal["year", "month", "day", "hour", "minute"]` — typsicher und mit IDE-Unterstützung.
+
+**C. Speicher-Konvention: volle Timestamps bleiben.**
+
+`started_at`/`ended_at` werden weiter als volle `datetime` gespeichert. Die Granularität ist semantisches Metadatum, nicht Storage-Format:
+- `time_precision='year'` mit `started_at='2024-01-01T00:00:00Z'` → UI zeigt „2024".
+- `time_precision='month'` mit `started_at='2024-05-01T00:00:00Z'` → UI zeigt „Mai 2024".
+- `time_precision='day'` → „01.05.2024".
+- `time_precision='hour'` → „01.05.2024 12 Uhr".
+- `time_precision='minute'` → bisheriges Verhalten („01.05.2024 12:30").
+
+Sortier- und Filter-Logik kann unverändert auf den Timestamps arbeiten (Range-Queries, Throwbacks, Map-Filter). Nur die Anzeige-Logik kondensiert je nach Precision.
+
+**D. Frontend-Form (Backfill-Modus): Granularitäts-Wechsler.**
+
+[`event-backfill-form.tsx`](../frontend/src/components/event/event-backfill-form.tsx) bekommt im „Zeitraum"-Block einen Wechsler (Radio-Button-Group oder Select), der die Eingabefelder umschaltet:
+- `Datum + Uhrzeit` (Default) → wie bisher (`datetime-local`-Input).
+- `Datum` → `<input type="date">`.
+- `Monat` → `<select>` für Monat + `<input type="number">` für Jahr.
+- `Jahr` → `<input type="number">`.
+
+Die Form normalisiert beim Submit auf den ersten Tag/Stunde/Minute des gewählten Bereichs (so wird `'Sommer 2024'` als `'2024-06-01T00:00:00Z'` mit `time_precision='month'` gespeichert — semantisch „Juni 2024", aber Operator gibt nur „Mai 2024" → speichert `'2024-05-01T00:00:00Z'`).
+
+Live-Modus bleibt unverändert minutengenau (kein Wechsler im `event-create-form.tsx`, Backend-Default `'minute'`).
+
+**E. Anzeige-Helper im Frontend.**
+
+Neue pure Funktion `formatEventTime(iso: string, precision: TimePrecision): string` in [`frontend/src/lib/event-time.ts`](../frontend/src/lib/event-time.ts) — zentralisiert die Display-Logik. Genutzt im:
+- Dashboard-Liste (Hauptzeile fällt auf precision-formatierten Zeitstempel zurück, wenn kein Title gesetzt — sonst bleibt Title primär).
+- Detail-View (CardDescription, Status-Anzeige).
+- MapView Popup (Datum-Zeile).
+
+**F. Application-Anzeige.**
+
+Application-Zeiten werden weiter mit voller `toLocaleString`-Formatierung angezeigt. Operator kann Application-Zeiten nicht „grob" erfassen — wenn die Erinnerung nur „Sommer 2024" ist, sollte er gar keine Application erfassen oder eine mit dem Event-Default-Zeitstempel anlegen. Validierung bleibt: Application muss innerhalb Event-Fenster liegen (existierende Backfill-Validation, ADR-039).
+
+**G. Sync-Protokoll und Backend-Schemas.**
+
+- `backend/app/sync/schemas.py` — `EventDoc.time_precision: TimePrecision = "minute"` (Pydantic-`Literal`).
+- `backend/app/sync/services.py` — `time_precision` durchreichen, LWW analog `note`.
+- `backend/app/schemas/event.py` — `EventBase.time_precision`, `EventStart.time_precision` (default `'minute'`), `EventUpdate.time_precision`.
+- `backend/tests/test_rxdb_schema_drift.py` läuft automatisch mit, sobald JSON-Schema und Pydantic synchron sind.
+
+**H. RxDB-Schema-Bump v2→v3 mit Migrations-Strategie.**
+
+`event.schema.json` bekommt `version: 3` und ein neues `time_precision`-Property (`type: "string"`, `enum: [...]`, `default: "minute"`). `database.ts` ergänzt `migrationStrategies[3]: (doc) => ({ ...doc, time_precision: 'minute' })`.
+
+**I. Out-of-Scope (nicht Teil dieses ADR).**
+
+- **`quarter`/`season`-Werte:** kann später additiv ergänzt werden (CHECK-Constraint-Update + Frontend-Wechsler-Erweiterung).
+- **Application-eigene Granularität:** Variante C verworfen, kein eigenes Feld.
+- **Filter-/Such-Logik nach Precision:** aktuell alle Events gleich behandelt im Throwback/Map-Filter. Präzisions-aware-Filter (z. B. „nur tagesgenaue Events") ist M16-Folge-Aufgabe.
+- **Migrations-Daten-Reparatur:** alte Rows haben automatisch `'minute'` (Default). Operator kann manuell auf `'year'` etc. umstellen falls bestehende Pseudo-Genauigkeit korrigiert werden soll.
+
+### Verworfene Alternativen
+
+- **Variante B (Status quo).** Pseudo-Genauigkeit zerstört Datenqualität.
+- **Variante C (Marker auch an Application).** Application-Zeiten liegen immer im Event-Fenster — eigenständige Granularität bringt keinen klaren Mehrwert, dafür mehr UI-Fläche.
+- **Postgres ENUM statt CHECK.** ENUM ist beim Entfernen/Umbenennen alter Werte fragil; CHECK ist evolvierbar.
+- **`time_precision NULL` bei alten Rows.** Verworfen: Default `'minute'` ist semantisch korrekt für alle bisherigen Live-Modus-Events und macht den Pydantic-Typ einfacher (`Literal[...]` statt `Literal[...] | None`).
+
+### Folgearbeit
+
+- **M11-HOTFIX-010** (Fahrplan-Eintrag): Implementierung dieser ADR.
+- **#27 Befund 6 (Wiederfindung):** weiterhin offen, gehört zu M5c-NACH/M16. Filter/Suche-Implementierung kann durch `time_precision` eine sinnvolle zusätzliche Such-Dimension erhalten.
+
+### Referenzen
+
+- [Issue #24 — Variable Zeitangabe-Präzision bei nachträglicher Event-Erfassung](https://github.com/Paddel87/HC-Map/issues/24)
+- Code-Stellen: [`backend/app/models/event.py`](../backend/app/models/event.py), [`backend/app/sync/schemas.py`](../backend/app/sync/schemas.py), [`frontend/src/lib/rxdb/schemas/event.schema.json`](../frontend/src/lib/rxdb/schemas/event.schema.json), [`frontend/src/components/event/event-backfill-form.tsx`](../frontend/src/components/event/event-backfill-form.tsx)
+
+---
+
 **Hinweis zur Initialisierungs-Entscheidung:** Die initiale Anpassung der Vorlagen-Dokumente an HC-Map-Komplexität ist in **ADR-009 (Vorgehensmodell: Vision-driven Scoping vor Code)** dokumentiert. Diese ADR übernimmt die Funktion, die in der generischen Vorlage für ADR-001 vorgesehen war.

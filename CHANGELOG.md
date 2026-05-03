@@ -7,6 +7,11 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M11-HOTFIX-010 — Event.`time_precision`-Marker für retrospektive Erfassung (2026-05-03, Issue [#24](https://github.com/Paddel87/HC-Map/issues/24), ADR-058).**
+  Events bekommen einen Granularitäts-Marker (`year`/`month`/`day`/`hour`/`minute`, Default `minute`), der ehrliche grobe Erinnerungen erlaubt („Sommer 2024" als `year`, „Mai 2024" als `month`) statt erfundener Pseudo-Genauigkeit. Backend-Migration mit CHECK-Constraint, RxDB-Schema-Bump v2→v3 mit Migrations-Strategie. Backfill-Form bekommt einen Präzisions-Wechsler mit dynamischen Eingabefeldern (Jahr-Input für `year`, Monat-Select+Jahr-Input für `month`, Date-Input für `day`, datetime-local für `hour`/`minute`). Anzeige-Logik in Dashboard/Detail/MapView nutzt zentralen `formatEventTime`-Helper. Storage bleibt voller Datetime — nur das Display ist konditioniert. Backend `pytest` **258/258** + Frontend `vitest` **282/282** grün, Browser-Smoke bestätigt End-to-End: API persistiert, Detail-View zeigt „2024" für year-Events und „Mai 2024" für month-Events.
+
 ### Fixed
 
 - **M11-HOTFIX-009 — Application-Lifecycle Auto-Stop bei Event-Ende (2026-05-03, Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 2, ADR-057).**

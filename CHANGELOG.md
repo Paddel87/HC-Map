@@ -7,6 +7,11 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Changed
+
+- **M11-HOTFIX-011 — `reveal_participants`-Toggle prominent im Beteiligte-Tab (2026-05-03, Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 1 / korrigiert via [#27](https://github.com/Paddel87/HC-Map/issues/27), ADR-059).**
+  Der Sichtbarkeits-Toggle für Klarnamen, der bisher nur im Edit-UI versteckt war, erscheint jetzt direkt im Beteiligte-Card-Header der Event-Detail-Ansicht — sichtbar nur für Editoren (Admin oder Event-Ersteller). Strikte Default-Logik („Klardaten verborgen, sichtbar nur via expliziter Aktion") bleibt unverändert; die Aktion ist über den RxDB-`updated_at`-Cursor und den M11-HOTFIX-003-Logger protokolliert. Der bestehende Edit-UI-Toggle bleibt zusätzlich verfügbar. Frontend-only, kein Backend-Touch. **Damit ist der RC-3-Operator-Befundbericht-Triage-Block ([#22](https://github.com/Paddel87/HC-Map/issues/22)–[#27](https://github.com/Paddel87/HC-Map/issues/27)) vollständig abgearbeitet.**
+
 ### Added
 
 - **M11-HOTFIX-010 — Event.`time_precision`-Marker für retrospektive Erfassung (2026-05-03, Issue [#24](https://github.com/Paddel87/HC-Map/issues/24), ADR-058).**

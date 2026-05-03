@@ -137,6 +137,7 @@ Jede Phase besteht aus nummerierten Meilensteinen (M0, M1, …). Innerhalb einer
 | 1 MVP   | M11-HOTFIX-008 | └─ Optionales `event.title`-Feld (Issue #27 Befund 4+5, ADR-056) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-009 | └─ Application-Lifecycle Auto-Stop bei Event-Ende (Issue #23 Befund 2, ADR-057) | [ERLEDIGT] 2026-05-03 |
 | 1 MVP   | M11-HOTFIX-010 | └─ Event.`time_precision`-Marker für retrospektive Erfassung (Issue #24, ADR-058) | [ERLEDIGT] 2026-05-03 |
+| 1 MVP   | M11-HOTFIX-011 | └─ `reveal_participants`-Toggle prominent im Beteiligte-Tab (Issue #23 Befund 1, ADR-059) | [ERLEDIGT] 2026-05-03 |
 | 2 Konso.| M12         | Self-Hosted Tileserver                           | [OFFEN]     |
 | 2 Konso.| M13         | Backup-Härtung & Restore-Tests                   | [OFFEN]     |
 | 2 Konso.| M14         | Monitoring & Alerting                            | [OFFEN]     |
@@ -2106,6 +2107,38 @@ Höchste Wahrscheinlichkeit: `BACKEND_INTERNAL_URL` ist im Frontend-Container ni
 - Verwandt: [#15](https://github.com/Paddel87/HC-Map/issues/15) (gleiche Wurzel-Hypothese), [ADR-053 §A/§C/§F](./decisions.md#adr-053--frontend-ssr-backend-adressierung-im-production-container-netz) (etabliertes Mechanismus, jetzt zusätzlich im Image gepinnt).
 - Operator-Kontext: Folge der Begehung auf Nodica1 mit `:rc` nach M11-HOTFIX-001-Pull; lokale Repro grün, Production-Verifikation steht aus.
 - Folge: HOTFIX-005 hat Hypothese 1 (SSR-Backend-URL) gehärtet, traf aber den eigentlichen Bug nicht — der ist Reverse-Proxy-Routing-Konflikt, gelöst in M11-HOTFIX-006.
+
+---
+
+### M11-HOTFIX-011 — `reveal_participants`-Toggle prominent im Beteiligte-Tab (Issue #23 Befund 1, ADR-059)
+
+**Status:** `[ERLEDIGT]` 2026-05-03 — Owner-Freigabe von Patrick im RC-3-Triage-Block (Variante A, niedrige Prio); ADR-059 `Accepted`. Branch `claude/m11-hotfix-011-reveal-toggle` gestackt auf PR [#31](https://github.com/Paddel87/HC-Map/pull/31).
+
+**Problem:** Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 1, korrigiert via [#27](https://github.com/Paddel87/HC-Map/issues/27): der `reveal_participants`-Toggle existiert bereits im Edit-UI (ADR-040), ist dort aber so versteckt, dass selbst der Event-Ersteller ihn nur durch Zufall findet. Strikte Default-Logik („Klardaten sichtbar nur via expliziter, audit-fähiger Aktion") ist DSGVO-konform und bleibt korrekt — nur die Auffindbarkeit ist das Problem.
+
+**Deliverables (alle erledigt):**
+- **ADR-059** (`Accepted`) in [`docs/decisions.md`](./decisions.md): Variante A (Toggle prominent im Beteiligte-Tab), B (eigener Berechtigungs-Block) und C (nur Tooltip) verworfen, drei Out-of-Scope-Punkte (Audit-Log-System, Pro-Person-Sichtbarkeit, Server-Side-RBAC bleibt in ADR-040).
+- **Frontend `RevealParticipantsToggle`-Komponente** in [`event-detail-view.tsx`](../frontend/src/components/event/event-detail-view.tsx): Card-Header-Element im Beteiligte-Block, kompakte Checkbox + Erklärungstext „Audit-pflichtige Aktion — wird protokolliert". Sichtbar nur wenn `canEditEvent(user, ...)` → true (Admin oder Event-Ersteller).
+- **`handleToggleReveal`-Handler:** RxDB-Patch auf `events`-Collection (`reveal_participants`, `updated_at`) — identischer Pfad wie das bestehende Edit-UI, kein neuer Backend-Endpoint. Toast-Bestätigung mit Verweis auf Audit-Trail über RxDB-Sync (M11-HOTFIX-003 Logger).
+- **Edit-UI-Toggle bleibt unverändert** — der neue Detail-View-Toggle ist eine zusätzliche Eintrittstür, kein Ersatz.
+
+**Verifikation:**
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean.
+- `pnpm test` → **282/282 grün** (kein Test-Helper-Update nötig — bestehende Tests decken die Maskierungs-Logik bereits ab).
+- `pnpm prettier --check` (per-file) → clean nach auto-format.
+- **Browser-Verifikation** (Dev-Stack lokal hochgefahren via `preview_*`, eingeloggt als Admin):
+  - `/events/{id}` zeigt `[data-testid="reveal-participants-toggle"]` im Beteiligte-Card-Header mit Label „Klarnamen sichtbar" und Erklärungstext „Audit-pflichtige Aktion — wird protokolliert (ADR-059)".
+  - Initial-Wert `unchecked` (Default `reveal_participants=false`).
+  - Klick auf Checkbox → `checked=true`, RxDB-Push läuft, GET `/api/events/{id}` zeigt `reveal_participants: true` (End-to-End-Sync bestätigt).
+
+**Bezug:**
+- Issue: [#23 Befund 1](https://github.com/Paddel87/HC-Map/issues/23) + [#27 Korrektur](https://github.com/Paddel87/HC-Map/issues/27).
+- ADR: [ADR-059 — `reveal_participants`-Toggle im Beteiligte-Tab](./decisions.md) (Status `Accepted`).
+- Vorgänger: ADR-038 (Maskierung), ADR-040 (Edit-UI mit Original-Checkbox).
+- Folge: Operator-Verifikation auf Nodica1 nach Stack-Merge — Toggle erscheint im Beteiligte-Tab, Klick schaltet Klarnamen frei, andere Beteiligte sehen den Toggle nicht.
+
+**Damit ist der RC-3-Operator-Befundbericht-Triage-Block (Issues #22–#27) komplett abgearbeitet** — fünf Hotfixes (007–011), fünf neue ADRs (056–059, plus M11-HOTFIX-007 ohne ADR), alle gestackt als PR-Kette #28 → #29 → #30 → #31 → #32.
 
 ---
 

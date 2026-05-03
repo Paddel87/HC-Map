@@ -93,6 +93,20 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
     await doc.patch({ ended_at: now, updated_at: now });
   }
 
+  async function handleToggleReveal(next: boolean): Promise<void> {
+    if (!database) return;
+    const doc = await database.events.findOne(initialEvent.id).exec();
+    if (!doc) {
+      toast.error("Event nicht im lokalen Speicher gefunden");
+      return;
+    }
+    const now = new Date().toISOString();
+    await doc.patch({ reveal_participants: next, updated_at: now });
+    toast.success(next ? "Klarnamen für dich freigegeben" : "Klarnamen wieder verborgen", {
+      description: "Audit-pflichtige Aktion — wird über RxDB-Sync protokolliert.",
+    });
+  }
+
   async function handleEndEvent(): Promise<void> {
     if (!database) return;
     const doc = await database.events.findOne(initialEvent.id).exec();
@@ -213,6 +227,12 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
                 ? `${maskedParticipants.length} Beteiligte sichtbar.`
                 : "Andere Beteiligte werden verborgen."}
           </CardDescription>
+          {editable ? (
+            <RevealParticipantsToggle
+              checked={event.reveal_participants}
+              onChange={handleToggleReveal}
+            />
+          ) : null}
         </CardHeader>
         <CardContent>
           <ParticipantsList participants={maskedParticipants} currentPersonId={user.person_id} />
@@ -437,6 +457,34 @@ function ApplicationsTimeline({
         );
       })}
     </ul>
+  );
+}
+
+function RevealParticipantsToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => Promise<void> | void;
+}) {
+  return (
+    <label
+      className="mt-2 flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-900/40"
+      data-testid="reveal-participants-toggle"
+    >
+      <span className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => void onChange(event.target.checked)}
+          data-testid="reveal-participants-checkbox"
+        />
+        <span className="font-medium">Klarnamen sichtbar</span>
+      </span>
+      <span className="text-xs italic text-slate-600 dark:text-slate-400">
+        Audit-pflichtige Aktion — wird protokolliert (ADR-059).
+      </span>
+    </label>
   );
 }
 

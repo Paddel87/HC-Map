@@ -147,6 +147,15 @@ export function EventDetailView({ user, initialEvent }: EventDetailViewProps) {
             Standort: {coerceNumber(event.lat).toFixed(5)}, {coerceNumber(event.lon).toFixed(5)}
             {event.plus_code ? ` · Plus Code ${event.plus_code}` : ""}
           </CardDescription>
+          {event.legacy_external_ref?.trim() ? (
+            <p
+              className="pt-1 text-xs text-slate-500 dark:text-slate-400"
+              data-testid="event-detail-legacy-ref"
+            >
+              <span className="font-medium">Externe Referenz:</span>{" "}
+              <span className="break-all font-mono">{event.legacy_external_ref}</span>
+            </p>
+          ) : null}
           {editable ? (
             <div className="pt-1">
               <Button asChild variant="secondary" size="sm" data-testid="edit-event-button">
@@ -262,6 +271,7 @@ interface MergedEvent {
   lon: number | string;
   title: string | null;
   note: string | null;
+  legacy_external_ref: string | null;
   time_precision: TimePrecision;
   plus_code: string;
   participants: readonly PersonRead[];
@@ -278,6 +288,7 @@ function mergeEvent(server: EventDetail, doc: EventDocType | null): MergedEvent 
     lon: doc.lon,
     title: doc.title,
     note: doc.note,
+    legacy_external_ref: doc.legacy_external_ref,
     time_precision: doc.time_precision ?? "minute",
     plus_code: server.plus_code,
     participants: server.participants,

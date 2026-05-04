@@ -78,6 +78,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
   const [dayValue, setDayValue] = useState("");
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
+  const [legacyExternalRef, setLegacyExternalRef] = useState("");
   const [applications, setApplications] = useState<ApplicationRow[]>([]);
   const [errors, setErrors] = useState<BackfillError[]>([]);
   const [pending, setPending] = useState(false);
@@ -175,7 +176,7 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
         ended_at: endedIso,
         lat: coords!.lat,
         lon: coords!.lon,
-        legacy_external_ref: null,
+        legacy_external_ref: legacyExternalRef.trim() || null,
         reveal_participants: false,
         title: title.trim() || null,
         note: note.trim() || null,
@@ -452,6 +453,25 @@ export function EventBackfillForm({ user }: EventBackfillFormProps) {
             placeholder="Kontext, Setting, Zusatzinfo…"
             rows={3}
             className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:focus-visible:ring-slate-300"
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Externe Referenz (optional)</CardTitle>
+          <CardDescription>
+            Selbstreferenz auf eine externe Quelle des Events (z. B. ursprüngliche 3-Wort-Adresse,
+            Projekt-ID, externe URL). Freitext, kein Format-Constraint (ADR-050).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Input
+            type="text"
+            value={legacyExternalRef}
+            onChange={(e) => setLegacyExternalRef(e.target.value)}
+            placeholder={"z. B. „w3w://demo.alpha.foxtrot“ oder URL"}
+            data-testid="event-backfill-legacy-ref"
           />
         </CardContent>
       </Card>

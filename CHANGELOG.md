@@ -7,6 +7,11 @@ Bis zum ersten Go-Live (M11) bleibt das Projekt auf `0.0.0`.
 
 ## [Unreleased]
 
+### Added
+
+- **M5c-NACH — Externe Referenz im Edit/Backfill-UI (2026-05-04, ADR-050 §S3).**
+  Optionales Freitext-Feld `legacy_external_ref` an Events ist jetzt im UI angeschlossen: Eingabe in der nachträglichen Erfassung (`/events/new/backfill`) und im Edit-Modus (`/events/{id}/edit`), bedingte Anzeige im Detail-View, wenn nicht null. Live-Modus bleibt bewusst ohne Eingabe (ADR-050 §S3-A — Selbstreferenz für Bestand, nicht für neue Live-Events). Mitglieder können damit beim Nachtragen die ursprüngliche 3-Wort-Adresse, eine externe URL oder eine Projekt-ID an einem definierten Ort ablegen, statt sie in `event.note` zu vermischen. Frontend-only — Backend, RxDB-Schema (LWW) und DB-Spalte sind seit ADR-050 (2026-05-01) vorhanden. Volle Suite **289/289** grün (+7 neue Tests), Browser-Smoke bestätigt End-to-End-Pfad inkl. RxDB-LWW-Sync. **Damit ist das ADR-050-Final-Tag-Followup vor `v0.1.0`-Final abgeschlossen.**
+
 ### Changed
 
 - **M11-HOTFIX-011 — `reveal_participants`-Toggle prominent im Beteiligte-Tab (2026-05-03, Issue [#23](https://github.com/Paddel87/HC-Map/issues/23) Befund 1 / korrigiert via [#27](https://github.com/Paddel87/HC-Map/issues/27), ADR-059).**

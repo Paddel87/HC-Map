@@ -255,6 +255,33 @@ describe("EventBackfillForm — application list", () => {
   });
 });
 
+describe("EventBackfillForm — legacy_external_ref (M5c-NACH, ADR-050)", () => {
+  it("forwards a trimmed legacy_external_ref into the event insert", async () => {
+    render(<EventBackfillForm user={USER} />);
+    clickLocation();
+    setEventStartedAt("2026-04-27T12:00");
+    fireEvent.change(screen.getByTestId("event-backfill-legacy-ref"), {
+      target: { value: "  w3w://demo.alpha.foxtrot  " },
+    });
+    submit();
+
+    await vi.waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+    const inserted = eventInsertMock.mock.calls[0]![0];
+    expect(inserted.legacy_external_ref).toBe("w3w://demo.alpha.foxtrot");
+  });
+
+  it("inserts null when the legacy_external_ref input is left blank", async () => {
+    render(<EventBackfillForm user={USER} />);
+    clickLocation();
+    setEventStartedAt("2026-04-27T12:00");
+    submit();
+
+    await vi.waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+    const inserted = eventInsertMock.mock.calls[0]![0];
+    expect(inserted.legacy_external_ref).toBeNull();
+  });
+});
+
 describe("EventBackfillForm — happy path", () => {
   it("inserts an event followed by two applications in chronological order", async () => {
     render(<EventBackfillForm user={USER} />);

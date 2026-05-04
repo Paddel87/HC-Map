@@ -52,6 +52,7 @@ interface EditableEvent {
   endedAt: string; // datetime-local; "" if currently null
   title: string;
   note: string;
+  legacyExternalRef: string;
   revealParticipants: boolean;
 }
 
@@ -143,6 +144,7 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
         endedAt: isoToLocal(eventDoc?.ended_at ?? initialEvent.ended_at),
         title: eventDoc?.title ?? initialEvent.title ?? "",
         note: eventDoc?.note ?? initialEvent.note ?? "",
+        legacyExternalRef: eventDoc?.legacy_external_ref ?? initialEvent.legacy_external_ref ?? "",
         revealParticipants: eventDoc?.reveal_participants ?? initialEvent.reveal_participants,
       };
       setEvent(eventEditable);
@@ -244,6 +246,9 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
         }
         if (event.note !== eventInitial.note) {
           patch.note = event.note.trim() || null;
+        }
+        if (event.legacyExternalRef !== eventInitial.legacyExternalRef) {
+          patch.legacy_external_ref = event.legacyExternalRef.trim() || null;
         }
         if (event.revealParticipants !== eventInitial.revealParticipants) {
           patch.reveal_participants = event.revealParticipants;
@@ -374,6 +379,17 @@ export function EventEditForm({ user, initialEvent }: EventEditFormProps) {
               onChange={(e) => patchEvent({ note: e.target.value })}
               rows={3}
               className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:focus-visible:ring-slate-300"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="event-edit-legacy-ref">Externe Referenz (optional)</Label>
+            <Input
+              id="event-edit-legacy-ref"
+              type="text"
+              value={event.legacyExternalRef}
+              onChange={(e) => patchEvent({ legacyExternalRef: e.target.value })}
+              placeholder={"z. B. „w3w://demo.alpha.foxtrot“ oder URL"}
+              data-testid="event-edit-legacy-ref"
             />
           </div>
           <label className="flex items-center gap-2 text-sm">

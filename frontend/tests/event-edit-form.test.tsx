@@ -366,6 +366,59 @@ describe("EventEditForm — diff-based patching (M5c.4, ADR-040 §F)", () => {
     expect("hand_orientation_id" in patch).toBe(false);
   });
 
+  it("prefills the legacy_external_ref input from the initial event (M5c-NACH, ADR-050)", async () => {
+    const { database } = makeDatabase({});
+    useDatabaseMock.mockReturnValue(database);
+    render(
+      <EventEditForm
+        user={USER}
+        initialEvent={makeInitialEvent({ legacy_external_ref: "w3w://demo.alpha.foxtrot" })}
+      />,
+    );
+
+    await screen.findByTestId("event-edit-application-row");
+    const input = screen.getByTestId("event-edit-legacy-ref") as HTMLInputElement;
+    expect(input.value).toBe("w3w://demo.alpha.foxtrot");
+  });
+
+  it("patches legacy_external_ref when the input changes from null to a value (M5c-NACH, LWW)", async () => {
+    const { database, eventDoc, appDocs } = makeDatabase({});
+    useDatabaseMock.mockReturnValue(database);
+    render(<EventEditForm user={USER} initialEvent={makeInitialEvent()} />);
+
+    await screen.findByTestId("event-edit-application-row");
+    fireEvent.change(screen.getByTestId("event-edit-legacy-ref"), {
+      target: { value: "  https://example.org/event/42  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Änderungen speichern/ }));
+
+    await waitFor(() => expect(eventDoc.patch).toHaveBeenCalledTimes(1));
+    const patch = eventDoc.patch.mock.calls[0]![0];
+    expect(patch.legacy_external_ref).toBe("https://example.org/event/42");
+    expect(appDocs[0]!.patch).not.toHaveBeenCalled();
+  });
+
+  it("patches legacy_external_ref to null when an existing value is cleared (M5c-NACH)", async () => {
+    const { database, eventDoc } = makeDatabase({});
+    useDatabaseMock.mockReturnValue(database);
+    render(
+      <EventEditForm
+        user={USER}
+        initialEvent={makeInitialEvent({ legacy_external_ref: "w3w://demo.alpha.foxtrot" })}
+      />,
+    );
+
+    await screen.findByTestId("event-edit-application-row");
+    fireEvent.change(screen.getByTestId("event-edit-legacy-ref"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Änderungen speichern/ }));
+
+    await waitFor(() => expect(eventDoc.patch).toHaveBeenCalledTimes(1));
+    const patch = eventDoc.patch.mock.calls[0]![0];
+    expect(patch.legacy_external_ref).toBeNull();
+  });
+
   it("disables the application ended_at input when it is already set (FWW)", async () => {
     const { database } = makeDatabase({
       applications: [makeApplication({ ended_at: "2026-04-27T12:30:00.000Z" })],

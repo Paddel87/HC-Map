@@ -268,6 +268,27 @@ describe("EventDetailView — render decision tree (M5c.2, ADR-038)", () => {
     expect(screen.queryByTestId("edit-event-button")).not.toBeInTheDocument();
   });
 
+  it("hides the legacy_external_ref label when the value is null (M5c-NACH, ADR-050)", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    renderWithProviders(
+      <EventDetailView user={USER} initialEvent={makeEvent({ legacy_external_ref: null })} />,
+    );
+    expect(screen.queryByTestId("event-detail-legacy-ref")).toBeNull();
+  });
+
+  it("shows the legacy_external_ref label when the value is set (M5c-NACH, ADR-050)", () => {
+    useDatabaseMock.mockReturnValue(makeDatabase([]));
+    renderWithProviders(
+      <EventDetailView
+        user={USER}
+        initialEvent={makeEvent({ legacy_external_ref: "w3w://demo.alpha.foxtrot" })}
+      />,
+    );
+    const ref = screen.getByTestId("event-detail-legacy-ref");
+    expect(ref).toHaveTextContent("Externe Referenz");
+    expect(ref).toHaveTextContent("w3w://demo.alpha.foxtrot");
+  });
+
   it("shows real names when reveal_participants is true", () => {
     useDatabaseMock.mockReturnValue(makeDatabase([]));
     renderWithProviders(
